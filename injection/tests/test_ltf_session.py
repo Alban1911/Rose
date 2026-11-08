@@ -1,4 +1,5 @@
 import json
+import shutil
 import tempfile
 import threading
 import time
@@ -834,6 +835,136 @@ class StaleCleanupTests(LtfSessionTestCase):
 
         self.assertNotIn(("uninstall", "gone-id"), self.bridge.calls)
         self.assertEqual(self.state()["installed"], {})
+
+
+class KeptModsTests(LtfSessionTestCase):
+    """The user's saved mods stay in LTK Manager, turned off, between games (#486)"""
+
+    def setUp(self):
+        super().setUp()
+        self.saved = self.root / "saved"
+        self.overlay.saved_mods_root = self.saved
+
+    def saved_mod(self, name="VO Korean", display="VO Korean", wad=b"voiceover"):
+        """A saved mod, linked into the injection's mods folder as Rose links one."""
+        from utils.core.junction import create_junction
+        self.make_mod(name, display, where=self.saved, wad=wad)
+        self.assertTrue(create_junction(self.saved / name, self.mods / name))
+        return name
+
+    def next_game(self, skin=None):
+        """LTK Manager's library as the last game left it, and the skin
+        extracted again (the injection wipes it once imported)."""
+        FakeBridge.initial_library = [dict(entry) for entry in self.bridge.library_entries]
+        if skin is not None and not (self.mods / skin).exists():
+            self.make_mod(skin)
+
+    def test_a_saved_mod_stays_in_ltk_manager_turned_off_and_a_skin_is_removed(self):
+        voiceover, skin = self.saved_mod(), self.make_mod()
+
+        self.assertEqual(self.overlay.mk_run_overlay([voiceover, skin], stop_callback=lambda: True), 0)
+
+        left = self.bridge.library_entries
+        self.assertEqual([entry["displayName"] for entry in left], ["VO Korean"])
+        self.assertFalse(left[0]["enabled"])
+        kept = self.state()["kept"]
+        self.assertEqual(list(kept), [left[0]["id"]])
+        self.assertEqual(kept[left[0]["id"]]["folder"], voiceover)
+        self.assertEqual(self.state()["installed"], {})
+
+    def test_the_next_game_turns_the_kept_mod_back_on_instead_of_installing_it(self):
+        voiceover, skin = self.saved_mod(), self.make_mod()
+        self.overlay.mk_run_overlay([voiceover, skin], stop_callback=lambda: True)
+        kept_id = next(iter(self.state()["kept"]))
+        self.next_game(skin)
+
+        self.assertEqual(self.overlay.mk_run_overlay([voiceover, skin], stop_callback=lambda: True), 0)
+
+        imported = [call[2] for call in self.bridge.calls if call[0] == "import"]
+        self.assertEqual(imported, ["Eternal Aspect Leona"])  # the skin alone
+        self.assertIn(("toggle", kept_id, True), self.bridge.calls)
+        self.assertLess(self.bridge.calls.index(("toggle", kept_id, True)),
+                        self.bridge.calls.index(("start_patcher",)))
+        self.assertNotIn(("uninstall", kept_id), self.bridge.calls)
+        self.assertEqual(list(self.state()["kept"]), [kept_id])  # kept again after the game
+        self.assertEqual(self.state()["disabled"], [])  # never taken for one of the user's mods
+
+    def test_a_kept_mod_not_selected_stays_off_and_is_not_turned_on_after(self):
+        voiceover, skin = self.saved_mod(), self.make_mod()
+        self.overlay.mk_run_overlay([voiceover, skin], stop_callback=lambda: True)
+        kept_id = next(iter(self.state()["kept"]))
+        self.next_game(skin)
+        for entry in FakeBridge.initial_library:
+            entry["enabled"] = True  # turned on in LTK Manager meanwhile
+
+        self.overlay.mk_run_overlay([skin], stop_callback=lambda: True)
+
+        self.assertIn(("toggle", kept_id, False), self.bridge.calls)
+        self.assertNotIn(("toggle", kept_id, True), self.bridge.calls)
+        self.assertEqual(self.state()["disabled"], [])
+        self.assertEqual(list(self.state()["kept"]), [kept_id])
+
+    def test_a_kept_mod_removed_from_ltk_manager_is_installed_anew(self):
+        voiceover = self.saved_mod()
+        self.overlay.mk_run_overlay([voiceover], stop_callback=lambda: True)
+        gone_id = next(iter(self.state()["kept"]))
+        FakeBridge.initial_library = []  # the user removed it in LTK Manager
+
+        self.assertEqual(self.overlay.mk_run_overlay([voiceover], stop_callback=lambda: True), 0)
+
+        self.assertEqual([call[2] for call in self.bridge.calls if call[0] == "import"], ["VO Korean"])
+        kept = self.state()["kept"]
+        self.assertNotIn(gone_id, kept)
+        self.assertEqual(list(kept), [self.bridge.library_entries[0]["id"]])
+
+    def test_a_changed_saved_mod_replaces_its_kept_copy(self):
+        voiceover = self.saved_mod()
+        self.overlay.mk_run_overlay([voiceover], stop_callback=lambda: True)
+        old_id = next(iter(self.state()["kept"]))
+        self.next_game()
+        (self.saved / voiceover / "WAD" / "Aatrox.wad.client").write_bytes(b"a newer voiceover")
+
+        self.overlay.mk_run_overlay([voiceover], stop_callback=lambda: True)
+
+        self.assertIn(("uninstall", old_id), self.bridge.calls)
+        self.assertEqual(len(self.bridge.library_entries), 1)
+        self.assertEqual(list(self.state()["kept"]), [self.bridge.library_entries[0]["id"]])
+
+    def test_a_kept_mod_whose_saved_mod_was_deleted_is_removed_at_start(self):
+        voiceover = self.saved_mod()
+        self.overlay.mk_run_overlay([voiceover], stop_callback=lambda: True)
+        kept_id = next(iter(self.state()["kept"]))
+        self.next_game()
+        from utils.core.junction import safe_remove_entry
+        safe_remove_entry(self.mods / voiceover)
+        shutil.rmtree(self.saved / voiceover)
+
+        self.overlay.start_patcher_early()
+
+        self.assertIn(("uninstall", kept_id), self.bridge.calls)
+        self.assertEqual(self.state()["kept"], {})
+
+    def test_a_crash_leaves_the_kept_mod_turned_on_and_the_next_session_turns_it_off(self):
+        FakeBridge.initial_library = [{"id": "kept-id", "name": "VO", "enabled": True}]
+        source = self.saved / "VO"
+        source.mkdir(parents=True)
+        self.state_path.write_text(json.dumps({"kept": {"kept-id": {
+            "folder": "VO", "fingerprint": "abc", "source": str(source)}}}), encoding="utf-8")
+
+        self.overlay.start_patcher_early()
+
+        self.assertIn(("toggle", "kept-id", False), self.bridge.calls)
+        self.assertNotIn(("uninstall", "kept-id"), self.bridge.calls)
+        self.assertEqual(list(self.state()["kept"]), ["kept-id"])
+
+    def test_the_countdown_does_not_pack_a_kept_mod(self):
+        voiceover, skin = self.saved_mod(), self.make_mod()
+        self.overlay.mk_run_overlay([voiceover, skin], stop_callback=lambda: True)
+        self.next_game(skin)
+
+        archives = self.overlay.pack_mods(self.mods, [voiceover, skin])
+
+        self.assertEqual(list(archives), [skin])
 
 
 class EarlySessionTests(LtfSessionTestCase):

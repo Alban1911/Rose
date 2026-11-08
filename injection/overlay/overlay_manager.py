@@ -548,6 +548,10 @@ class OverlayManager:
         # Set by discard_early_patcher: an early connect in flight drops its session
         self._early_discard = False
         self._state_file_lock = threading.Lock()
+        # Where the user's saved mods live (%LOCALAPPDATA%\Rose\mods): only
+        # those are kept in LTK Manager between games (_park). None: Rose's
+        # data folder's "mods"
+        self.saved_mods_root: Optional[Path] = None
         # Held while LTK Manager's library is changed (staging during the
         # countdown, the injection's own install): one change at a time
         self._stage_lock = threading.Lock()
@@ -584,16 +588,23 @@ class OverlayManager:
             document = {}
         if not isinstance(document, dict):
             document = {}
-        if not any(key in document for key in ("installed", "disabled", "manager")):
+        if not any(key in document for key in ("installed", "disabled", "manager", "kept")):
             # The first layout held the installed ids alone
             document = {"installed": {k: v for k, v in document.items() if isinstance(v, str)}}
         installed = document.get("installed")
         disabled = document.get("disabled")
         manager = document.get("manager")
+        kept = document.get("kept")
         return {
             "installed": dict(installed) if isinstance(installed, dict) else {},
             "disabled": [str(mod_id) for mod_id in disabled] if isinstance(disabled, list) else [],
             "manager": manager if isinstance(manager, dict) else None,
+            # library id -> {"folder", "fingerprint", "source"}: saved mods left
+            # in LTK Manager, turned off, for the next game (_park)
+            "kept": {
+                str(mod_id): record for mod_id, record in kept.items()
+                if isinstance(record, dict) and record.get("fingerprint") and record.get("source")
+            } if isinstance(kept, dict) else {},
         }
 
     def _update_state(self, change: Callable[[dict], None]) -> None:
@@ -623,6 +634,15 @@ class OverlayManager:
 
         self._update_state(add)
 
+    def _forget_kept(self, mod_ids) -> None:
+        """Drop these kept mods from the state file (gone from LTK Manager)."""
+        mod_ids = set(mod_ids)
+
+        def drop(state):
+            state["kept"] = {k: v for k, v in state["kept"].items() if k not in mod_ids}
+
+        self._update_state(drop)
+
     def _untrack(self, removed=(), restored=()) -> None:
         """Forget the mods Rose removed and the user's mods it turned back on."""
         removed, restored = set(removed), set(restored)
@@ -635,23 +655,104 @@ class OverlayManager:
 
         self._update_state(drop)
 
+    # -- saved mods kept in LTK Manager between games -------------------------
+    def _kept_mods(self) -> Dict[str, dict]:
+        """The saved mods left in LTK Manager, turned off: library id -> record."""
+        with self._state_file_lock:
+            return self._read_state()["kept"]
+
+    def _keep_source(self, folder: Path) -> Optional[str]:
+        """Where *folder* (a junction to a saved mod) really is, when it is one
+        of the user's saved mods; None for a skin, a generated mod, a party skin."""
+        root = self.saved_mods_root
+        if root is None:
+            from utils.core.paths import get_user_data_dir
+            root = get_user_data_dir() / "mods"
+        try:
+            source = Path(folder).resolve()
+            return str(source) if source.is_relative_to(Path(root).resolve()) else None
+        except (OSError, ValueError):
+            return None
+
+    def _park(self, session: dict, mod_id: str) -> bool:
+        """Leave a saved mod Rose installed in LTK Manager, turned off, so the
+        next game turns it back on instead of installing it again: a voiceover
+        pack is a 3.5 GB copy each time (#486). False when it is not one to
+        keep (skins, generated mods, an older copy of a kept one): remove it."""
+        fingerprint = session["fingerprints"].get(mod_id)
+        source = session["sources"].get(mod_id)
+        if not fingerprint or not source:
+            return False
+        kept = self._kept_mods()
+        if any(record["fingerprint"] == fingerprint for other, record in kept.items() if other != mod_id):
+            return False  # the same content is kept already
+        try:
+            session["bridge"].toggle(mod_id, False)
+        except (BridgeUnavailable, BridgeCommandError) as e:
+            log.debug(f"[INJECT] Could not turn off {session['installed'].get(mod_id)} to keep it: {e}")
+            return False
+        record = {"folder": session["installed"].get(mod_id), "fingerprint": fingerprint, "source": source}
+        # An earlier version of the same saved mod is not wanted any more
+        replaced = [other for other, kept_record in kept.items()
+                    if other != mod_id and kept_record["source"] == source]
+        for other in replaced:
+            try:
+                session["bridge"].uninstall(other)
+            except (BridgeUnavailable, BridgeCommandError) as e:
+                log.debug(f"[INJECT] Could not remove the earlier copy of {record['folder']} ({other}): {e}")
+
+        def keep(state):
+            state["installed"].pop(mod_id, None)
+            for other in replaced:
+                state["kept"].pop(other, None)
+            state["kept"][mod_id] = record
+
+        self._update_state(keep)
+        return True
+
     def _cleanup_stale_installs(self, bridge: LtkBridge) -> None:
         """Undo what an earlier session left in LTK Manager (Rose crashed or
         was closed before its cleanup ran): remove its mods, turn the user's
-        back on. What cannot be undone now stays recorded for the next try."""
+        back on. What cannot be undone now stays recorded for the next try.
+        Kept saved mods stay, turned off, unless their saved mod is gone."""
         state = self._read_state()
-        installed, disabled = state["installed"], state["disabled"]
-        if not installed and not disabled:
+        installed, disabled, kept = state["installed"], state["disabled"], state["kept"]
+        if not installed and not disabled and not kept:
             return
         try:
             library = {str(entry.get("id")): entry for entry in bridge.library() if entry.get("id")}
         except (BridgeUnavailable, BridgeCommandError) as e:
             log.debug(f"[INJECT] Could not read LTK Manager's library to clean up an earlier session: {e}")
             return
+
+        # Kept mods the user removed from LTK Manager are forgotten; those whose
+        # saved mod was deleted are removed; one turned on is turned off
+        forgotten = [mod_id for mod_id in kept if mod_id not in library]
+        orphaned = [mod_id for mod_id in kept if mod_id in library and not Path(kept[mod_id]["source"]).exists()]
+        enabled = [mod_id for mod_id in kept
+                   if mod_id in library and mod_id not in orphaned and library[mod_id].get("enabled")]
+        if not installed and not disabled and not orphaned and not enabled:
+            if forgotten:
+                self._forget_kept(forgotten)
+            return
         try:
             bridge.stop_patcher()  # library edits wait for a running patcher
         except (BridgeUnavailable, BridgeCommandError):
             pass
+        for mod_id in orphaned:
+            try:
+                bridge.uninstall(mod_id)
+                forgotten.append(mod_id)
+                log.debug(f"[INJECT] Removed the kept {kept[mod_id]['folder']}: its saved mod was deleted")
+            except (BridgeUnavailable, BridgeCommandError) as e:
+                log.debug(f"[INJECT] Could not remove the kept {kept[mod_id]['folder']} ({mod_id}): {e}")
+        for mod_id in enabled:
+            try:
+                bridge.toggle(mod_id, False)
+            except (BridgeUnavailable, BridgeCommandError) as e:
+                log.debug(f"[INJECT] Could not turn off the kept {kept[mod_id]['folder']} ({mod_id}): {e}")
+        if forgotten:
+            self._forget_kept(forgotten)
 
         removed, restored = [], []
         for mod_id, folder in installed.items():
@@ -759,6 +860,7 @@ class OverlayManager:
             "launched": launched,
             "installed": {},  # library id -> mod folder name
             "fingerprints": {},  # library id -> content digest of the folder it came from
+            "sources": {},  # library id -> the saved mod it came from (kept after the game)
             "disabled": [],  # the user's mods turned off for the session
             "patcher_running": False,
             "ltk_log": None,  # LtkLogTail from the patcher's start
@@ -1238,7 +1340,8 @@ class OverlayManager:
             self._end_session(session)
 
     def _end_session(self, session: dict) -> None:
-        """Stop the patcher, remove Rose's mods, turn the user's back on, and
+        """Stop the patcher, remove Rose's mods (the user's saved mods stay,
+        turned off, for the next game: _park), turn the user's back on, and
         close LTK Manager if Rose started it (a running one is the user's).
 
         Safe to call more than once: Rose's cleanup and the session loop can
@@ -1270,6 +1373,9 @@ class OverlayManager:
 
             removed = []
             for mod_id, folder in session["installed"].items():
+                if self._park(session, mod_id):
+                    log.debug(f"[INJECT] Turned off {folder} in LTK Manager, kept for the next game")
+                    continue
                 try:
                     bridge.uninstall(mod_id)
                     removed.append(mod_id)
@@ -1402,6 +1508,9 @@ class OverlayManager:
         if entry is None:
             raise BridgeCommandError(f"{display_name} is not in the library after the import")
         self._track_installed(session, str(entry.get("id")), folder.name, fingerprint)
+        source = self._keep_source(folder) if fingerprint else None
+        if source:
+            session["sources"][str(entry.get("id"))] = source
         return entry
 
     def _remove_unwanted(self, session: dict, mod_ids: List[str]) -> bool:
@@ -1410,6 +1519,12 @@ class OverlayManager:
         removed, ok = [], True
         for mod_id in mod_ids:
             folder = session["installed"].get(mod_id)
+            if self._park(session, mod_id):
+                session["installed"].pop(mod_id, None)
+                session["fingerprints"].pop(mod_id, None)
+                session["sources"].pop(mod_id, None)
+                log.debug(f"[INJECT] Turned off {folder} in LTK Manager (no longer selected, kept for later)")
+                continue
             try:
                 bridge.uninstall(mod_id)
             except (BridgeUnavailable, BridgeCommandError) as e:
@@ -1428,6 +1543,41 @@ class OverlayManager:
             log.debug(f"[INJECT] Removed {folder} from LTK Manager (no longer selected)")
         self._untrack(removed)
         return ok
+
+    def _reuse_kept(self, session: dict, reuse: list, parked: Dict[str, dict], to_import: list) -> Optional[list]:
+        """Turn the kept mods in *reuse* ((name, folder, fingerprint), id)
+        back on for this session. One no longer in LTK Manager's library, or
+        that cannot be turned on, goes back to *to_import*. Returns the
+        library read (None when it could not be read: all are installed anew)."""
+        bridge = session["bridge"]
+        try:
+            library = bridge.library()
+        except (BridgeUnavailable, BridgeCommandError) as e:
+            log.debug(f"[INJECT] Could not read LTK Manager's library to reuse the kept mods: {e}")
+            to_import.extend(item for item, _ in reuse)
+            return None
+        listed = {str(entry.get("id")) for entry in library if entry.get("id")}
+        gone = []
+        for (name, folder, fingerprint), mod_id in reuse:
+            if mod_id not in listed:
+                gone.append(mod_id)  # removed from LTK Manager by the user
+                to_import.append((name, folder, fingerprint))
+                continue
+            try:
+                bridge.toggle(mod_id, True)
+            except (BridgeUnavailable, BridgeCommandError) as e:
+                log.debug(f"[INJECT] Could not turn the kept {name} back on ({e}) - installing it anew")
+                to_import.append((name, folder, fingerprint))
+                continue
+            # Still recorded as kept: a crash leaves it in LTK Manager, turned off next session
+            session["installed"][mod_id] = folder.name
+            session["fingerprints"][mod_id] = fingerprint
+            session["sources"][mod_id] = parked[mod_id]["source"]
+            log.info(f"[INJECT] Turned {fantome_display_name(folder) or name} back on in LTK Manager "
+                     "(kept from an earlier game)")
+        if gone:
+            self._forget_kept(gone)
+        return library
 
     def _install_mods(self, session: dict, mod_names: List[str], folder_dir: Optional[Path] = None,
                       report: bool = True, stopped: Optional[Callable[[], bool]] = None,
@@ -1487,7 +1637,18 @@ class OverlayManager:
             else:
                 kept.add(match)
         unwanted = [mod_id for mod_id in session["installed"] if mod_id not in kept]
-        if not to_import and not unwanted:
+        # Saved mods an earlier game left in LTK Manager (_park) are turned
+        # back on instead of installed again
+        reuse = []
+        parked = self._kept_mods() if to_import else {}
+        if parked:
+            by_fingerprint = {record["fingerprint"]: mod_id for mod_id, record in parked.items()}
+            for item in list(to_import):
+                mod_id = by_fingerprint.pop(item[2], None)
+                if mod_id is not None:
+                    reuse.append((item, mod_id))
+                    to_import.remove(item)
+        if not to_import and not unwanted and not reuse:
             return True  # the library already holds exactly these mods
 
         if session["patcher_running"]:
@@ -1499,10 +1660,13 @@ class OverlayManager:
         if unwanted and not self._remove_unwanted(session, unwanted):
             return False
 
-        staging = self._staging_root() / uuid.uuid4().hex
         # One read of the library for all the imports (and _disable_other_mods
         # after them): each read is a round trip through LTK Manager
         library: Optional[list] = None
+        if reuse:
+            library = self._reuse_kept(session, reuse, parked, to_import)
+
+        staging = self._staging_root() / uuid.uuid4().hex
         try:
             for name, folder, fingerprint in to_import:
                 if stopped():
@@ -1572,15 +1736,17 @@ class OverlayManager:
         return archives
 
     def _staged_fingerprints(self) -> set:
-        """The content digests of the mods staged in the early session's LTK Manager."""
+        """The content digests of the mods staged in the early session's LTK
+        Manager, and of the saved mods kept there from an earlier game."""
+        kept = {record["fingerprint"] for record in self._kept_mods().values()}
         with self._session_lock:
             session = self._early_session
         if session is None:
-            return set()
+            return kept
         try:
-            return set(list(session["fingerprints"].values()))
+            return kept | set(list(session["fingerprints"].values()))
         except RuntimeError:  # an install changed them meanwhile
-            return set()
+            return kept
 
     def _start_patcher(self, session: dict, report: bool = True) -> bool:
         """Start LTK Manager's patcher (it builds the overlay, then scans for the game)."""
@@ -1751,9 +1917,17 @@ class OverlayManager:
         except (BridgeUnavailable, BridgeCommandError) as e:
             log.warning(f"[INJECT] Could not read LTK Manager's library - its other enabled mods may apply too: {e}")
             return
+        kept = self._kept_mods()
         for entry in library:
             mod_id = str(entry.get("id") or "")
             if not mod_id or mod_id in session["installed"] or not entry.get("enabled"):
+                continue
+            if mod_id in kept:
+                # Rose's own, kept from an earlier game: off, and not the user's to turn back on
+                try:
+                    bridge.toggle(mod_id, False)
+                except (BridgeUnavailable, BridgeCommandError) as e:
+                    log.warning(f"[INJECT] Could not turn off the kept {kept[mod_id]['folder']} - it may apply too: {e}")
                 continue
             self._track_disabled(session, mod_id)
             try:
