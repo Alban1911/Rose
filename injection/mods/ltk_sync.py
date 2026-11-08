@@ -16,7 +16,7 @@ running, and for each entry a saved mod's manifest names:
   went): the copy is deleted.
 
 It runs at Rose's start, and at each champion select once LTK Manager's index
-changed since the last sync. An index it cannot read (none yet, LTK Manager
+changed since this Rose last synced. An index it cannot read (none yet, LTK Manager
 writing it) changes nothing: it is never read as "every mod is gone". Saved
 mods found switched on are switched off at a session's start instead, which
 has a bridge (injection.overlay.ltk_switches).
@@ -24,16 +24,13 @@ has a bridge (injection.overlay.ltk_switches).
 
 from __future__ import annotations
 
-import json
 import threading
 import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional
 
-from utils.core.atomic_file import atomic_write
 from utils.core.logging import get_logger
-from utils.core.paths import get_state_dir
 from utils.threading.thread_manager import create_daemon_thread
 
 from ..overlay.ltk_library import IndexEntry, library_index_mtime, read_library_index
@@ -44,13 +41,13 @@ from .storage import ModStorageService
 
 log = get_logger()
 
-# In Rose's state folder: {"indexMtime": the modified time of LTK Manager's
-# index the last sync read}
-SYNC_STATE = "ltk_sync.json"
-
 # A sync started while one runs (Rose's start, then a champion select) would
 # only do its work again
 _SYNC_LOCK = threading.Lock()
+# The modified time of LTK Manager's index the last sync of this Rose read,
+# under _SYNC_LOCK: Rose's start always syncs, so a champion select only
+# needs to know whether the index changed since
+_synced_mtime: Optional[float] = None
 
 
 @dataclass
@@ -70,19 +67,21 @@ class SyncReport:
 def sync_saved_mods(storage: Optional[ModStorageService] = None, *,
                     only_if_changed: bool) -> Optional[SyncReport]:
     """Bring every saved mod's manifest in line with LTK Manager's index.
-    *only_if_changed* skips it while the index is the one the last sync read.
+    *only_if_changed* skips it while the index is the one this Rose's last
+    sync read.
 
     The manifests are read before the index: a mod added meanwhile is in LTK
     Manager's index before its manifest names it, so it is never taken for
     one LTK Manager lost. None when the sync did not run: another one is
     running, the index did not change, or it cannot be read.
     """
+    global _synced_mtime
     if not _SYNC_LOCK.acquire(blocking=False):
         log.debug("[MODS] A sync with LTK Manager's library is running already")
         return None
     try:
         mtime = library_index_mtime()
-        if only_if_changed and mtime is not None and mtime == _synced_mtime():
+        if only_if_changed and mtime is not None and mtime == _synced_mtime:
             log.debug("[MODS] LTK Manager's library did not change since the last sync")
             return None
         storage = storage or ModStorageService()
@@ -95,7 +94,7 @@ def sync_saved_mods(storage: Optional[ModStorageService] = None, *,
         for mod in held:
             _sync_mod(storage, mod, index.get(mod.ltk_id), report)
         if mtime is not None:
-            _save_synced_mtime(mtime)
+            _synced_mtime = mtime
         if report:
             log.info(f"[MODS] Synced the saved mods with LTK Manager's library: {len(report.missing)} missing, "
                      f"{len(report.found)} found again, {len(report.refreshed)} changed by LTK Manager, "
@@ -173,24 +172,3 @@ def _changed_facts(mod: SavedMod, entry: IndexEntry) -> dict:
         log.warning(f"[MODS] Could not read {mod.name} in LTK Manager's library ({entry.archive}): {e}")
         return {}
     return {**facts.to_manifest(), "ltkStamp": stamp}
-
-
-def _state_path() -> Path:
-    return get_state_dir() / SYNC_STATE
-
-
-def _synced_mtime() -> Optional[float]:
-    try:
-        document = json.loads(_state_path().read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return None
-    value = document.get("indexMtime") if isinstance(document, dict) else None
-    return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
-
-
-def _save_synced_mtime(mtime: float) -> None:
-    try:
-        with atomic_write(_state_path(), "w", encoding="utf-8") as handle:
-            handle.write(json.dumps({"indexMtime": mtime}))
-    except OSError as e:
-        log.debug(f"[MODS] Could not record the sync with LTK Manager's library: {e}")

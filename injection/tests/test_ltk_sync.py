@@ -42,10 +42,9 @@ class LtkSyncTests(unittest.TestCase):
         self.ltk_mods = self.root / "ltk-mods"
         (self.data / "settings.json").write_text(json.dumps({"modStoragePath": str(self.ltk_mods)}),
                                                  encoding="utf-8")
-        self.state = self.root / "state"
         for patcher in (
             patch.object(ltk_library, "ltk_data_dir", return_value=self.data),
-            patch.object(ltk_sync, "get_state_dir", return_value=self.state),
+            patch.object(ltk_sync, "_synced_mtime", None),  # a Rose that has not synced yet
             patch.object(mod_facts, "get_injection_dir", return_value=self.root / "injection"),
             patch.object(historic, "get_user_data_dir", return_value=self.root),
             patch.object(mod_historic, "get_user_data_dir", return_value=self.root),
@@ -108,11 +107,11 @@ class LtkSyncTests(unittest.TestCase):
         self.write_index()
         text = (self.data / "library.json").read_text(encoding="utf-8")
         (self.data / "library.json").write_text(text[: len(text) // 2], encoding="utf-8")
+        os.utime(self.data / "library.json", (INDEX_TIME, INDEX_TIME))
         self.assertIsNone(self.sync())  # LTK Manager writing it
 
         self.assertFalse(self.saved("VO Korean").missing)
-        self.assertFalse((self.state / ltk_sync.SYNC_STATE).exists())
-        self.write_index()
+        self.write_index()  # its time as the half-written one's
         self.assertEqual(self.sync(only_if_changed=True).missing, ["VO Korean"])
 
     def test_facts_are_read_again_from_an_archive_ltk_manager_changed(self):
