@@ -55,7 +55,8 @@ def is_read_request(method: str) -> bool:
 
 
 def _same(given: str, expected: str) -> bool:
-    return hmac.compare_digest(given.encode("utf-8"), expected.encode("utf-8"))
+    # aiohttp keeps undecodable header bytes as surrogates
+    return hmac.compare_digest(given.encode("utf-8", "surrogateescape"), expected.encode("utf-8"))
 
 
 def screen_wamp(message: str) -> Tuple[bool, Optional[str]]:

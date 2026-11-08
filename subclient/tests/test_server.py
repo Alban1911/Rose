@@ -77,6 +77,16 @@ class ServerTests(unittest.IsolatedAsyncioTestCase):
         response = await self.client.get("/bootstrap.html?key=%C3%A9", allow_redirects=False)
         self.assertEqual(response.status, 401)
 
+    async def test_garbled_credentials_are_refused_not_crashed_on(self):
+        for header in (b"Authorization: Basic \xff\xfe", b"Cookie: " + self.server.cookie.encode() + b"=\xff"):
+            reader, writer = await asyncio.open_connection(self.client.host, self.client.port)
+            writer.write(b"GET /lol-gameflow/v1/gameflow-phase HTTP/1.1\r\nHost: x\r\n" + header + b"\r\n\r\n")
+            await writer.drain()
+            status = await reader.readline()
+            writer.close()
+            await writer.wait_closed()
+            self.assertIn(b" 401 ", status, header)
+
     async def test_the_key_becomes_this_subclients_cookie(self):
         response = await self.client.get("/bootstrap.html?key=secret", allow_redirects=False)
         self.assertEqual(response.status, 302)

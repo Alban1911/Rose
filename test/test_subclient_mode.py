@@ -79,7 +79,8 @@ class SubclientModeTests(unittest.TestCase):
                 thread.start()
                 while thread.is_alive() and not server.ready_event.wait(0.05):
                     pass
-                server.stop()
+                if thread.is_alive():
+                    server.stop()
                 thread.join(5)
                 self.assertEqual(announced, expected)
 
