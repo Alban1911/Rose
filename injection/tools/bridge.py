@@ -444,6 +444,16 @@ class LtkBridge:
     def uninstall(self, target: str) -> Dict[str, Any]:
         return self._ok({"cmd": "uninstall", "target": target})
 
+    # -- mod health --------------------------------------------------------
+    def check_mod_health(self, mod_id: str) -> Dict[str, Any]:
+        """LTK Manager's verdict on one mod of its library (its Problems rules).
+        Both this and the repair read the whole mod, and the check the game too."""
+        return self._ok({"cmd": "check_mod_health", "modId": mod_id}, timeout=IMPORT_TIMEOUT_S)
+
+    def repair_mod(self, mod_id: str) -> Dict[str, Any]:
+        """Repair what LTK Manager can repair in one mod (its archive, in place)."""
+        return self._ok({"cmd": "repair_mod", "modId": mod_id}, timeout=IMPORT_TIMEOUT_S)
+
     # -- settings ----------------------------------------------------------
     def health_check_off(self) -> Dict[str, Any]:
         """Turn off LTK Manager's "Automatically check mods" setting

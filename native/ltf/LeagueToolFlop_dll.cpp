@@ -86,6 +86,8 @@ static const char* kLibToggleMod = "plugin:library|toggle_mod";
 static const char* kLibUninstallMod = "plugin:library|uninstall_mod";
 static const char* kLibInstallMod = "plugin:library|install_mod";
 static const char* kLibHealthVerdicts = "plugin:library|get_mod_health_verdicts";
+static const char* kLibCheckModHealth = "plugin:library|check_mod_health";
+static const char* kLibRepairMod = "plugin:library|repair_mod";
 static const char* kPatStartPatcher = "plugin:patcher|start_patcher";
 static const char* kPatStopPatcher = "plugin:patcher|stop_patcher";
 static const char* kPatGetPatcherStatus = "plugin:patcher|get_patcher_status";
@@ -700,6 +702,24 @@ static mj::JVal TauriInvoke(const std::string& command, const mj::JVal& args, DW
         + mj::JVal::str(command).dump() + ", " + args.dump() +
         "); return r; } catch (e) { return { ok: false, error: (e && e.message) ? e.message : String(e) }; } })()";
     return CdpEvaluateJson(js, timeoutMs);
+}
+
+// LTK Manager's own check of one mod (its Problems rules), and its repair of
+// what a machine can repair: Rose runs them on a mod the user adds. Both read
+// the whole mod, and the check reads the game too: a hard drive takes minutes
+static mj::JVal CmdLibraryCall(const char* command, const std::string& modId) {
+    if (modId.empty()) {
+        mj::JVal r = mj::JVal::obj_();
+        r.set("ok", mj::JVal::boo(false)); r.set("error", mj::JVal::str("missing 'modId'"));
+        return r;
+    }
+    mj::JVal args = mj::JVal::obj_();
+    args.set("modId", mj::JVal::str(modId));
+    mj::JVal resp = TauriInvoke(command, args, kCdpInstallBudgetMs);
+    mj::JVal r = mj::JVal::obj_();
+    r.set("ok", resp.get("ok") ? *resp.get("ok") : mj::JVal::boo(true));
+    r.set("response", resp);
+    return r;
 }
 
 // LTK Manager checks every mod new to its library ("Automatically check mods",
@@ -1350,6 +1370,8 @@ static std::string HandleCommand(const std::string& line) {
     if (c == "health")         return CmdHealth(req.get("modId") ? req.get("modId")->asStr() : "").dump();
     if (c == "spoof_health")   return CmdSpoofHealth().dump();
     if (c == "health_check_off") return CmdHealthCheckOff().dump();
+    if (c == "check_mod_health") return CmdLibraryCall(kLibCheckModHealth, req.get("modId") ? req.get("modId")->asStr() : "").dump();
+    if (c == "repair_mod")       return CmdLibraryCall(kLibRepairMod, req.get("modId") ? req.get("modId")->asStr() : "").dump();
     if (c == "start_patcher")  return CmdStartPatcher().dump();
     if (c == "stop_patcher")   return CmdStopPatcher().dump();
     if (c == "patcher_status") return CmdPatcherStatus().dump();

@@ -49,6 +49,8 @@ except ImportError:
 from injection.game.reconnect import kill_game, reconnect_to_game
 from utils.core.logging import get_logger, log_event
 from utils.core.issue_reporter import report_issue
+from utils.core.junction import safe_remove_entry
+from utils.core.safe_extract import extract_mod_archive
 from ..tools.bridge import (
     BridgeCommandError,
     BridgeUnavailable,
@@ -86,6 +88,43 @@ RESTART_WINDOW_DEFAULT_S = 60.0
 RESTART_WINDOW_MIN_S = 1.0
 RESTART_WINDOW_MAX_S = 180.0
 RESTART_SKIPPED_MESSAGE = "Rose did not restart the game for the LTK patcher"
+
+
+def _answer_value(response: dict) -> dict:
+    """The value LTK Manager answered a library command with ({} when none)."""
+    nested = response.get("response") if isinstance(response, dict) else None
+    value = nested.get("value") if isinstance(nested, dict) else None
+    return value if isinstance(value, dict) else {}
+
+
+# LTK's problem severities: "fatal" (the game crashes on it) and "error" (the
+# game rejects it, the mod does not work); "warning" and "info" leave it working
+REJECTED_SEVERITIES = ("fatal", "error")
+# Repairs in a row while LTK Manager still offers fixes (a pass can leave one
+# for the next); a mod whose repair keeps finding more stops here
+REPAIR_PASSES = 3
+
+
+def _rejected_by_game(verdict: dict) -> List[dict]:
+    """What in LTK Manager's verdict still makes the game reject the mod."""
+    rules = verdict.get("rules") or []
+    problems = [
+        {"rule": str(rule.get("rule") or ""), "title": str(rule.get("title") or ""),
+         "description": str(rule.get("description") or "")}
+        for rule in rules
+        if isinstance(rule, dict) and rule.get("severity") in REJECTED_SEVERITIES and int(rule.get("count") or 0) > 0
+    ]
+    counts = verdict.get("counts") or {}
+    if not problems and int(counts.get("fatals") or 0) + int(counts.get("errors") or 0) > 0:
+        # A verdict without its rules (an older LTK Manager): still say so
+        problems.append({"rule": "", "title": "", "description": ""})
+    return problems
+
+
+def _verdict_summary(verdict: dict) -> str:
+    counts = verdict.get("counts") or {}
+    return ", ".join(f"{counts.get(key, 0)} {key}" for key in ("fatals", "errors", "warnings")) + \
+        f", {verdict.get('fixable', 0)} fixable"
 
 
 def _log_sizes(paths) -> Dict[Path, int]:
@@ -813,6 +852,119 @@ class OverlayManager:
         self._cleanup_stale_installs(bridge)
         shutil.rmtree(self._staging_root(), ignore_errors=True)
         return session
+
+    # -- mod check -----------------------------------------------------------
+    def check_mod(self, folder: Path, display_name: str) -> Optional[dict]:
+        """Have LTK Manager check a mod the user adds, and repair what it can.
+
+        LTK Manager's Problems rules find what makes the game drop or reject a
+        mod (an audio bank of an old version, a bin type a patch changed,
+        another skin's model...), and a repair fixes what a machine can. Run on
+        a mod as it is added, the user learns then, not in a game, that LTK
+        Manager will turn it off, and a repairable one is repaired once.
+
+        None when it did not run: an injection's session is using LTK Manager
+        (champion select, a game), LTK Manager is missing or failed. Otherwise
+        {"health": LTK's word before any repair, "repaired": fixes applied and
+        written back into *folder*, "problems": [{"rule", "title",
+        "description"}] that still make the game reject the mod}.
+        """
+        if self.game_dir is None or not self._connect_lock.acquire(blocking=False):
+            return None
+        try:
+            with self._session_lock:
+                busy = self._early_session is not None or self._staging_open
+            if busy or (self.process_manager is not None and self.process_manager.session_active()):
+                log.debug(f"[MODCHECK] LTK Manager is in use for a game - not checking {display_name}")
+                return None
+            session = self._start_ltf_session(report=False)
+            if session is None:
+                return None
+            try:
+                return self._check_in_session(session, folder, display_name)
+            except (BridgeUnavailable, BridgeCommandError, OSError, ValueError) as e:
+                log.warning(f"[MODCHECK] LTK Manager could not check {display_name}: {e}")
+                return None
+            finally:
+                # Removes the mod from LTK Manager, closes it if Rose started it
+                self._end_session(session)
+        finally:
+            self._connect_lock.release()
+
+    def _check_in_session(self, session: dict, folder: Path, display_name: str) -> dict:
+        staging = self._staging_root() / f"check-{uuid.uuid4().hex}"
+        staging.mkdir(parents=True, exist_ok=True)
+        try:
+            archive = write_fantome_zip(folder, staging / f"{folder.name}.fantome")
+            entry = self._import_archive(session, archive, folder, display_name)
+            bridge = session["bridge"]
+            mod_id = str(entry.get("id"))
+            verdict = _answer_value(bridge.check_mod_health(mod_id))
+            result = {"health": str(verdict.get("health") or ""), "repaired": 0, "problems": []}
+            log.info(f"[MODCHECK] LTK Manager's verdict on {display_name}: {result['health'] or 'unknown'}"
+                     f" ({_verdict_summary(verdict)})")
+            # One pass can leave a fix for the next: a rule skips a file an
+            # earlier rule of the same pass rewrote ("skin0.bin changed since
+            # the check"), as the skinhack repair did after the type fixes
+            repaired = 0
+            for _ in range(REPAIR_PASSES):
+                if verdict.get("health") != "repairable" or int(verdict.get("fixable") or 0) <= 0:
+                    break
+                report = _answer_value(bridge.repair_mod(mod_id))
+                applied = int(report.get("applied") or 0)
+                if report.get("failed"):
+                    log.warning(f"[MODCHECK] LTK Manager could not repair all of {display_name}: {report.get('failed')}")
+                if not applied:
+                    break
+                repaired += applied
+                verdict = _answer_value(bridge.check_mod_health(mod_id))
+            if repaired and self._take_repaired_archive(bridge, entry, folder, staging):
+                result["repaired"] = repaired
+                log.info(f"[MODCHECK] LTK Manager repaired {repaired} problem(s) in {display_name} "
+                         f"({_verdict_summary(verdict)} left)")
+            result["problems"] = _rejected_by_game(verdict)
+            for problem in result["problems"]:
+                log.warning(f"[MODCHECK] {display_name} will not work in game: {problem['title']} - "
+                            f"{problem['description']}")
+            return result
+        finally:
+            shutil.rmtree(staging, ignore_errors=True)
+
+    def _take_repaired_archive(self, bridge, entry: dict, folder: Path, staging: Path) -> bool:
+        """Replace *folder* with the archive LTK Manager repaired in place
+        (an archive-storage mod keeps its archive beside its folder)."""
+        mod_id = str(entry.get("id"))
+        if not entry.get("modDir"):
+            entry = next((e for e in bridge.library() if str(e.get("id")) == mod_id), entry)
+        mod_dir = entry.get("modDir")
+        if not mod_dir or entry.get("storage") not in (None, "archive"):
+            log.warning(f"[MODCHECK] LTK Manager repaired {folder.name}, but its archive could not be found")
+            return False
+        suffix = ".modpkg" if entry.get("format") == "modpkg" else ".fantome"
+        source = Path(mod_dir).with_name(Path(mod_dir).name + suffix)
+        if not source.is_file():
+            log.warning(f"[MODCHECK] LTK Manager repaired {folder.name}, but {source} is missing")
+            return False
+        copied = staging / f"repaired{suffix}"
+        shutil.copyfile(source, copied)
+        replacement = Path(tempfile.mkdtemp(prefix=".rose-import-", dir=str(folder.parent)))
+        previous = folder.with_name(f".rose-import-{folder.name}.before-repair")
+        try:
+            extract_mod_archive(copied, replacement)
+            if not any(replacement.iterdir()):
+                raise ValueError("the repaired archive holds no files")
+            safe_remove_entry(previous)
+            folder.replace(previous)
+            try:
+                replacement.replace(folder)
+            except OSError:
+                previous.replace(folder)
+                raise
+        except Exception:
+            safe_remove_entry(replacement)
+            raise
+        safe_remove_entry(previous)
+        return True
 
     @staticmethod
     def _turn_off_health_check(bridge) -> None:

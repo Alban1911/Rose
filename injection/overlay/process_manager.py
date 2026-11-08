@@ -57,6 +57,10 @@ class ProcessManager:
         if self._session_stopper is stopper:
             self._session_stopper = None
 
+    def session_active(self) -> bool:
+        """Whether an injection's LTF session is running (champion select or a game)."""
+        return self._session_stopper is not None
+
     def stop_injection_by_user(self):
         """Stop the LTK patcher (e.g. a mod crashes the game on reconnect)."""
         self.stopped_by_user = True

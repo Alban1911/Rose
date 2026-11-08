@@ -33,6 +33,10 @@ class FakeBridge:
     # Library entries LTK Manager cannot read, logged to broken_log at each read
     broken_ids = []
     broken_log = None
+    # LTK Manager's mod storage (modDir per entry) and its health answers
+    mod_storage = None
+    health_answers = []  # verdicts check_mod_health returns, the last one repeats
+    repair_files = None  # {path in archive: bytes} repair_mod writes into the entry's archive
 
     def __init__(self, port=None, pid=None):
         self.port = port
@@ -53,6 +57,9 @@ class FakeBridge:
         cls.health_check_answer = {"ok": True, "changed": False}
         cls.broken_ids = []
         cls.broken_log = None
+        cls.mod_storage = None
+        cls.health_answers = []
+        cls.repair_files = None
 
     @classmethod
     def wait_for_bridge(cls, timeout=30.0, expected_pid=None, cancelled=None):
@@ -91,6 +98,9 @@ class FakeBridge:
             "displayName": name or Path(file_name).stem,
             "enabled": True,
         }
+        if FakeBridge.mod_storage is not None:
+            entry.update({"modDir": str(FakeBridge.mod_storage / f"mod-{mod_id[:8]}"), "storage": "archive",
+                          "format": "fantome"})
         self.library_entries.append(entry)
         value = dict(entry) if FakeBridge.full_install_answer else {"id": mod_id}
         return {"ok": True, "response": {"ok": True, "value": value}}
@@ -117,6 +127,25 @@ class FakeBridge:
             raise BridgeCommandError(f"unknown mod {target}")
         self.library_entries = remaining
         return {"ok": True}
+
+    def check_mod_health(self, mod_id):
+        self.calls.append(("check_mod_health", mod_id))
+        answers = FakeBridge.health_answers
+        verdict = answers.pop(0) if len(answers) > 1 else (answers[0] if answers else {"health": "healthy"})
+        return {"ok": True, "response": {"ok": True, "value": dict(verdict, modId=mod_id)}}
+
+    def repair_mod(self, mod_id):
+        self.calls.append(("repair_mod", mod_id))
+        files = FakeBridge.repair_files or {}
+        entry = next(e for e in self.library_entries if e["id"] == mod_id)
+        archive = Path(entry["modDir"] + ".fantome")
+        archive.parent.mkdir(parents=True, exist_ok=True)
+        import zipfile
+        with zipfile.ZipFile(archive, "w") as packed:
+            for name, data in files.items():
+                packed.writestr(name, data)
+        return {"ok": True, "response": {"ok": True, "value": {"applied": len(files), "skipped": 0,
+                                                               "remaining": [], "failed": []}}}
 
     def health_check_off(self):
         self.calls.append(("health_check_off",))
@@ -1226,6 +1255,88 @@ class PatcherStatusParsingTests(LtfSessionTestCase):
             self.assertEqual(self.overlay.mk_run_overlay([mod], stop_callback=lambda: True), 1)
 
         self.assertEqual(self.reported_causes(), ["cdp"])
+
+
+class ModCheckTests(LtfSessionTestCase):
+    """LTK Manager checks a mod the user adds, and repairs what it can"""
+
+    SKINHACK = {
+        "rule": "bin/skinhack", "title": "Another skin's model",
+        "description": "This base skin uses the mesh of another skin.",
+        "severity": "error", "count": 1, "fixable": 0,
+    }
+
+    def setUp(self):
+        super().setUp()
+        FakeBridge.mod_storage = self.root / "ltk-mods"
+        self.folder = self.mods / self.make_mod()
+
+    def test_a_healthy_mod_is_left_as_it_is_and_removed_from_ltk_manager(self):
+        FakeBridge.health_answers = [{"health": "healthy", "fixable": 0, "counts": {}}]
+
+        result = self.overlay.check_mod(self.folder, "Eternal Aspect Leona")
+
+        self.assertEqual(result, {"health": "healthy", "repaired": 0, "problems": []})
+        self.assertEqual((self.folder / "WAD" / "Aatrox.wad.client").read_bytes(), b"wad")
+        self.assertIn("uninstall", self.bridge.command_names())
+        self.assertNotIn("repair_mod", self.bridge.command_names())
+        self.assertEqual(self.state()["installed"], {})
+
+    def test_a_repairable_mod_is_repaired_and_rose_keeps_the_repaired_files(self):
+        FakeBridge.health_answers = [
+            {"health": "repairable", "fixable": 2, "counts": {"errors": 2}},
+            {"health": "healthy", "fixable": 0, "counts": {}},
+        ]
+        FakeBridge.repair_files = {"META/info.json": '{"Name": "Eternal Aspect Leona"}',
+                                   "WAD/Aatrox.wad.client": b"fixed"}
+
+        result = self.overlay.check_mod(self.folder, "Eternal Aspect Leona")
+
+        self.assertEqual(result, {"health": "repairable", "repaired": 2, "problems": []})
+        self.assertEqual((self.folder / "WAD" / "Aatrox.wad.client").read_bytes(), b"fixed")
+        self.assertEqual([p.name for p in self.mods.iterdir()], [self.folder.name])  # nothing left behind
+        self.assertIn("uninstall", self.bridge.command_names())
+
+    def test_a_fix_one_pass_leaves_for_the_next_is_applied(self):
+        """The Nasus mod: its type fixes rewrote skin0.bin, so the same pass
+        skipped its skinhack fix ("skin0.bin changed since the check"); LTK
+        Manager's second repair applied it and the mod passed in game"""
+        FakeBridge.health_answers = [
+            {"health": "repairable", "fixable": 2, "counts": {"fatals": 2}},
+            {"health": "repairable", "fixable": 1, "counts": {"errors": 1},
+             "rules": [dict(self.SKINHACK, fixable=1)]},
+            {"health": "healthy", "fixable": 0, "counts": {}},
+        ]
+        FakeBridge.repair_files = {"META/info.json": "{}", "WAD/Aatrox.wad.client": b"fixed"}
+
+        result = self.overlay.check_mod(self.folder, "Eternal Aspect Leona")
+
+        self.assertEqual(self.bridge.command_names().count("repair_mod"), 2)
+        self.assertEqual(result, {"health": "repairable", "repaired": 4, "problems": []})
+
+    def test_a_mod_the_game_will_reject_is_reported(self):
+        """#440, #454: LTK Manager turns off a skin that uses another skin's model"""
+        FakeBridge.health_answers = [{"health": "unrepairable", "fixable": 0, "counts": {"errors": 1},
+                                      "rules": [self.SKINHACK, dict(self.SKINHACK, rule="x/warning",
+                                                                     severity="warning")]}]
+
+        result = self.overlay.check_mod(self.folder, "Eternal Aspect Leona")
+
+        self.assertEqual(result["problems"], [{"rule": "bin/skinhack", "title": "Another skin's model",
+                                               "description": "This base skin uses the mesh of another skin."}])
+        self.assertNotIn("repair_mod", self.bridge.command_names())
+
+    def test_nothing_is_checked_while_a_game_uses_ltk_manager(self):
+        self.process_manager.set_session_stopper(lambda: None)
+
+        self.assertIsNone(self.overlay.check_mod(self.folder, "Eternal Aspect Leona"))
+        self.assertEqual(FakeBridge.created, [])
+
+    def test_nothing_is_checked_while_champion_select_stages(self):
+        self.overlay._staging_open = True
+
+        self.assertIsNone(self.overlay.check_mod(self.folder, "Eternal Aspect Leona"))
+        self.assertEqual(FakeBridge.created, [])
 
 
 class RestartMissedGameTests(LtfSessionTestCase):

@@ -105,6 +105,25 @@ def _mod_thumbnail_details(
     return relative_path, f"http://127.0.0.1:{port}/mod-asset/{quoted_path}?v={version}"
 
 
+# LTK Manager's rule for a base skin that uses another skin's model or name:
+# its patcher turns the whole champion WAD off in game (a "skinhack")
+SKINHACK_RULE = "bin/skinhack"
+
+
+def _rejected_import(item: dict, result: dict) -> dict:
+    """The import error for a mod LTK Manager will turn off in game. "code"
+    picks the panel's (translated) text; "error" is for the log."""
+    problems = result.get("problems") or []
+    reason = " ".join(p.get("description") or p.get("title") or "" for p in problems).strip()
+    if any(p.get("rule") == SKINHACK_RULE for p in problems):
+        code, error = "ltk_skinhack", "LTK Manager considers this mod a skinhack, so it can't be played"
+    else:
+        code = "ltk_rejected"
+        error = "LTK Manager found problems it can't repair in this mod" + (f" ({reason})" if reason else "") + \
+            ", so it can't be played"
+    return {"fileName": item.get("fileName", ""), "error": error, "code": code, "reason": reason}
+
+
 def _choose_mod_files() -> list[Path]:
     """Show a native file picker for one or more user-selected mod archives."""
     root = None
@@ -3144,6 +3163,50 @@ class MessageHandler:
                 self.websocket_server.broadcast(message), self.websocket_server.loop
             )
     
+    # Client phases where LTK Manager belongs to the game's injection
+    _MOD_CHECK_BUSY_PHASES = frozenset({"ChampSelect", "FINALIZATION", "GameStart", "InProgress", "Reconnect"})
+
+    def _check_imported_mods(self, imported: list[dict], errors: list[dict], remove) -> list[dict]:
+        """Have LTK Manager check each just-imported mod and repair what it
+        can, and return the mods kept. One LTK Manager will still turn off in
+        game (a skinhack, a problem it cannot repair) is not added: *remove*
+        deletes it again, and it joins *errors* with the reason. A kept mod
+        gets the verdict as "health". Skipped during champion select and
+        games, where LTK Manager is the game's."""
+        injection_manager = getattr(self, "injection_manager", None)
+        injector = getattr(injection_manager, "injector", None)
+        overlay = getattr(injector, "overlay_manager", None)
+        if overlay is None or not imported:
+            return imported
+        phase = getattr(getattr(self, "shared_state", None), "phase", None)
+        if phase in self._MOD_CHECK_BUSY_PHASES or getattr(injection_manager, "_injection_in_progress", False):
+            log.info("[MODCHECK] Not checking the added mods with LTK Manager during champion select or a game")
+            return imported
+        self._send_response(json.dumps({"type": "mod-import-checking", "fileCount": len(imported)}))
+        kept = []
+        for item in imported:
+            try:
+                result = overlay.check_mod(Path(item["path"]), item.get("modName") or Path(item["path"]).name)
+            except Exception as e:  # noqa: BLE001 - a check must never fail the import
+                log.warning(f"[MODCHECK] Could not check {item.get('modName')}: {e}")
+                result = None
+            if result and result.get("problems"):
+                rejection = _rejected_import(item, result)
+                try:
+                    remove(item)
+                except Exception as e:  # noqa: BLE001 - kept, with the warning, rather than half removed
+                    log.warning(f"[MODCHECK] Could not remove {item.get('modName')} again: {e}")
+                    item["health"] = result
+                    kept.append(item)
+                    continue
+                log.warning(f"[MODCHECK] Not adding {item.get('modName')}: {rejection['error']}")
+                errors.append(rejection)
+                continue
+            if result is not None:
+                item["health"] = result
+            kept.append(item)
+        return kept
+
     def _send_mod_import_started(self, mod_files: list[Path]) -> None:
         """Tell the plugins selected mods are being imported."""
         payload = {
@@ -3242,6 +3305,10 @@ class MessageHandler:
                     )
                     errors.append({"fileName": mod_file.name, "error": str(exc)})
 
+            imported = self._check_imported_mods(
+                imported, errors,
+                lambda item: self.mod_storage.delete_category_mod(category, item["modName"]),
+            )
             response_payload = {
                 "type": "folder-opened-response",
                 "success": bool(imported) and not errors,
@@ -3581,6 +3648,10 @@ class MessageHandler:
                         )
                         errors.append({"fileName": mod_file.name, "error": str(exc)})
 
+                imported = self._check_imported_mods(
+                    imported, errors,
+                    lambda item: self.mod_storage.delete_champion_mod(champion_id, mod_name=item["modName"]),
+                )
                 response_payload = {
                     "type": "folder-opened-response",
                     "success": bool(imported) and not errors,

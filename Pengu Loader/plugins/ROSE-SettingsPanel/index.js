@@ -1462,8 +1462,26 @@
       pointer-events: none;
       animation: roseModImportFadeOut 0.25s ease 1.25s forwards;
     }
-    #rose-mod-import-loading.is-done.has-errors {
+    #rose-mod-import-loading.is-done.has-errors,
+    #rose-mod-import-loading.is-done.has-notes {
       animation: none;
+    }
+    /* A failed import or a mod the game will reject stays until closed */
+    #rose-mod-import-loading.is-done.has-errors {
+      pointer-events: auto;
+    }
+    .rose-mod-import-close {
+      padding: 4px 16px;
+      border: 1px solid #463714;
+      background: #1e2328;
+      color: #cdbe91;
+      cursor: pointer;
+      font-family: "Beaufort for LOL", serif;
+      font-size: 12px;
+    }
+    .rose-mod-import-close:hover {
+      border-color: #c8aa6e;
+      color: #f0e6d2;
     }
     @keyframes roseModImportFadeOut {
       to { opacity: 0; }
@@ -1516,14 +1534,25 @@
       color: #a09b8c;
       font-size: 12px;
     }
-    .rose-mod-import-errors {
+    .rose-mod-import-messages {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
       max-height: 180px;
       overflow: auto;
-      color: #ff9a9a;
-      font-size: 12px;
+      font-size: 13px;
+      line-height: 1.45;
       text-align: left;
-      white-space: pre-wrap;
       overflow-wrap: anywhere;
+    }
+    .rose-mod-import-messages.is-single {
+      text-align: center;
+    }
+    .rose-mod-import-messages .is-error {
+      color: #ff9a9a;
+    }
+    .rose-mod-import-messages .is-repaired {
+      color: #9fe3a8;
     }
   `;
   }
@@ -4999,37 +5028,84 @@
     if (!overlay || overlay.classList.contains("is-done")) return;
 
     overlay.classList.add("is-done");
+    const imported = Array.isArray(payload.imported) ? payload.imported : [];
     const errors = Array.isArray(payload.importErrors) ? payload.importErrors : [];
     const failed = errors.length > 0;
+    // Several files: each line names its mod; one file: its name is already shown
+    const several = imported.length + errors.length > 1;
+    // An error the user has to read: no fade, a close button instead
     if (failed) overlay.classList.add("has-errors");
-    overlay.querySelector(".rose-mod-import-spinner").outerHTML = failed && !payload.imported?.length
+    overlay.querySelector(".rose-mod-import-spinner").outerHTML = failed && !imported.length
       ? '<span class="rose-mod-import-error" aria-hidden="true">!</span>'
       : '<svg class="rose-mod-import-check" viewBox="0 0 52 52"><circle cx="26" cy="26" r="24"></circle><path d="M15 27l7 7 15-15"></path></svg>';
-    const importedCount = payload.imported ? payload.imported.length : 1;
-    const title = failed && !payload.imported?.length
+    const title = failed && !imported.length
       ? t("Import failed")
       : payload.partial
         ? t("Some mods added")
-        : importedCount > 1 ? t("Mods added") : t("Mod added");
+        : imported.length > 1 ? t("Mods added") : t("Mod added");
     overlay.querySelector(".rose-mod-import-title").textContent = title;
-    if (errors.length) {
-      const errorList = document.createElement("div");
-      errorList.className = "rose-mod-import-errors";
-      errorList.setAttribute("role", "alert");
-      errors.forEach((item) => {
-        const error = document.createElement("div");
-        error.textContent = t("Failed to import {name}: {error}", {
-          name: item.fileName || "",
-          error: item.error || "",
-        });
-        errorList.appendChild(error);
+
+    const card = overlay.querySelector(".rose-mod-import-card");
+    const lines = [
+      ...errors.map((item) => ({ className: "is-error", text: importErrorText(item, several) })),
+      // What LTK Manager's check repaired in a mod it kept (check_mod in overlay_manager.py)
+      ...imported
+        .filter((item) => item && item.health && item.health.repaired > 0)
+        .map((item) => ({
+          className: "is-repaired",
+          text: several
+            ? t("LTK Manager repaired {name}.", { name: item.modName || item.fileName || "" })
+            : t("LTK Manager repaired this mod."),
+        })),
+    ];
+    if (lines.length) {
+      overlay.classList.add("has-notes");
+      const list = document.createElement("div");
+      list.className = "rose-mod-import-messages" + (lines.length === 1 ? " is-single" : "");
+      list.setAttribute("role", failed ? "alert" : "status");
+      lines.forEach((line) => {
+        const row = document.createElement("div");
+        row.className = line.className;
+        row.textContent = line.text;
+        list.appendChild(row);
       });
-      overlay.querySelector(".rose-mod-import-card").appendChild(errorList);
+      card.appendChild(list);
     }
-    modImportTimer = setTimeout(
-      hideModImportLoading,
-      failed ? MOD_IMPORT_DONE_MS * 4 : MOD_IMPORT_DONE_MS,
-    );
+    if (failed) {
+      const close = document.createElement("button");
+      close.type = "button";
+      close.className = "rose-mod-import-close";
+      close.textContent = t("Close");
+      close.addEventListener("click", hideModImportLoading);
+      card.appendChild(close);
+      close.focus();
+      return;
+    }
+    modImportTimer = setTimeout(hideModImportLoading, lines.length ? MOD_IMPORT_DONE_MS * 2 : MOD_IMPORT_DONE_MS);
+  }
+
+  // A failed import's line: LTK Manager's refusals (_rejected_import in message_handler.py) in the
+  // user's language, any other failure with Rose's error text
+  function importErrorText(item, several) {
+    const name = item.fileName || "";
+    if (item.code === "ltk_skinhack") {
+      return several
+        ? t("LTK Manager considers {name} a skinhack, so it won't be playable.", { name })
+        : t("LTK Manager considers this mod a skinhack, so it won't be playable.");
+    }
+    if (item.code === "ltk_rejected") {
+      const reason = item.reason || "";
+      return several
+        ? t("LTK Manager found problems it can't repair in {name}, so it won't be playable. {reason}", { name, reason }).trim()
+        : t("LTK Manager found problems it can't repair in this mod, so it won't be playable. {reason}", { reason }).trim();
+    }
+    return t("Failed to import {name}: {error}", { name, error: item.error || "" });
+  }
+
+  // Rose asks LTK Manager to check the added mods before it answers the import
+  function showModImportChecking() {
+    const title = document.querySelector("#rose-mod-import-loading .rose-mod-import-title");
+    if (title) title.textContent = t("Checking with LTK Manager...");
   }
 
   function hideModImportLoading() {
@@ -5795,6 +5871,7 @@
       bridge.subscribe("champions-list-response", handleChampionsListResponse);
       bridge.subscribe("champion-skins-response", handleChampionSkinsResponse);
       bridge.subscribe("mod-import-started", showModImportLoading);
+      bridge.subscribe("mod-import-checking", showModImportChecking);
       bridge.subscribe("folder-opened-response", handleFolderOpenedResponse);
       // A Rose that closes mid-import never answers it
       bridge.onDisconnect(hideModImportLoading);
