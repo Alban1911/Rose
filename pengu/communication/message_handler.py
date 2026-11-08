@@ -30,7 +30,8 @@ from injection.overlay.ltf_report import has_ltf_logs_hint, ltk_failure_cause
 from injection.baseskin.library import stored_skin_rewrite
 from injection.overlay.ltk_library import LtkLibrary
 from utils.core.paths import get_user_data_dir, get_asset_path, open_folder_in_explorer
-from utils.core.issue_reporter import clear_issues, read_issues_tail, remove_issues
+from utils.core import issue_reporter
+from utils.core.issue_reporter import clear_issues, in_this_session, parse_stamp, read_issues_tail, remove_issues
 from utils.core.safe_extract import MOD_ARCHIVE_SUFFIXES
 from utils.core.utilities import get_base_skin_id_for_chroma
 from ui.handlers.randomization_handler import cancel_random_mode_for_selection
@@ -620,7 +621,8 @@ class MessageHandler:
             autostart = is_registered_for_autostart()
             hide_empty_categories = (get_config_option("General", "hide_empty_categories", "false") or "false").lower() == "true"
             game_path = get_config_option("General", "leaguePath") or ""
-            diagnostics_errors = self._compute_diagnostics_errors()
+            # Only this session's errors light up Troubleshooting
+            diagnostics_errors = [e for e in self._compute_diagnostics_errors() if e.get("thisSession")]
             
             path_valid = False
             if game_path:
@@ -850,6 +852,7 @@ class MessageHandler:
                 "errors": out,
                 "path": str(get_user_data_dir() / "rose_diagnostics.txt"),
                 "baseSkinStats": tracker_stats,
+                "sessionStart": issue_reporter.SESSION_START,
             }
             self._send_response(json.dumps(response_payload))
         except Exception as e:
@@ -866,12 +869,6 @@ class MessageHandler:
         """
         try:
             raw_lines = read_issues_tail(max_lines=400)
-            now = datetime.now()
-
-            month_map = {
-                "jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6,
-                "jul": 7, "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12,
-            }
 
             entries: list[dict] = []
             i = 0
@@ -887,21 +884,6 @@ class MessageHandler:
                             i += 1
                     entries.append({"ts": ts_part.strip(), "msg": msg.strip(), "fix": (fix or "").strip()})
                 i += 1
-
-            def _format_ts(ts_part: str) -> str:
-                # Input is like "Jan 17 17:41" (no year). We assume current year.
-                try:
-                    parts = ts_part.split()
-                    if len(parts) >= 3:
-                        mon = month_map.get(parts[0].lower())
-                        day = int(parts[1])
-                        hhmm = parts[2]
-                        hh, mm = hhmm.split(":")
-                        dt = datetime(now.year, int(mon), int(day), int(hh), int(mm))
-                        return dt.strftime("%d/%m/%y %H:%M")
-                except Exception:
-                    pass
-                return ts_part
 
             def _summarize(msg: str, fix: str) -> Optional[dict]:
                 ml = (msg or "").lower()
@@ -1118,7 +1100,7 @@ class MessageHandler:
                 )
                 entries = [e for e in entries if _summary_key(e.get("msg", ""), e.get("fix", "")) not in delete_keys]
 
-            # Keep last N unique summaries (most recent occurrences)
+            # Keep last N unique summaries (most recent occurrences), most recent first
             seen: set[str] = set()
             out: list[dict] = []
             for ent in reversed(entries):
@@ -1131,11 +1113,17 @@ class MessageHandler:
                 if summary_text in seen:
                     continue
                 seen.add(summary_text)
-                payload = {"ts": _format_ts(ent.get("ts", "")), "key": summary_text, **summary_obj}
+                when, _ = parse_stamp(ent.get("ts", ""))
+                payload = {
+                    "ts": datetime.fromtimestamp(when).strftime("%d/%m/%y %H:%M") if when is not None else ent.get("ts", ""),
+                    "at": when,
+                    "thisSession": in_this_session(when),
+                    "key": summary_text,
+                    **summary_obj,
+                }
                 out.append(payload)
                 if len(out) >= 8:
                     break
-            out.reverse()
             return out
         except Exception as e:
             # Troubleshooting would look empty while errors were recorded

@@ -11,8 +11,10 @@ File: %LOCALAPPDATA%\\Rose\\rose_diagnostics.txt
 
 from __future__ import annotations
 
+import re
 import threading
 import time
+from datetime import datetime
 from typing import Any, Callable, Dict, Optional
 
 from utils.core.logging import get_logger
@@ -44,6 +46,77 @@ _ALLOWED_CODES = {
     'WINDOWS_ADMIN_SHELL',    # Windows runs every program as administrator: LTK Manager refuses to patch
 }
 
+# Reports about how the PC is set up, which Rose checks again whenever they
+# matter (startup, League connecting, LTK Manager starting): an earlier
+# session's copy would only repeat or contradict this session's
+_SETUP_CODES = {
+    'LEAGUE_ELEVATED',
+    'LTF_MISSING',
+    'LTK_ELEVATED',
+    'LTK_MANAGER_MISSING',
+    'PENGU_ACTIVATION_FAILED',
+    'PENGU_INJECTION_FAILED',
+    'WINDOWS_ADMIN_SHELL',
+}
+
+# An earlier session's other reports stay this long
+EARLIER_REPORTS_KEPT_S = 7 * 24 * 3600
+
+# When this Rose started (start_session): reports from before are an earlier session's
+SESSION_START = time.time()
+
+# "2026-11-08 14:02:31 [LTF_FAILED]"; older reports hold "Nov 08 14:02" (no year, no code)
+_STAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
+_STAMP = re.compile(r"^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})(?: \[([A-Z_]+)\])?$")
+_OLD_STAMP = re.compile(r"^([A-Za-z]{3}) (\d{1,2}) (\d{1,2}):(\d{2})$")
+_MONTHS = ("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec")
+
+
+def parse_stamp(stamp: str, now: Optional[float] = None) -> tuple[Optional[float], str]:
+    """(time, code) of a report's stamp, the part before " | ". The time is
+    None when the stamp can't be read, the code empty for older reports. An
+    older report has no year: it gets the latest one that is not in the future."""
+    stamp = (stamp or "").strip()
+    try:
+        m = _STAMP.match(stamp)
+        if m:
+            return datetime.strptime(m.group(1), _STAMP_FORMAT).timestamp(), m.group(2) or ""
+        m = _OLD_STAMP.match(stamp)
+        if m:
+            current = datetime.fromtimestamp(time.time() if now is None else now)
+            month = _MONTHS.index(m.group(1).lower()) + 1
+            day, hour, minute = int(m.group(2)), int(m.group(3)), int(m.group(4))
+            for year in (current.year, current.year - 1):
+                try:
+                    when = datetime(year, month, day, hour, minute)
+                except ValueError:  # Feb 29 of a year without it
+                    continue
+                if when <= current:
+                    return when.timestamp(), ""
+    except Exception:
+        pass
+    return None, ""
+
+
+def in_this_session(when: Optional[float]) -> bool:
+    """Whether a report at *when* (parse_stamp) is from this session."""
+    # Stamps hold whole seconds: one from the second Rose started is this session's
+    return when is not None and when >= int(SESSION_START)
+
+
+def start_session() -> None:
+    """Mark Rose's start, and drop the earlier sessions' setup reports (Rose
+    checks those again) and their reports older than EARLIER_REPORTS_KEPT_S.
+    Never raises."""
+    global SESSION_START
+    SESSION_START = time.time()
+    cutoff = SESSION_START - EARLIER_REPORTS_KEPT_S
+
+    def stale(line: str, fix: str) -> bool:
+        when, code = parse_stamp(line.split(" | ", 1)[0], SESSION_START)
+        return code in _SETUP_CODES or (when is not None and when < cutoff)
+
+    remove_issues(stale)
 
 
 def _issues_path():
@@ -83,10 +156,10 @@ def report_issue(
         _LAST[key] = now
 
         # Novice-friendly formatting:
-        #   Dec 15 00:39 | Something happened...
+        #   2026-12-15 00:39:12 [LTF_FAILED] | Something happened...
         #   Fix: Do this...
-        ts_short = time.strftime("%b %d %H:%M", time.localtime(now))
-        lines = [f"{ts_short} | {message}".rstrip()]
+        stamp = f"{time.strftime(_STAMP_FORMAT, time.localtime(now))} [{code}]"
+        lines = [f"{stamp} | {message}".rstrip()]
         if hint:
             lines.append(f"Fix: {hint}".rstrip())
         line = "\n".join(lines) + "\n"

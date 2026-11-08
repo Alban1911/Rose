@@ -38,6 +38,10 @@ def setup_logging_and_cleanup(args: argparse.Namespace) -> None:
     setup_logging(log_mode, write_logs=write_logs)
     install_uncaught_exception_logging()
 
+    # Troubleshooting tells this session's reports from earlier ones
+    from utils.core.issue_reporter import start_session
+    start_session()
+
     # Log user detection info (helps diagnose "Run as Administrator" issues)
     current_user, target_user, is_mismatch = get_detected_user_info()
     data_dir = get_user_data_dir()
