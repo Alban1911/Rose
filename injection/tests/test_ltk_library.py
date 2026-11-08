@@ -487,6 +487,13 @@ class ModCheckTests(LtfSessionTestCase):
         self.assertIsNone(self.check())
         self.assertEqual(FakeBridge.created, [])
 
+    def test_nothing_is_checked_for_a_mod_ltk_manager_holds_already(self):
+        """The same mod added again: the saved one, whose file is gone"""
+        self.stored.unlink()
+
+        self.assertIsNone(self.check())
+        self.assertEqual((FakeBridge.created, self.recorded), ([], []))
+
     def test_nothing_is_checked_without_ltk_manager_or_a_game_folder(self):
         with patch.object(ToolsManager, "detect_ltk_manager", return_value=None):
             self.assertIsNone(self.check())

@@ -58,10 +58,6 @@ ARCHIVE_SUFFIX = ".fantome"
 # The LTK Manager entries of saved mods deleted in Rose, removed from LTK
 # Manager at the next session start: {"ids": [...]}
 LTK_REMOVALS = "ltk_removals.json"
-# In the entry of a mod added in the place of others (a mod LTK Manager lost,
-# the same mod added again), those entries by key: they come back if the add
-# is undone (LTK Manager rejected it), and go once LTK Manager holds it
-REPLACES = "replaces"
 
 _METADATA_NAMES = {TARGET_METADATA, LEGACY_TARGET_METADATA, CATEGORY_METADATA}
 
@@ -476,10 +472,11 @@ def _relative_identity(mods_root: Path, relative_path: object) -> Optional[str]:
 
 
 def _directory_of(mods_root: Path, parts: List[str]) -> Optional[_Directory]:
-    if len(parts) == 3 and parts[0].casefold() == SKINS:
+    """The saved mods folder *parts* name, relative to the mods root."""
+    if len(parts) == 2 and parts[0].casefold() == SKINS:
         directory = _skins_directory(mods_root / SKINS / parts[1])
         return directory if directory is not None and directory.path.is_dir() else None
-    if len(parts) == 2:
+    if len(parts) == 1:
         category = next((c for c in MOD_CATEGORIES if c.casefold() == parts[0].casefold()), None)
         if category is not None and (mods_root / category).is_dir():
             return _Directory(category, mods_root / category, category)
@@ -491,7 +488,7 @@ def _find(mods_root: Path, relative_path: object,
     wanted = _relative_identity(mods_root, relative_path)
     if wanted is None:
         return None
-    directory = _directory_of(mods_root, wanted.split("/"))
+    directory = _directory_of(mods_root, wanted.split("/")[:-1])
     if directory is None:
         return None
     folded = wanted.casefold()
@@ -532,51 +529,50 @@ def leftover_copies(mods_root: Path) -> List[SavedMod]:
     return [mod for mod in iter_saved_mods(mods_root) if mod.ltk_id and mod.stored is not None]
 
 
-def _replaced(entry: object) -> dict:
-    """The entries an added mod took the place of (REPLACES), by key."""
-    value = entry.get(REPLACES) if isinstance(entry, Mapping) else None
-    return value if isinstance(value, dict) else {}
+def same_content(mods_root: Path, directory: Path, full_hash: str) -> Optional[SavedMod]:
+    """The saved mod of *directory* whose content is that of *full_hash*
+    (compute_mod_facts; its folderHash), LTK Manager's or still Rose's: the
+    same mod, added again. One LTK Manager lost does not count: it is to be
+    added again."""
+    relative = _relative_identity(Path(mods_root), directory)
+    folder = _directory_of(Path(mods_root), relative.split("/")) if relative else None
+    if folder is None:
+        return None
+    return next((
+        mod for mod in _directory_mods(folder, match_content=False)
+        if mod.available and full_hash in (mod.key, mod.metadata.get("folderHash"))
+    ), None)
 
 
-def named_ltk_ids(mods_root: Path) -> set[str]:
-    """Every LTK Manager entry a saved mod's manifest names: the missing ones
-    too, and those of the mods an added one took the place of (they come back
-    if the add is undone)."""
+def _ltk_ids_in(payload: Optional[dict]) -> set[str]:
+    raw = payload.get("mods") if isinstance(payload, dict) else None
+    return {
+        value["ltkId"] for value in (raw.values() if isinstance(raw, dict) else ())
+        if isinstance(value, dict) and is_ltk_id(value.get("ltkId"))
+    }
+
+
+def named_ltk_ids(mods_root: Path) -> Optional[set[str]]:
+    """Every LTK Manager entry a saved mod's manifest names, the missing ones
+    too; None when a manifest cannot be read, so the entries it names are
+    unknown."""
     ids: set[str] = set()
     for directory in _directories(Path(mods_root)):
-        payload = _read_directory_manifest(directory)
-        raw = payload.get("mods") if isinstance(payload, dict) else None
-        pending = list(raw.values()) if isinstance(raw, dict) else []
-        while pending:
-            value = pending.pop()
-            if isinstance(value, dict) and is_ltk_id(value.get("ltkId")):
-                ids.add(value["ltkId"])
-            pending.extend(_replaced(value).values())
+        payload = _writable_manifest(directory)
+        if payload is None:
+            return None
+        ids |= _ltk_ids_in(payload)
     return ids
 
 
 def manifest_ltk_ids(mods_root: Path) -> set[str]:
-    """Every LTK Manager entry Rose added for a saved mod: those a manifest
-    names, and those queued for removal. Cleaning up after a game must never
-    take one of them for a leftover."""
-    return named_ltk_ids(mods_root) | set(ltk_removals(mods_root))
-
-
-def superseded(mod: SavedMod) -> List[tuple[str, Optional[str]]]:
-    """(name, ltkId) of the mods *mod* took the place of as it was added
-    (add_saved_mod), and of those they had taken the place of: once LTK
-    Manager holds *mod*, their LTK Manager entries and what Rose still holds
-    of them are to go."""
-    directory = _mod_directory(mod)
-    found = []
-    pending = list(_replaced(mod.metadata).items())
-    while pending:
-        key, value = pending.pop()
-        metadata = value if isinstance(value, dict) else {}
-        ltk_id = metadata.get("ltkId")
-        found.append((_entry_name(directory, key, metadata), ltk_id if is_ltk_id(ltk_id) else None))
-        pending.extend(_replaced(metadata).items())
-    return found
+    """Every LTK Manager entry Rose added for a saved mod: each manifest's
+    ltkIds, the missing ones too, and those queued for removal. Cleaning up
+    after a game must never take one of them for a leftover."""
+    ids = set(ltk_removals(mods_root))
+    for directory in _directories(Path(mods_root)):
+        ids |= _ltk_ids_in(_read_directory_manifest(directory))
+    return ids
 
 
 # --------------------------------------------------------------------------------------
@@ -619,12 +615,11 @@ def _named(directory: _Directory, mods: dict, name: str) -> List[str]:
 def _drop_entries(mods_root: Path, mods: dict, keys: Iterable[str]) -> None:
     """Take these entries out of *mods*, their LTK Manager entries queued for
     removal at the next session start first: one no manifest names any more
-    would stay in LTK Manager for good, as Rose would never know it again.
-    The entries one of them took the place of as it was added come back."""
+    would stay in LTK Manager for good, as Rose would never know it again."""
     keys = list(keys)
     queue_ltk_removal(mods_root, [mods[key].get("ltkId") for key in keys if isinstance(mods[key], dict)])
     for key in keys:
-        mods.update(_replaced(mods.pop(key)))
+        del mods[key]
 
 
 def update_saved_mod(mods_root: Path, relative_path: object, **fields: object) -> bool:
@@ -674,21 +669,17 @@ def update_saved_mod(mods_root: Path, relative_path: object, **fields: object) -
             return False
 
 
-def _mod_directory(mod: SavedMod) -> _Directory:
-    if mod.kind == SKINS:
-        return _skins_directory(mod.directory)
-    return _Directory(mod.kind, mod.directory, mod.kind)
-
-
 def remove_saved_mod(mods_root: Path, mod: SavedMod) -> bool:
     """Take a saved mod out of its manifest: its entry, and any other under
     its name, their LTK Manager entries queued for removal at the next
-    session start; the mods it took the place of as it was added come back.
-    False when the manifest cannot be read. Rose's copy and the files beside
-    the manifest are the caller's to delete."""
+    session start. False when the manifest cannot be read. Rose's copy and
+    the files beside the manifest are the caller's to delete."""
     if not mod.key:
         return True  # a file nobody registered: no entry to take out
-    directory = _mod_directory(mod)
+    if mod.kind == SKINS:
+        directory = _skins_directory(mod.directory)
+    else:
+        directory = _Directory(mod.kind, mod.directory, mod.kind)
 
     def drop(_payload: dict, mods: dict) -> bool:
         removed = set(_named(directory, mods, mod.name))
@@ -708,51 +699,34 @@ def remove_saved_mod(mods_root: Path, mod: SavedMod) -> bool:
 def add_saved_mod(mods_root: Path, archive: Path, facts: ModFacts, full_hash: str,
                   wad_hashes: Mapping[str, str], targets: Iterable[int] = ()) -> None:
     """Register the archive of a mod just added to its folder with what was
-    read from it once (compute_mod_facts): its facts, its date (the listing
-    keeps it once the archive is in LTK Manager), and in a champion's folder
-    its targets and content hashes, the key the same mod added again is known
-    by.
+    read from it once (compute_mod_facts): its facts, its content hash (what
+    the same mod added again is known by: same_content), its date (the
+    listing keeps it once the archive is in LTK Manager), and in a champion's
+    folder its targets and its WADs' hashes.
 
-    It takes the place of the entries under its name (a mod LTK Manager lost,
-    added again) and, in a champion's folder, of those with its content: it
-    keeps their display name, and holds them (REPLACES) until LTK Manager
-    holds it (superseded) or the add is undone (remove_saved_mod puts them
-    back). Raises UnreadableManifest, or ValueError when *archive* is not in a
-    saved mods folder."""
+    A champion's mod is keyed by its content hash, or by its name while a
+    mod LTK Manager lost holds that key. An entry left under its name by a
+    mod whose file is gone is dropped. Raises UnreadableManifest, or
+    ValueError when *archive* is not in a saved mods folder."""
     mods_root = Path(mods_root)
     identity = _relative_identity(mods_root, archive)
-    directory = _directory_of(mods_root, identity.split("/")) if identity else None
+    directory = _directory_of(mods_root, identity.split("/")[:-1]) if identity else None
     if directory is None:
         raise ValueError(f"{archive} is not in a saved mods folder")
     name = Path(identity).stem
-    entry: dict = {"name": name, **facts.to_manifest()}
+    entry: dict = {"name": name, **facts.to_manifest(), "folderHash": full_hash}
     updated_at = _mtime(mods_root / identity)
     if updated_at is not None:
         entry["updatedAt"] = updated_at
     if directory.kind == SKINS:
-        key = full_hash
-        entry.update(folderHash=full_hash, wadHashes=dict(wad_hashes), targets=list(targets))
+        entry.update(wadHashes=dict(wad_hashes), targets=list(targets))
     else:
-        key = name
         entry["path"] = name
 
     def register(_payload: dict, mods: dict) -> bool:
-        replaced = set(_named(directory, mods, name))
-        if directory.kind == SKINS:
-            replaced.update(
-                other for other, value in mods.items()
-                if isinstance(value, dict) and value.get("folderHash") == full_hash
-            )
-        if key in mods:
-            replaced.add(key)
-        replaces = {other: mods.pop(other) for other in sorted(replaced)}
-        display_name = next(filter(None, (_display_name(value) for value in replaces.values()
-                                          if isinstance(value, dict))), None)
-        mods[key] = dict(entry)
-        if display_name:
-            mods[key]["displayName"] = display_name
-        if replaces:
-            mods[key][REPLACES] = replaces
+        _drop_entries(mods_root, mods, _named(directory, mods, name))
+        key = full_hash if directory.kind == SKINS and full_hash not in mods else name
+        mods[key] = entry
         return True
 
     _change_manifest(directory, register)

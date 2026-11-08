@@ -78,6 +78,10 @@ class SavedModSwitches:
         # One a manifest still names was queued by a manifest write that then
         # failed: removing it would lose the saved mod's only copy
         named = named_ltk_ids(saved_mods) if queued else set()
+        if named is None:
+            log.info("[INJECT] A saved mods manifest could not be read: the LTK Manager entries of saved mods "
+                     "deleted in Rose are removed at a later session")
+            queued = []
         remove = [ltk_id for ltk_id in queued if ltk_id in library and ltk_id not in named]
         return Leftovers(
             remove=remove,

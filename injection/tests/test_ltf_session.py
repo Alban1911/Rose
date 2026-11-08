@@ -1248,6 +1248,22 @@ class SavedLtkModTests(LtfSessionTestCase):
         self.assertEqual([entry["id"] for entry in self.bridge.library_entries], [self.VO_ID])
         self.assertEqual(manifest.ltk_removals(saved_mods), [])
 
+    def test_no_entry_is_removed_for_the_queue_while_a_manifest_cannot_be_read(self):
+        """A locked manifest may name a queued entry: it waits for a session
+        that can read them all"""
+        FakeBridge.initial_library.append(self.entry(self.OLD_ID, "Old map"))
+        saved_mods = self.overlay.saved_mods_root
+        manifest.queue_ltk_removal(saved_mods, [self.OLD_ID])
+        maps = saved_mods / "maps"
+        maps.mkdir()
+        (maps / "rose_category_mods.json").write_text('{"version": 1, "mods": {', encoding="utf-8")
+
+        with self.assertLogs(level="WARNING"):
+            self.overlay.start_patcher_early()
+
+        self.assertNotIn(("uninstall", self.OLD_ID), self.bridge.calls)
+        self.assertEqual(manifest.ltk_removals(saved_mods), [self.OLD_ID])
+
     def test_a_discard_while_staging_reads_the_library_leaves_it_off(self):
         """The discard's cleanup ran before the switch-on: nothing would switch it off"""
         self.overlay.open_staging()

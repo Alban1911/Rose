@@ -9,7 +9,7 @@ import zipfile
 from pathlib import Path
 from unittest.mock import patch
 
-from injection.mods import conversion, manifest
+from injection.mods import conversion
 from injection.mods.fantome import fantome_display_name, read_info, write_fantome_zip
 from injection.mods.fingerprint import mod_fingerprint
 from injection.mods.manifest import ltk_removals
@@ -227,7 +227,7 @@ class AddTests(TempCase):
     """An added mod is registered with what Rose needs to know about it, read
     once: LTK Manager will hold it, and Rose keeps no copy to read it from.
     Its name is its own in its folder, against the mods LTK Manager holds
-    too, but for one LTK Manager lost, which it takes the place of"""
+    (or lost) too; a mod the folder holds already is not added twice"""
 
     def setUp(self):
         super().setUp()
@@ -278,117 +278,88 @@ class AddTests(TempCase):
         (self.maps / "Abyss.webp").write_bytes(b"somebody's image")
 
         self.assertEqual(self.add_map("Rift")[1], "Rift (2)")
-        self.assertEqual(self.add_map("Abyss")[1], "Abyss (2)")
+        abyss = make_archive(self.root / "Abyss.fantome", {**VOICEOVER, "WAD/Map12.wad.client": b"abyss"})
+        self.assertEqual(self.service.import_category_mod_file("maps", abyss)[1], "Abyss (2)")
         self.assertEqual((self.maps / "Rift.txt").read_text(encoding="utf-8"), "Somebody's description")
 
-    def test_a_skin_ltk_manager_lost_gives_its_place_to_the_one_added_again(self):
-        """"Missing - add it again": the new copy keeps the lost one's image,
-        description and display name, and once LTK Manager holds it the lost
-        entry is removed from LTK Manager should it come back"""
-        add_entries(self.skins_manifest, {"Lost Ezreal": {
-            "name": "Lost Ezreal", "targets": [81020], "ltkId": LOST_ID, "missing": True, "displayName": "My Ezreal"}})
-        (self.ezreal / "Lost Ezreal.png").write_bytes(PNG + b"mine")
-        (self.ezreal / "Lost Ezreal.txt").write_text("My notes", encoding="utf-8")
+    def test_a_mod_added_again_after_ltk_manager_lost_it_is_another_mod(self):
+        """The lost one, the same mod, keeps its name and stays listed as
+        missing until the user deletes it"""
+        source = make_archive(self.root / "Lost Ezreal.fantome", VOICEOVER)
+        full_hash = compute_mod_facts(source)[1]
+        lost = {"name": "Lost Ezreal", "folderHash": full_hash, "targets": [81020], "ltkId": LOST_ID,
+                "missing": True, "displayName": "My Ezreal"}
+        add_entries(self.skins_manifest, {full_hash: lost})
 
-        stored, _manifest, name = self.service.import_mod_file(
-            81, make_archive(self.root / "Lost Ezreal.fantome", VOICEOVER), [81021])
+        stored, _manifest, name = self.service.import_mod_file(81, source, [81021])
 
-        self.assertEqual((name, stored.name), ("Lost Ezreal", "Lost Ezreal.fantome"))
-        [mod] = self.service.list_mods_for_champion(81)
-        self.assertEqual((mod.ltk_id, mod.missing, mod.pending), (None, False, True))
-        self.assertEqual((mod.display_name, mod.description, mod.target_skin_ids), ("My Ezreal", "My notes", (81021,)))
-        self.assertEqual((self.ezreal / "Lost Ezreal.png").read_bytes(), PNG + b"mine")
-        self.assertEqual(len(self.entries(self.skins_manifest)), 1)
+        self.assertEqual((name, stored.name), ("Lost Ezreal (2)", "Lost Ezreal (2).fantome"))
+        mods = self.entries(self.skins_manifest)
+        self.assertEqual(mods[full_hash], lost)
+        self.assertEqual((mods[name]["folderHash"], mods[name]["targets"]), (full_hash, [81021]))
+        listed = {mod.mod_name: mod for mod in self.service.list_mods_for_champion(81)}
+        self.assertEqual((listed["Lost Ezreal"].missing, listed["Lost Ezreal"].display_name), (True, "My Ezreal"))
+        self.assertTrue(listed[name].pending)
         self.assertEqual(ltk_removals(self.service.mods_root), [])
 
-        self.assertTrue(self.service.attach_ltk_entry("skins/81000/Lost Ezreal.fantome", OLD_ID))
-
-        self.assertEqual(ltk_removals(self.service.mods_root), [LOST_ID])
-        [entry] = self.entries(self.skins_manifest).values()
-        self.assertNotIn(manifest.REPLACES, entry)
-        self.assertEqual((self.ezreal / "Lost Ezreal.txt").read_text(encoding="utf-8"), "My notes")
-
-    def test_a_category_mod_ltk_manager_lost_gives_its_place_too(self):
-        self.lost_map()
-
-        stored, name = self.add_map()
-
-        self.assertEqual(name, "Rift")
-        entry = self.entries(self.maps_manifest)["Rift"]
-        self.assertEqual((entry["displayName"], entry.get("ltkId"), entry.get("missing")), ("My Rift", None, None))
-        self.assertEqual(stored.with_suffix(".png").read_bytes(), PNG)  # it had no image of its own
-
-    def test_a_rejected_add_gives_the_lost_mod_its_place_back(self):
+    def test_a_rejected_add_leaves_the_lost_mod_of_its_name_as_it_was(self):
         """LTK Manager rejects the mod added again: the add deletes it, and the
-        lost one is as it was, its image and description too"""
+        lost one keeps its entry, image, description and display name"""
         self.lost_map()
         (self.maps / "Rift.png").write_bytes(PNG + b"mine")
         (self.maps / "Rift.txt").write_text("My notes", encoding="utf-8")
         before = self.entries(self.maps_manifest)
 
         stored, name = self.add_map()
+        self.assertEqual(name, "Rift (2)")
         self.assertTrue(self.service.delete_category_mod("maps", name))
 
         self.assertEqual(self.entries(self.maps_manifest), before)
-        self.assertFalse(stored.exists())
+        self.assertEqual(sorted(p.name for p in self.maps.iterdir()),
+                         sorted([self.maps_manifest.name, "Rift.png", "Rift.txt"]))
         self.assertEqual((self.maps / "Rift.png").read_bytes(), PNG + b"mine")
         self.assertEqual((self.maps / "Rift.txt").read_text(encoding="utf-8"), "My notes")
         lost = self.service.saved_mod("maps/Rift.fantome")
         self.assertEqual((lost.ltk_id, lost.missing, lost.display_name), (LOST_ID, True, "My Rift"))
         self.assertEqual(ltk_removals(self.service.mods_root), [])
 
-    def test_only_the_name_added_takes_the_place_of_a_lost_mod(self):
-        add_entries(self.maps_manifest, {
-            "Rift": {"name": "Rift", "path": "Rift", "ltkId": MOVED_ID},
-            "Rift (2)": {"name": "Rift (2)", "path": "Rift (2)", "ltkId": LOST_ID, "missing": True},
-        })
-
-        self.assertEqual(self.add_map()[1], "Rift (3)")
-        self.assertEqual(ltk_removals(self.service.mods_root), [])
-
-    def test_an_add_that_fails_leaves_the_lost_mods_description(self):
-        self.lost_map()
-        (self.maps / "Rift.txt").write_text("My notes", encoding="utf-8")
-
-        with patch.object(manifest, "add_saved_mod", side_effect=OSError("disk full")), self.assertRaises(OSError):
-            self.add_map()
-
-        self.assertEqual(sorted(p.name for p in self.maps.iterdir()), sorted([self.maps_manifest.name, "Rift.txt"]))
-        self.assertEqual(self.entries(self.maps_manifest)["Rift"]["ltkId"], LOST_ID)
-
-    def test_the_same_skin_added_again_takes_the_place_of_its_ltk_manager_entry(self):
+    def test_the_same_skin_added_again_is_the_one_saved_already(self):
+        """Its targets join the saved mod's: no second copy, in Rose or in LTK
+        Manager, whether Rose still holds the first or LTK Manager does"""
         source = make_archive(self.root / "Ezreal.fantome", VOICEOVER)
-        _stored, _manifest, first = self.service.import_mod_file(81, source, [81020])
-        self.service.attach_ltk_entry(f"skins/81000/{first}.fantome", MOVED_ID)
-        self.service.set_champion_mod_display_name(81, "Mine", mod_name=first)
+        first, _manifest, name = self.service.import_mod_file(81, source, [81020])
 
-        _stored, _manifest, again = self.service.import_mod_file(81, source, [81021])
+        again, _manifest, again_name = self.service.import_mod_file(
+            81, make_archive(self.root / "Ezreal copy.fantome", VOICEOVER), [81021])
 
-        self.assertEqual(again, "Ezreal (2)")
+        self.assertEqual((again, again_name), (first, name))
         [entry] = self.entries(self.skins_manifest).values()
-        self.assertEqual((entry["name"], entry["displayName"], entry["targets"]), ("Ezreal (2)", "Mine", [81021]))
-        self.assertEqual(ltk_removals(self.service.mods_root), [])
-        self.service.attach_ltk_entry("skins/81000/Ezreal (2).fantome", OLD_ID)
-        self.assertEqual(ltk_removals(self.service.mods_root), [MOVED_ID])  # not left in LTK Manager for good
-
-    def test_the_first_copy_of_a_mod_added_twice_goes_once_ltk_manager_holds_the_second(self):
-        """Added again while the first copy was still pending (LTK Manager
-        busy): the first copy is no mod of its own any more, and nothing else
-        would ever delete it"""
-        source = make_archive(self.root / "Ezreal.fantome", VOICEOVER)
-        first, _manifest, _name = self.service.import_mod_file(81, source, [81020])
-        second, _manifest, _name = self.service.import_mod_file(81, source, [81021])
-        self.assertTrue(first.exists())  # back in its place should LTK Manager reject the second
-        relative = second.relative_to(self.service.mods_root).as_posix()
-
-        self.assertTrue(self.service.attach_ltk_entry(relative, OLD_ID))
-        self.assertTrue(self.service.drop_stored_copy(relative))
-
+        self.assertEqual(entry["targets"], [81020, 81021])
         self.assertEqual(sorted(p.name for p in self.ezreal.iterdir()),
-                         sorted([ModStorageService.TARGET_METADATA, "Ezreal (2).png"]))
-        [mod] = self.service.list_mods_for_champion(81)
-        self.assertEqual((mod.mod_name, mod.ltk_id, mod.target_skin_ids), ("Ezreal (2)", OLD_ID, (81021,)))
+                         sorted([self.skins_manifest.name, "Ezreal.fantome", "Ezreal.png"]))
+
+        relative = first.relative_to(self.service.mods_root).as_posix()
+        self.service.attach_ltk_entry(relative, MOVED_ID)
+        self.service.drop_stored_copy(relative)
+        again, _manifest, again_name = self.service.import_mod_file(81, source, [81022])
+
+        self.assertEqual((again, again_name), (first, name))
+        self.assertFalse(again.exists())  # nothing for LTK Manager to check
+        [entry] = self.entries(self.skins_manifest).values()
+        self.assertEqual((entry["ltkId"], entry["targets"]), (MOVED_ID, [81020, 81021, 81022]))
+        self.assertEqual(sorted(p.name for p in self.ezreal.iterdir()),
+                         sorted([self.skins_manifest.name, "Ezreal.png"]))
         self.assertEqual(ltk_removals(self.service.mods_root), [])
+
+    def test_the_same_category_mod_added_again_writes_nothing(self):
+        stored, name = self.add_map()
+        before = self.maps_manifest.read_bytes()
+
+        self.assertEqual(self.add_map("Rift copy"), (stored, name))
+
+        self.assertEqual(self.maps_manifest.read_bytes(), before)
+        self.assertEqual(sorted(p.name for p in self.maps.iterdir()),
+                         sorted([self.maps_manifest.name, "Rift.fantome", "Rift.png"]))
 
 
 class ManifestListingTests(TempCase):

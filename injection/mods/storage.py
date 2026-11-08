@@ -183,9 +183,8 @@ class ModStorageService:
         A name is taken by a stored mod (archive or folder), and by a saved
         mod's manifest entry or the image and description beside it under
         that name: once LTK Manager holds a mod, nothing else in the folder
-        holds its name. A mod LTK Manager lost is the exception: added again
-        under its name, the new one takes its place and keeps its image,
-        description and display name (manifest.add_saved_mod).
+        holds its name. One LTK Manager lost keeps it too, until the user
+        deletes it: a mod added under its name is another mod.
 
         A long name is truncated only as much as Windows' traditional
         260-character path limit needs, then the normal `` (2)`` collision
@@ -216,20 +215,19 @@ class ModStorageService:
                 )
             mod_name = f"{candidate_base}{suffix}"
             archive = parent_dir / f"{mod_name}{self.ARCHIVE_SUFFIX}"
-            stored = [parent_dir / mod_name, *(archive.with_suffix(s) for s in MOD_ARCHIVE_SUFFIXES)]
-            if not any(_occupied(path) for path in stored):
-                claim = saved_manifest.find_saved_mod(self.mods_root, archive, match_content=False)
-                lost = claim is not None and claim.missing and suffix_number == 1
-                if lost or (claim is None and not any(_occupied(path) for path in self.sidecar_paths(archive))):
-                    if mod_name != original_name:
-                        log.warning(
-                            "[MODS] Shortened mod name for Windows path limit: '%s' -> '%s'",
-                            original_name,
-                            mod_name,
-                        )
-                    if lost:
-                        log.info(f"[MODS] {mod_name} takes the place of the mod LTK Manager lost under that name")
-                    return mod_name, archive
+            taken = [parent_dir / mod_name, *(archive.with_suffix(s) for s in MOD_ARCHIVE_SUFFIXES),
+                     *self.sidecar_paths(archive)]
+            if (
+                not any(_occupied(path) for path in taken)
+                and saved_manifest.find_saved_mod(self.mods_root, archive, match_content=False) is None
+            ):
+                if mod_name != original_name:
+                    log.warning(
+                        "[MODS] Shortened mod name for Windows path limit: '%s' -> '%s'",
+                        original_name,
+                        mod_name,
+                    )
+                return mod_name, archive
             suffix_number += 1
 
     # -- stored archives -----------------------------------------------------
@@ -244,7 +242,11 @@ class ModStorageService:
         the folder's manifest with what Rose needs to know about it, read
         once (compute_mod_facts): LTK Manager will hold the mod, and Rose
         keeps no copy to read it from again. Return its mod name and path.
-        Nothing it wrote stays when a step fails."""
+        Nothing it wrote stays when a step fails.
+
+        A mod the folder holds already (the same content, LTK Manager's or
+        still Rose's) is not added twice: *targets* join its own, and its
+        name and path are returned."""
         source = Path(source_path).expanduser()
         if not source.is_file():
             raise FileNotFoundError(f"Mod file not found: {source}")
@@ -260,10 +262,19 @@ class ModStorageService:
         try:
             self._write_stored_archive(source, temporary, mod_name)
             facts, full_hash, wad_hashes = compute_mod_facts(temporary)
-            temporary.replace(target)
-        except Exception:
+            existing = saved_manifest.same_content(self.mods_root, parent_dir, full_hash)
+            if existing is None:
+                temporary.replace(target)
+        finally:
             safe_remove_entry(temporary)
-            raise
+        if existing is not None:
+            merged = sorted({*existing.target_skin_ids, *targets})
+            if targets and tuple(merged) != existing.target_skin_ids:
+                if not saved_manifest.update_saved_mod(self.mods_root, existing.relative_path, targets=merged):
+                    raise ValueError("The mod is saved already, but its targets could not be updated")
+                self._champion_listing_cache.clear()
+            log.info(f"[MODS] {source.name} is saved already, as {existing.name}")
+            return existing.name, existing.path(self.mods_root)
         image = self._write_image_sidecar(target)
         try:
             saved_manifest.add_saved_mod(self.mods_root, target, facts, full_hash, wad_hashes, targets)
@@ -321,10 +332,7 @@ class ModStorageService:
 
     def _write_image_sidecar(self, archive: Path) -> Optional[Path]:
         """Copy the archive's preview image beside it, for the mods UI, and
-        return it. An image already there stays: it is the one the user gave
-        the mod LTK Manager lost that this one takes the place of."""
-        if any(archive.with_suffix(suffix).exists() for suffix in self.IMAGE_SIDECAR_SUFFIXES):
-            return None
+        return it."""
         try:
             with ModFiles(archive) as files:
                 for member, suffix in _PREVIEW_IMAGES:
@@ -382,33 +390,22 @@ class ModStorageService:
         *facts* replace the entry's (None keeps those it has); *stamp* is LTK
         Manager's archive they were read from (None: the next sync reads them
         again from it). The mod's date is taken from Rose's copy now: once the
-        copy is gone the listing has no file to read it from. The mods it took
-        the place of as it was added go for good: their LTK Manager entries
-        are queued for removal, and what Rose still holds of them is deleted.
-        False when the mod is not listed or its manifest cannot be read.
+        copy is gone the listing has no file to read it from. False when the
+        mod is not listed or its manifest cannot be read.
         """
         if not is_ltk_id(ltk_id):
             raise ValueError(f"Not an LTK Manager library id: {ltk_id!r}")
-        fields: dict = {"ltkId": ltk_id, "missing": None, "ltkStamp": list(stamp) if stamp else None,
-                        saved_manifest.REPLACES: None}
+        fields: dict = {"ltkId": ltk_id, "missing": None, "ltkStamp": list(stamp) if stamp else None}
         if facts is not None:
             fields.update(facts.to_manifest())
         with self._storage_lock:
             mod = self.saved_mod(relative_path)
-            superseded = saved_manifest.superseded(mod) if mod is not None else []
             if mod is not None and mod.stored is not None and "updatedAt" not in mod.metadata:
                 try:
                     fields["updatedAt"] = mod.stored.stat().st_mtime
                 except OSError:
                     pass
-            # Queued while this entry still names them: the session start never
-            # removes an entry a manifest names, should the write below fail
-            saved_manifest.queue_ltk_removal(self.mods_root, [ltk for _name, ltk in superseded if ltk])
             attached = saved_manifest.update_saved_mod(self.mods_root, relative_path, **fields)
-            if attached:
-                for name, _ltk_id in superseded:
-                    if name.casefold() != mod.name.casefold():  # else its image and description are this mod's
-                        self._delete_files_of(mod.directory, name)
             self._champion_listing_cache.clear()
         return attached
 
@@ -697,29 +694,11 @@ class ModStorageService:
             return False
         if mod.stored is not None:
             safe_remove_entry(mod.stored)
-        # The mod LTK Manager lost that this one took the place of is back
-        # under its name: the image and description are that mod's
-        if saved_manifest.find_saved_mod(self.mods_root, mod.relative_path, match_content=False) is None:
-            self._delete_sidecars(mod.directory, mod.name)
-        return True
-
-    def _delete_sidecars(self, directory: Path, name: str) -> None:
         for suffix in (*self.IMAGE_SIDECAR_SUFFIXES, self.DESCRIPTION_SIDECAR_SUFFIX):
-            sidecar = directory / f"{name}{suffix}"
+            sidecar = mod.sidecar(suffix)
             if sidecar.is_file():  # a folder of that name is another mod ("Example.txt")
                 safe_remove_entry(sidecar)
-
-    def _delete_files_of(self, directory: Path, name: str) -> None:
-        """Delete what Rose holds of the mod *name* no manifest entry names
-        any more: its archive or folder, its image and description."""
-        folder = directory / name
-        if folder.is_dir():
-            safe_remove_entry(folder)
-        for suffix in MOD_ARCHIVE_SUFFIXES:
-            archive = directory / f"{name}{suffix}"
-            if archive.is_file():
-                safe_remove_entry(archive)
-        self._delete_sidecars(directory, name)
+        return True
 
     def delete_champion_mod(
         self,
