@@ -18,6 +18,11 @@ Files nobody registered are still listed where they were before (a champion's
 or a legacy per-skin folder with default targets), so a mod dropped into the
 folder by hand keeps working.
 
+An entry taken out of a manifest leaves its LTK Manager entry, if any, in
+that manifest's pendingRemovals, in the same write: the next session start
+removes it from LTK Manager, then from the list. So a deletion is never half
+recorded, whatever stops Rose.
+
 Reading here has no side effects: nothing is created or cleaned up. Every
 writer of a mods manifest holds _STORAGE_LOCK and merges its fields into the
 entry as the file holds it now, so two writers never undo each other.
@@ -55,9 +60,9 @@ TARGET_METADATA = "rose_mod_targets.json"
 LEGACY_TARGET_METADATA = "rose_wad_targets.json"
 CATEGORY_METADATA = "rose_category_mods.json"
 ARCHIVE_SUFFIX = ".fantome"
-# The LTK Manager entries of saved mods deleted in Rose, removed from LTK
-# Manager at the next session start: {"ids": [...]}
-LTK_REMOVALS = "ltk_removals.json"
+# A manifest's list of the LTK Manager entries of its mods deleted in Rose,
+# still to remove from LTK Manager
+PENDING_REMOVALS = "pendingRemovals"
 
 _METADATA_NAMES = {TARGET_METADATA, LEGACY_TARGET_METADATA, CATEGORY_METADATA}
 
@@ -580,27 +585,37 @@ def _ltk_ids_in(payload: Optional[dict]) -> set[str]:
     }
 
 
-def named_ltk_ids(mods_root: Path) -> Optional[set[str]]:
-    """Every LTK Manager entry a saved mod's manifest names, the missing ones
-    too; None when a manifest cannot be read, so the entries it names are
-    unknown."""
-    ids: set[str] = set()
+def _removals_in(payload: Optional[dict]) -> List[str]:
+    raw = payload.get(PENDING_REMOVALS) if isinstance(payload, dict) else None
+    return list(dict.fromkeys(mod_id for mod_id in raw if is_ltk_id(mod_id))) if isinstance(raw, list) else []
+
+
+def _manifest_ids(mods_root: Path) -> tuple[set[str], List[str]]:
+    """(the LTK Manager entries the manifests' mods name, the missing ones
+    too; those their pendingRemovals list, in order)."""
+    named: set[str] = set()
+    removals: List[str] = []
     for directory in _directories(Path(mods_root)):
-        payload = _writable_manifest(directory)
-        if payload is None:
-            return None
-        ids |= _ltk_ids_in(payload)
-    return ids
+        payload = _read_directory_manifest(directory)
+        named |= _ltk_ids_in(payload)
+        removals.extend(_removals_in(payload))
+    return named, list(dict.fromkeys(removals))
 
 
 def manifest_ltk_ids(mods_root: Path) -> set[str]:
     """Every LTK Manager entry Rose added for a saved mod: each manifest's
-    ltkIds, the missing ones too, and those queued for removal. Cleaning up
+    ltkIds, the missing ones too, and those still to remove. Cleaning up
     after a game must never take one of them for a leftover."""
-    ids = set(ltk_removals(mods_root))
-    for directory in _directories(Path(mods_root)):
-        ids |= _ltk_ids_in(_read_directory_manifest(directory))
-    return ids
+    named, removals = _manifest_ids(mods_root)
+    return named | set(removals)
+
+
+def ltk_removals(mods_root: Path) -> List[str]:
+    """The LTK Manager entries of saved mods deleted in Rose, still to remove
+    (the manifests' pendingRemovals), but none a manifest's mod still names:
+    removing that one would take a saved mod's only copy."""
+    named, removals = _manifest_ids(mods_root)
+    return [mod_id for mod_id in removals if mod_id not in named]
 
 
 # --------------------------------------------------------------------------------------
@@ -640,12 +655,22 @@ def _named(directory: _Directory, mods: dict, name: str) -> List[str]:
     ]
 
 
-def _drop_entries(mods_root: Path, mods: dict, keys: Iterable[str]) -> None:
-    """Take these entries out of *mods*, their LTK Manager entries queued for
-    removal at the next session start first: one no manifest names any more
-    would stay in LTK Manager for good, as Rose would never know it again."""
+def _set_removals(payload: dict, ids: Iterable[object]) -> None:
+    removals = list(dict.fromkeys(mod_id for mod_id in ids if is_ltk_id(mod_id)))
+    if removals:
+        payload[PENDING_REMOVALS] = removals
+    else:
+        payload.pop(PENDING_REMOVALS, None)
+
+
+def _drop_entries(payload: dict, mods: dict, keys: Iterable[str]) -> None:
+    """Take these entries out of *mods*, their LTK Manager entries added to
+    the manifest's pendingRemovals in the same write: one no manifest named
+    any more would stay in LTK Manager for good, as Rose would never know it
+    again."""
     keys = list(keys)
-    queue_ltk_removal(mods_root, [mods[key].get("ltkId") for key in keys if isinstance(mods[key], dict)])
+    dropped = [mods[key].get("ltkId") for key in keys if isinstance(mods[key], dict)]
+    _set_removals(payload, [*_removals_in(payload), *dropped])
     for key in keys:
         del mods[key]
 
@@ -699,9 +724,9 @@ def update_saved_mod(mods_root: Path, relative_path: object, **fields: object) -
 
 def remove_saved_mod(mods_root: Path, mod: SavedMod) -> bool:
     """Take a saved mod out of its manifest: its entry, and any other under
-    its name, their LTK Manager entries queued for removal at the next
-    session start. False when the manifest cannot be read. Rose's copy and
-    the files beside the manifest are the caller's to delete."""
+    its name, their LTK Manager entries left to remove at the next session
+    start (_drop_entries). False when the manifest cannot be read. Rose's
+    copy and the files beside the manifest are the caller's to delete."""
     if not mod.key:
         return True  # a file nobody registered: no entry to take out
     if mod.kind == SKINS:
@@ -709,11 +734,11 @@ def remove_saved_mod(mods_root: Path, mod: SavedMod) -> bool:
     else:
         directory = _Directory(mod.kind, mod.directory, mod.kind)
 
-    def drop(_payload: dict, mods: dict) -> bool:
+    def drop(payload: dict, mods: dict) -> bool:
         removed = set(_named(directory, mods, mod.name))
         if mod.key in mods:
             removed.add(mod.key)
-        _drop_entries(mods_root, mods, removed)
+        _drop_entries(payload, mods, removed)
         return bool(removed)
 
     try:
@@ -722,6 +747,26 @@ def remove_saved_mod(mods_root: Path, mod: SavedMod) -> bool:
         log.warning(f"[MODS] The manifest of {mod.name} could not be read, so it was left unchanged")
         return False
     return True
+
+
+def forget_ltk_removals(mods_root: Path, ids: Iterable[str]) -> None:
+    """Take these entries (removed, or gone already) out of every manifest's
+    pendingRemovals. A manifest that cannot be read keeps them: a later
+    session start finds them gone."""
+    done = set(ids)
+
+    def forget(payload: dict, _mods: dict) -> bool:
+        pending = _removals_in(payload)
+        if not done & set(pending):
+            return False
+        _set_removals(payload, [mod_id for mod_id in pending if mod_id not in done])
+        return True
+
+    for directory in _directories(Path(mods_root)) if done else ():
+        try:
+            _change_manifest(directory, forget)
+        except UnreadableManifest as e:
+            log.debug(f"[MODS] {directory.manifest}: {e}")
 
 
 def add_saved_mod(mods_root: Path, archive: Path, facts: ModFacts, full_hash: str,
@@ -756,8 +801,8 @@ def add_saved_mod(mods_root: Path, archive: Path, facts: ModFacts, full_hash: st
     else:
         entry["path"] = name
 
-    def register(_payload: dict, mods: dict) -> bool:
-        _drop_entries(mods_root, mods, _named(directory, mods, name))
+    def register(payload: dict, mods: dict) -> bool:
+        _drop_entries(payload, mods, _named(directory, mods, name))
         key = full_hash if directory.kind == SKINS and full_hash not in mods else name
         mods[key] = entry
         return True
@@ -795,60 +840,6 @@ def _write_manifest(directory: _Directory, payload: dict, mods: dict) -> None:
         payload["category"] = directory.kind
     payload["mods"] = dict(sorted(mods.items()))
     _write_json(directory.manifest, payload)
-
-
-# --------------------------------------------------------------------------------------
-# LTK Manager entries to remove (saved mods deleted in Rose)
-# --------------------------------------------------------------------------------------
-
-def _removals_path(mods_root: Path) -> Path:
-    return Path(mods_root) / LTK_REMOVALS
-
-
-def ltk_removals(mods_root: Path) -> List[str]:
-    """The LTK Manager entries of saved mods deleted in Rose, still to remove."""
-    path = _removals_path(mods_root)
-    try:
-        document = json.loads(path.read_text(encoding="utf-8"))
-    except FileNotFoundError:
-        return []
-    except (OSError, ValueError) as e:
-        if str(path) not in _reported_manifests:
-            _reported_manifests.add(str(path))
-            log.warning(f"[MODS] Could not read {path}: {e}")
-        return []
-    ids = document.get("ids") if isinstance(document, dict) else None
-    if not isinstance(ids, list):
-        return []
-    return list(dict.fromkeys(mod_id for mod_id in ids if is_ltk_id(mod_id)))
-
-
-def queue_ltk_removal(mods_root: Path, ids: Iterable[str]) -> None:
-    """Have the next session start remove these LTK Manager entries. An
-    unreadable queue is replaced: it is a to-do list, and the entries it held
-    are only left behind in LTK Manager, as these would be otherwise."""
-    wanted = [mod_id for mod_id in ids if is_ltk_id(mod_id)]
-    if not wanted:
-        return
-    with _STORAGE_LOCK:
-        queued = ltk_removals(mods_root)
-        merged = list(dict.fromkeys([*queued, *wanted]))
-        if merged != queued:
-            _write_json(_removals_path(mods_root), {"ids": merged})
-
-
-def forget_ltk_removals(mods_root: Path, ids: Iterable[str]) -> None:
-    """Drop these entries from the removal queue (removed, or gone already)."""
-    done = set(ids)
-    with _STORAGE_LOCK:
-        queued = ltk_removals(mods_root)
-        remaining = [mod_id for mod_id in queued if mod_id not in done]
-        if remaining == queued:
-            return
-        if remaining:
-            _write_json(_removals_path(mods_root), {"ids": remaining})
-        else:
-            _removals_path(mods_root).unlink(missing_ok=True)
 
 
 # --------------------------------------------------------------------------------------

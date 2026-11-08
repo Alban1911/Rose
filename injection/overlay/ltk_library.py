@@ -523,11 +523,11 @@ def remove_rose_mods(overlay) -> int:
     """Remove from LTK Manager's library every entry Rose added there, for
     Rose's uninstaller when the user does not keep Rose's data (main's
     --remove-ltk-mods): only that data names them, so nothing would remove
-    them after. These are the saved mods' entries (the missing ones and those
-    queued for removal too), the copies games kept and the installs a Rose
-    that crashed left. The session's start-up cleanup removes those installs
-    and turns the user's own mods a game turned off back on, but leaves every
-    entry a manifest names: those are removed here.
+    them after. These are the saved mods' entries (the missing ones, and
+    those of deleted mods still to remove), the copies games kept and the
+    installs a Rose that crashed left. The session's start-up cleanup removes
+    those installs and turns the user's own mods a game turned off back on,
+    but leaves every entry a manifest names: those are removed here.
 
     Returns 0 when done (LTK Manager is not even started when Rose added
     nothing and turned nothing off), 1 when LTK Manager could not be reached,

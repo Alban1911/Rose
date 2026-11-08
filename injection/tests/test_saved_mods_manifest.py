@@ -7,6 +7,7 @@ import tempfile
 import unittest
 import zipfile
 from pathlib import Path
+from unittest.mock import patch
 
 from injection.mods import manifest, storage
 from injection.mods.manifest import (
@@ -18,7 +19,6 @@ from injection.mods.manifest import (
     ltk_removals,
     manifest_ltk_ids,
     pending_mods,
-    queue_ltk_removal,
     selection_available,
     update_saved_mod,
 )
@@ -314,30 +314,47 @@ class UpdateTests(SavedModsTestCase):
         self.assertEqual((self.annie / manifest.TARGET_METADATA).read_text(encoding="utf-8"), before)
 
 
-class RemovalQueueTests(SavedModsTestCase):
-    def test_queued_removals_round_trip(self):
-        queue_ltk_removal(self.mods_root, [GONE_ID, NEW_ID])
-        queue_ltk_removal(self.mods_root, [NEW_ID, "not-an-id"])
+class RemovalTests(SavedModsTestCase):
+    """A deleted mod's LTK Manager entry is left to remove in its manifest,
+    in the write that takes the mod out"""
 
-        self.assertEqual(ltk_removals(self.mods_root), [GONE_ID, NEW_ID])
+    def manifest_root(self, directory):
+        name = manifest.TARGET_METADATA if directory.parent.name == "skins" else manifest.CATEGORY_METADATA
+        return json.loads((directory / name).read_text(encoding="utf-8"))
+
+    def test_a_deleted_mods_entry_is_removed_then_forgotten(self):
+        self.assertTrue(manifest.remove_saved_mod(self.mods_root, self.annie_mods()["Moved Skin"]))
+        self.assertTrue(manifest.remove_saved_mod(self.mods_root, self.annie_mods()["Gone Skin"]))
+
+        payload = self.manifest_root(self.annie)
+        self.assertNotIn("Moved Skin", payload["mods"])
+        self.assertEqual(payload["pendingRemovals"], [MOVED_ID, GONE_ID])
+        self.assertEqual(ltk_removals(self.mods_root), [MOVED_ID, GONE_ID])
         forget_ltk_removals(self.mods_root, [GONE_ID])
-        self.assertEqual(ltk_removals(self.mods_root), [NEW_ID])
-        forget_ltk_removals(self.mods_root, [NEW_ID])
+        self.assertEqual(ltk_removals(self.mods_root), [MOVED_ID])
+        forget_ltk_removals(self.mods_root, [MOVED_ID])
         self.assertEqual(ltk_removals(self.mods_root), [])
-        self.assertFalse((self.mods_root / manifest.LTK_REMOVALS).exists())
+        self.assertNotIn("pendingRemovals", self.manifest_root(self.annie))
 
-    def test_an_unreadable_queue_is_replaced(self):
-        (self.mods_root / manifest.LTK_REMOVALS).write_text("{", encoding="utf-8")
+    def test_a_failed_write_leaves_nothing_to_remove(self):
+        with patch.object(manifest, "_write_manifest", side_effect=OSError("disk full")), \
+                self.assertRaises(OSError):
+            manifest.remove_saved_mod(self.mods_root, self.annie_mods()["Moved Skin"])
 
-        with self.assertLogs(level="WARNING"):
-            self.assertEqual(ltk_removals(self.mods_root), [])
-            queue_ltk_removal(self.mods_root, [NEW_ID])
+        self.assertEqual(ltk_removals(self.mods_root), [])
+        self.assertEqual(self.annie_mods()["Moved Skin"].ltk_id, MOVED_ID)
+
+    def test_an_entry_another_manifest_names_is_not_to_remove(self):
+        maps = self.manifest_root(self.maps)
+        write_json(self.maps / manifest.CATEGORY_METADATA, {**maps, "pendingRemovals": [MOVED_ID, NEW_ID]})
 
         self.assertEqual(ltk_removals(self.mods_root), [NEW_ID])
 
     def test_every_id_rose_added_is_known(self):
         self.write_annie_manifest(**{"dup-key": {"name": "Moved Skin", "targets": [1002], "ltkId": NEW_ID}})
-        queue_ltk_removal(self.mods_root, ["0f0f0f0f-0000-4000-8000-000000000000"])
+        maps = self.manifest_root(self.maps)
+        write_json(self.maps / manifest.CATEGORY_METADATA,
+                   {**maps, "pendingRemovals": ["0f0f0f0f-0000-4000-8000-000000000000", "not-an-id"]})
 
         self.assertEqual(manifest_ltk_ids(self.mods_root), {
             MOVED_ID, GONE_ID, NIGHT_ID, NEW_ID, "0f0f0f0f-0000-4000-8000-000000000000"})

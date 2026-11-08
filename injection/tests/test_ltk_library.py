@@ -507,7 +507,7 @@ class RemoveRoseModsTests(LtfSessionTestCase):
     """Rose's uninstaller, the user's data not kept: every entry Rose added to
     LTK Manager's library goes, as nothing would name it after"""
 
-    QUEUED = "0f0f0f0f-0000-4000-8000-000000000001"
+    DELETED = "0f0f0f0f-0000-4000-8000-000000000001"
     KEPT = "0f0f0f0f-0000-4000-8000-000000000002"
     INSTALLED = "0f0f0f0f-0000-4000-8000-000000000003"
     USERS = "0f0f0f0f-0000-4000-8000-000000000004"
@@ -521,8 +521,7 @@ class RemoveRoseModsTests(LtfSessionTestCase):
         manifest.write_text(json.dumps({"version": 1, "mods": {
             "VO Korean": {"name": "VO Korean", "path": "VO Korean", "ltkId": VO_ID},
             "Lost": {"name": "Lost", "path": "Lost", "ltkId": AATROX_ID, "missing": True},
-        }}), encoding="utf-8")
-        (self.mods_root / "ltk_removals.json").write_text(json.dumps({"ids": [self.QUEUED]}), encoding="utf-8")
+        }, "pendingRemovals": [self.DELETED]}), encoding="utf-8")
         source = self.mods_root / "maps" / "Rift.fantome"
         source.parent.mkdir()
         source.write_bytes(b"PK")
@@ -535,7 +534,7 @@ class RemoveRoseModsTests(LtfSessionTestCase):
         return ltk_library.remove_rose_mods(self.overlay)
 
     def test_every_entry_rose_added_goes_and_the_users_are_turned_back_on(self):
-        self.library((VO_ID, True), (self.QUEUED, False), (self.KEPT, False), (self.INSTALLED, True),
+        self.library((VO_ID, True), (self.DELETED, False), (self.KEPT, False), (self.INSTALLED, True),
                      (self.USERS, True), (self.USERS_OFF, False))
         self.state_path.write_text(json.dumps({
             "installed": {self.INSTALLED: "1001-EternalAspect"},
@@ -560,7 +559,6 @@ class RemoveRoseModsTests(LtfSessionTestCase):
 
     def test_nothing_rose_added_starts_no_ltk_manager(self):
         (self.mods_root / "voiceover" / "rose_category_mods.json").unlink()
-        (self.mods_root / "ltk_removals.json").unlink()
 
         self.assertEqual(self.remove(), 0)
 

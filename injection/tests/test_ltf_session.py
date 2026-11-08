@@ -1221,48 +1221,49 @@ class SavedLtkModTests(LtfSessionTestCase):
         self.assertNotIn(("uninstall", self.VO_ID), self.bridge.calls)
         self.assertEqual(self.state()["kept"], {})
 
+    def maps_removals(self, *ids):
+        """A maps manifest whose deleted mods' entries are still to remove"""
+        maps = self.overlay.saved_mods_root / "maps"
+        maps.mkdir()
+        (maps / "rose_category_mods.json").write_text(json.dumps(
+            {"version": 1, "category": "maps", "mods": {}, "pendingRemovals": list(ids)}), encoding="utf-8")
+        return maps / "rose_category_mods.json"
+
     def test_the_entries_of_saved_mods_deleted_in_rose_are_removed_when_a_session_starts(self):
         FakeBridge.initial_library.append(self.entry(self.OLD_ID, "Old map"))
-        queue = self.overlay.saved_mods_root / "ltk_removals.json"
-        queue.write_text(json.dumps({"ids": [self.OLD_ID, self.GONE_ID]}), encoding="utf-8")
+        saved_mods = self.overlay.saved_mods_root
+        maps = self.maps_removals(self.OLD_ID, self.GONE_ID)
+        self.assertTrue(manifest.remove_saved_mod(saved_mods, manifest.find_saved_mod(saved_mods, "voiceover/VO Korean")))
 
         self.overlay.start_patcher_early()
 
-        self.assertEqual([call for call in self.bridge.calls if call[0] == "uninstall"], [("uninstall", self.OLD_ID)])
-        self.assertFalse(queue.exists())
-        self.assertEqual([entry["id"] for entry in self.bridge.library_entries], [self.VO_ID])
+        self.assertEqual([call for call in self.bridge.calls if call[0] == "uninstall"],
+                         [("uninstall", self.OLD_ID), ("uninstall", self.VO_ID)])
+        self.assertEqual(self.bridge.library_entries, [])
+        self.assertNotIn("pendingRemovals", json.loads(maps.read_text(encoding="utf-8")))
+        self.assertEqual(manifest.ltk_removals(saved_mods), [])
 
-    def test_an_entry_a_manifest_still_names_is_never_removed_for_the_queue(self):
-        """A deletion queued the entry, then could not write the manifest:
-        the saved mod is still there, and LTK Manager holds its only copy"""
+    def test_a_deletion_whose_manifest_write_failed_removes_nothing(self):
+        """The saved mod is still there, and LTK Manager holds its only copy"""
         saved_mods = self.overlay.saved_mods_root
         voiceover = manifest.find_saved_mod(saved_mods, "voiceover/VO Korean")
         with patch.object(manifest, "_write_manifest", side_effect=OSError("disk full")), \
                 self.assertRaises(OSError):
             manifest.remove_saved_mod(saved_mods, voiceover)
-        self.assertEqual(manifest.ltk_removals(saved_mods), [self.VO_ID])
 
         self.overlay.start_patcher_early()
 
         self.assertNotIn(("uninstall", self.VO_ID), self.bridge.calls)
         self.assertEqual([entry["id"] for entry in self.bridge.library_entries], [self.VO_ID])
-        self.assertEqual(manifest.ltk_removals(saved_mods), [])
+        self.assertIsNotNone(manifest.find_saved_mod(saved_mods, "voiceover/VO Korean"))
 
-    def test_no_entry_is_removed_for_the_queue_while_a_manifest_cannot_be_read(self):
-        """A locked manifest may name a queued entry: it waits for a session
-        that can read them all"""
-        FakeBridge.initial_library.append(self.entry(self.OLD_ID, "Old map"))
-        saved_mods = self.overlay.saved_mods_root
-        manifest.queue_ltk_removal(saved_mods, [self.OLD_ID])
-        maps = saved_mods / "maps"
-        maps.mkdir()
-        (maps / "rose_category_mods.json").write_text('{"version": 1, "mods": {', encoding="utf-8")
+    def test_an_entry_another_manifest_still_names_is_never_removed(self):
+        self.maps_removals(self.VO_ID)
 
-        with self.assertLogs(level="WARNING"):
-            self.overlay.start_patcher_early()
+        self.overlay.start_patcher_early()
 
-        self.assertNotIn(("uninstall", self.OLD_ID), self.bridge.calls)
-        self.assertEqual(manifest.ltk_removals(saved_mods), [self.OLD_ID])
+        self.assertNotIn(("uninstall", self.VO_ID), self.bridge.calls)
+        self.assertEqual([entry["id"] for entry in self.bridge.library_entries], [self.VO_ID])
 
     def test_a_discard_while_staging_reads_the_library_leaves_it_off(self):
         """The discard's cleanup ran before the switch-on: nothing would switch it off"""
