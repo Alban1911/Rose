@@ -36,14 +36,12 @@ class CategoryModHistoricTests(unittest.TestCase):
         self.manager.injector.overlay_manager.mk_run_overlay.return_value = 0
         self.trigger = InjectionTrigger(MagicMock(), self.state, self.manager)
         self.trigger._force_base_skin = MagicMock()
-        self.storage = MagicMock()
-        self.storage.mods_root = self.root / 'library'
+        self.storage = ModStorageService(self.root / 'library')
         self.source = self.storage.mods_root / 'vfx' / 'Saved VFX'
         self.source.mkdir(parents=True)
-        self.storage.CATEGORY_VFX = 'vfx'
-        self.storage.list_mods_for_category.side_effect = lambda category: [
-            {'id': 'vfx/Saved VFX', 'path': 'vfx/Saved VFX', 'name': 'Saved VFX'},
-        ] if category == 'vfx' else []
+        (self.source.parent / self.storage.CATEGORY_METADATA).write_text(json.dumps({
+            'mods': {'Saved VFX': {'name': 'Saved VFX', 'path': 'Saved VFX'}},
+        }), encoding='utf-8')
         for target, kwargs in (
             ('injection.mods.storage.ModStorageService', {'return_value': self.storage}),
             ('utils.core.historic.get_historic_skin_for_champion', {'return_value': None}),
@@ -169,6 +167,19 @@ class CategoryHistoricRoundtripTests(unittest.TestCase):
         self.assertEqual(json.loads(self.history.read_text()), {})
         self.assertEqual(self.restore(), [])
         self.manager.injector.overlay_manager.mk_run_overlay.assert_not_called()
+
+    def test_a_saved_mod_still_named_by_the_zip_rose_kept_is_selected(self):
+        """A selection the migration could not rename names the .zip Rose kept of the mod"""
+        maps = self.storage.mods_root / 'maps'
+        (maps / self.storage.CATEGORY_METADATA).write_text(json.dumps({
+            'mods': {'Rift': {'name': 'Rift', 'path': 'Rift', 'ltkId': LTK_ID}},
+        }), encoding='utf-8')
+        (maps / 'Rift.zip').write_bytes(b'PK\x05\x06' + bytes(18))
+
+        selected = self.trigger._find_saved_mod(self.storage, 'maps', 'maps/Rift.zip')
+
+        self.assertEqual((selected['ltk_id'], selected['relative_path']), (LTK_ID, 'maps/Rift.fantome'))
+        self.assertIsNone(self.trigger._find_saved_mod(self.storage, 'fonts', 'maps/Rift.zip'))
 
     def test_the_cleanup_after_a_game_keeps_a_saved_mod_ltk_manager_holds(self):
         """Its archive is no longer in Rose: a file check took it for deleted"""

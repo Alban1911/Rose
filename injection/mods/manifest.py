@@ -99,6 +99,24 @@ class SavedMod:
         return bool(self.ltk_id and not self.missing) or self.pending
 
     @property
+    def own_folder(self) -> Optional[Path]:
+        """Rose's copy when it is a pending mod's folder, which holds the
+        mod's preview image and description itself (META/image.png,
+        description.txt). None for any other mod: those sit beside the
+        manifest under its name, one LTK Manager holds included even while a
+        folder copy of it is left, as that copy is about to go."""
+        return self.stored if self.pending and self.stored.is_dir() else None
+
+    def image_paths(self) -> tuple[Path, Path]:
+        """Where its preview image is, the PNG first (.fantome mods ship a
+        PNG, .modpkg a WebP): in its own folder's META, else beside the
+        manifest."""
+        folder = self.own_folder
+        if folder is not None:
+            return folder / "META" / "image.png", folder / "META" / "image.webp"
+        return self.sidecar(".png"), self.sidecar(".webp")
+
+    @property
     def injection_name(self) -> str:
         """Its name in the injection's mods folder: the LTK reference for a
         mod LTK Manager holds, else the stored folder's name or the archive's

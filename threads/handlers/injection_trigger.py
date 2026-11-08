@@ -238,12 +238,15 @@ class InjectionTrigger:
         info = log.debug if quiet else log.info
         warning = log.debug if quiet else log.warning
         historic_custom_mod_path = None
+        saved = None
         try:
+            from injection.mods.storage import ModStorageService
             from utils.core.historic import (
                 get_historic_skin_for_champion,
                 is_custom_mod_path,
                 get_custom_mod_path,
             )
+            from utils.core.utilities import get_champion_id_from_skin_id
 
             champ_id = self.state.locked_champ_id or self.state.hovered_champ_id
             historic_value = get_historic_skin_for_champion(champ_id) if champ_id else None
@@ -253,43 +256,34 @@ class InjectionTrigger:
             # Only auto-select if the stored custom-mod path matches the skin we're injecting.
             # This avoids injecting a random mod from another skin.
             if historic_custom_mod_path:
-                path_parts = historic_custom_mod_path.replace("\\", "/").split("/")
-                if len(path_parts) >= 2 and path_parts[0] == "skins":
-                    from injection.mods.storage import ModStorageService
-                    mod_storage = ModStorageService()
-                    matching_entry = None
-                    for entry in mod_storage.list_mods_for_champion(champ_id):
-                        try:
-                            relative_path = str(
-                                entry.path.relative_to(mod_storage.mods_root)
-                            ).replace(chr(92), "/")
-                        except (ValueError, AttributeError):
-                            continue
-                        if relative_path.casefold() == historic_custom_mod_path.casefold():
-                            matching_entry = entry
-                            break
+                mod_storage = ModStorageService()
+                saved = mod_storage.saved_mod(historic_custom_mod_path)
+                if saved is not None and (
+                    saved.storage_id is None or get_champion_id_from_skin_id(saved.storage_id) != champ_id
+                ):
+                    saved = None
 
-                    current_skin_id = effective_skin_id or ui_skin_id
-                    historic_mode_active = getattr(
-                        self.state, "historic_mode_active", False
+                current_skin_id = effective_skin_id or ui_skin_id
+                historic_mode_active = getattr(
+                    self.state, "historic_mode_active", False
+                )
+                if (
+                    not historic_mode_active
+                    and (
+                        not saved
+                        or current_skin_id is None
+                        or not (
+                            self._get_entry_target_skin_ids(saved)
+                            & self._get_compatible_skin_ids(current_skin_id)
+                        )
                     )
-                    if (
-                        not historic_mode_active
-                        and (
-                            not matching_entry
-                            or current_skin_id is None
-                            or not (
-                                self._get_entry_target_skin_ids(matching_entry)
-                                & self._get_compatible_skin_ids(current_skin_id)
-                            )
-                        )
-                    ):
-                        info(
-                            "[HISTORIC] Saved custom mod does not affect "
-                            "current skin %s; historic auto-selection skipped",
-                            current_skin_id,
-                        )
-                        historic_custom_mod_path = None
+                ):
+                    info(
+                        "[HISTORIC] Saved custom mod does not affect "
+                        "current skin %s; historic auto-selection skipped",
+                        current_skin_id,
+                    )
+                    historic_custom_mod_path = None
         except Exception as e:
             warning(f"[HISTORIC] Could not look up the saved custom mod: {e}")
             historic_custom_mod_path = None
@@ -297,33 +291,14 @@ class InjectionTrigger:
         if not historic_custom_mod_path:
             return None
         try:
-            from injection.mods.storage import ModStorageService
             from utils.core.historic import get_historic_target_for_champion
-            from utils.core.utilities import get_champion_id_from_skin_id
-            mod_storage = ModStorageService()
 
-            # Extract the champion storage ID from the mod path
-            # (format: skins/{champion_id}000/{mod_name}).
-            path_parts = historic_custom_mod_path.replace("\\", "/").split("/")
-            if not (len(path_parts) >= 2 and path_parts[0] == "skins"):
-                warning(f"[HISTORIC] Invalid saved custom mod path format: {historic_custom_mod_path}")
-                return None
-            historic_storage_skin_id = int(path_parts[1])
-            champion_id = get_champion_id_from_skin_id(historic_storage_skin_id)
-
-            # Find the mod in storage
-            selected_mod_entry = None
-            for entry in mod_storage.list_mods_for_champion(champion_id):
-                # Match by relative path
-                relative_path = str(entry.path.relative_to(mod_storage.mods_root)).replace("\\", "/")
-                if relative_path == historic_custom_mod_path:
-                    selected_mod_entry = entry
-                    break
-            if not selected_mod_entry:
+            if saved is None:
                 warning(f"[HISTORIC] Saved custom mod not found in storage: {historic_custom_mod_path}")
                 return None
+            champion_id = get_champion_id_from_skin_id(saved.storage_id)
 
-            target_skin_ids = self._get_entry_target_skin_ids(selected_mod_entry)
+            target_skin_ids = self._get_entry_target_skin_ids(saved)
             current_skin_id = effective_skin_id or ui_skin_id
             target_skin_id = current_skin_id
             historic_target_skin_id = get_historic_target_for_champion(
@@ -338,18 +313,13 @@ class InjectionTrigger:
                 target_skin_id = next(iter(sorted(target_skin_ids)), int(champion_id) * 1000)
             selection = {
                 "skin_id": int(target_skin_id),
-                "storage_skin_id": selected_mod_entry.skin_id,
+                "storage_skin_id": saved.storage_id,
                 "target_skin_ids": sorted(target_skin_ids),
                 "champion_id": champion_id,
-                "mod_name": selected_mod_entry.mod_name,
-                "display_name": selected_mod_entry.display_name,
-                "relative_path": historic_custom_mod_path,
-                **saved_selection(
-                    selected_mod_entry.path,
-                    selected_mod_entry.ltk_id,
-                    selected_mod_entry.missing,
-                    selected_mod_entry.facts,
-                ),
+                "mod_name": saved.name,
+                "display_name": saved.display_name,
+                "relative_path": saved.relative_path,
+                **saved_selection(saved.path(mod_storage.mods_root), saved.ltk_id, saved.missing, saved.facts),
             }
             if not selection_available(selection):
                 warning(f"[HISTORIC] Saved custom mod is missing from LTK Manager: {historic_custom_mod_path}")
@@ -363,26 +333,19 @@ class InjectionTrigger:
 
     @staticmethod
     def _find_saved_mod(mod_storage, category: str, historic_path) -> Optional[dict]:
-        """A saved mod (mod_historic.json) as trigger_injection selects it
-        (mod_name, relative_path and saved_selection's keys), or None when the
-        mods storage does not list it. It may not be available: check
-        selection_available."""
-        wanted = str(historic_path).replace("\\", "/")
-        for entry_dict in mod_storage.list_mods_for_category(category):
-            entry_id = entry_dict.get("id") or ""
-            if entry_id.replace("\\", "/") == wanted:
-                entry_path_str = entry_dict.get("path", "").replace("/", "\\")
-                return {
-                    "mod_name": entry_dict.get("name", ""),
-                    "relative_path": str(historic_path),
-                    **saved_selection(
-                        mod_storage.mods_root / entry_path_str,
-                        entry_dict.get("ltkId"),
-                        entry_dict.get("missing"),
-                        entry_dict.get("facts"),
-                    ),
-                }
-        return None
+        """A saved mod of *category* (mod_historic.json) as trigger_injection
+        selects it (mod_name, relative_path: its identity, and
+        saved_selection's keys), or None when the mods storage has none by
+        that path, which may be one it had before (ModStorageService.saved_mod).
+        It may not be available: check selection_available."""
+        mod = mod_storage.saved_mod(str(historic_path))
+        if mod is None or mod.kind != category:
+            return None
+        return {
+            "mod_name": mod.name,
+            "relative_path": mod.relative_path,
+            **saved_selection(mod.path(mod_storage.mods_root), mod.ltk_id, mod.missing, mod.facts),
+        }
 
     @staticmethod
     def _saved_other_mod_paths(historic_mods: dict) -> list:

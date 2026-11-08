@@ -86,20 +86,6 @@ BACKGROUND_MESSAGE_TYPES = frozenset({
 })
 
 
-def _mod_thumbnail(mod_path: Path) -> Optional[Path]:
-    """Return a saved mod's preview image (.fantome mods ship a PNG, .modpkg a
-    WebP): in a stored folder's META, else beside the manifest under the mod's
-    name, where it stays once LTK Manager holds the mod and Rose has no file."""
-    if mod_path.is_dir():
-        candidates = [mod_path / "META" / name for name in ("image.png", "image.webp")]
-    else:
-        candidates = [mod_path.with_suffix(suffix) for suffix in (".png", ".webp")]
-    for thumbnail_path in candidates:
-        if thumbnail_path.is_file():
-            return thumbnail_path
-    return None
-
-
 def _image_editable(mod_path: Path) -> bool:
     """A stored folder holds its image (META/image.png); an archive has it
     beside it, under its name (ModStorageService.set_champion_mod_image)."""
@@ -107,11 +93,13 @@ def _image_editable(mod_path: Path) -> bool:
 
 
 def _mod_thumbnail_details(
-    mod_folder: Path,
+    image_files: Sequence[Path],
     mods_root: Path,
     port: int,
 ) -> tuple[Optional[str], Optional[str]]:
-    thumbnail_path = _mod_thumbnail(mod_folder)
+    """A saved mod's preview image, the first of its *image_files*
+    (SavedMod.image_paths) there is, as the plugins load it."""
+    thumbnail_path = next((path for path in image_files if path.is_file()), None)
     if thumbnail_path is None:
         return None, None
     relative_path = str(thumbnail_path.relative_to(mods_root)).replace("\\", "/")
@@ -1274,7 +1262,7 @@ class MessageHandler:
         thumbnail_url = None
         try:
             thumbnail_relative_path, thumbnail_url = _mod_thumbnail_details(
-                entry.path,
+                entry.image_files,
                 self.mod_storage.mods_root,
                 self.port,
             )

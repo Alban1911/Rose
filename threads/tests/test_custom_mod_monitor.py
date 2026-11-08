@@ -187,16 +187,19 @@ class SavedLtkModInjectionTests(CustomModInjectionCase):
 
         self.injector.overlay_manager.mk_run_overlay.assert_not_called()
 
-    def saved_custom_mod(self, **entry):
-        """The custom mod the last game saved for Ahri, as the trigger restores it"""
+    def saved_custom_mod(self, historic="skins/103000/Mod.fantome", copy=None, **entry):
+        """The custom mod the last game saved for Ahri (*historic*), as the
+        trigger restores it; *copy* is a file Rose still holds of it"""
         storage = ModStorageService(self.root / "library")
         manifest = storage.get_champion_dir(103) / ModStorageService.TARGET_METADATA
         manifest.parent.mkdir(parents=True)
         manifest.write_text(json.dumps({"version": 1, "mods": {
             "Mod": {"name": "Mod", "targets": [103001], "ltkId": SKIN_ID, **entry},
         }}), encoding="utf-8")
+        if copy:
+            (manifest.parent / copy).write_bytes(b"PK\x05\x06" + bytes(18))
         with patch("injection.mods.storage.ModStorageService", return_value=storage), \
-                patch("utils.core.historic.get_historic_skin_for_champion", return_value="path:skins/103000/Mod.fantome"), \
+                patch("utils.core.historic.get_historic_skin_for_champion", return_value=f"path:{historic}"), \
                 patch("utils.core.historic.get_historic_target_for_champion", return_value=None):
             return self.trigger._saved_custom_mod(103001, 103001)
 
@@ -207,6 +210,13 @@ class SavedLtkModInjectionTests(CustomModInjectionCase):
 
         self.assertEqual(selection["mod_folder_name"], ltk_ref(SKIN_ID))
         self.assertEqual((selection["ltk_id"], selection["facts"]), (SKIN_ID, facts.to_manifest()))
+        self.assertEqual(selection["relative_path"], "skins/103000/Mod.fantome")
+
+    def test_a_saved_custom_mod_still_named_by_the_zip_rose_kept_is_restored(self):
+        """A selection the migration could not rename names the .zip Rose kept of the mod"""
+        selection = self.saved_custom_mod(historic="skins/103000/Mod.zip", copy="Mod.zip")
+
+        self.assertEqual((selection["ltk_id"], selection["mod_folder_name"]), (SKIN_ID, ltk_ref(SKIN_ID)))
         self.assertEqual(selection["relative_path"], "skins/103000/Mod.fantome")
 
     def test_a_saved_custom_mod_ltk_manager_lost_is_not_restored(self):

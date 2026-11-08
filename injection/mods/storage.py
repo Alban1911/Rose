@@ -112,6 +112,7 @@ class SkinModEntry:
     missing: bool = False  # the last sync found LTK Manager's entry gone
     stored: Optional[Path] = None  # Rose's copy, if there is one
     facts: Optional[ModFacts] = None
+    image_files: tuple[Path, ...] = ()  # where its preview image is (SavedMod.image_paths)
 
     @property
     def pending(self) -> bool:
@@ -742,8 +743,9 @@ class ModStorageService:
         relative_path: str,
         image_data: bytes | Path,
     ) -> Path:
-        """Atomically add or replace a skin mod's preview image: a mod stored
-        as a folder holds it (META/image.png), any other has it beside the
+        """Atomically add or replace a skin mod's preview image where the
+        listing reads it (SavedMod.image_paths): a pending mod stored as a
+        folder holds it (META/image.png), any other has it beside the
         manifest under its name, as its archive (LTK Manager's, or Rose's
         while it is pending) stays as LTK Manager installs it."""
         champion_id_int = self._to_int(champion_id)
@@ -774,8 +776,8 @@ class ModStorageService:
             if get_champion_id_from_skin_id(mod.storage_id) != champion_id_int:
                 raise ValueError("Skin mod does not belong to the selected champion")
 
-            target = mod.stored
-            if target is None or not target.is_dir():
+            target = mod.own_folder
+            if target is None:
                 image_path = mod.sidecar(".png")
                 with atomic_write(image_path, "wb", durable=False) as handle:
                     handle.write(image_data)
@@ -860,6 +862,7 @@ class ModStorageService:
                 missing=mod.missing,
                 stored=mod.stored,
                 facts=mod.facts,
+                image_files=mod.image_paths(),
             )
             for mod in saved_manifest.iter_saved_mods(self.mods_root, self.CATEGORY_SKINS, champion_id=champion_id_int)
         )
@@ -910,10 +913,12 @@ class ModStorageService:
 
     @classmethod
     def _read_mod_description(cls, mod: SavedMod) -> Optional[str]:
-        """A saved mod's description: a mod stored as a folder holds it, any
-        other has it beside the manifest, under its name."""
-        if mod.stored is not None and mod.stored.is_dir():
-            description_file = mod.stored / "description.txt"
+        """A saved mod's description: a pending mod stored as a folder holds
+        it, any other has it beside the manifest, under its name
+        (SavedMod.own_folder)."""
+        folder = mod.own_folder
+        if folder is not None:
+            description_file = folder / "description.txt"
         else:
             description_file = mod.sidecar(cls.DESCRIPTION_SIDECAR_SUFFIX)
         try:

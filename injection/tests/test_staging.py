@@ -24,6 +24,7 @@ from injection.core.stage_plan import (
 )
 from injection.mods.fingerprint import mod_fingerprint
 from injection.mods.ltk_ref import ltk_ref
+from injection.mods.manifest import SavedMod
 from injection.mods.mod_facts import ModFacts
 from injection.overlay import overlay_manager
 from injection.overlay.overlay_manager import LtkLogTail
@@ -801,11 +802,20 @@ class FakeModStorage:
         self.mods_root = Path(root)
         self.entries = list(entries)
 
-    def list_mods_for_category(self, category):
-        return [entry for entry in self.entries if entry["id"].split("/", 1)[0] == category]
-
-    def list_mods_for_champion(self, champion_id):
-        return []
+    def saved_mod(self, relative_path):
+        """The listed mod known as *relative_path* (ModStorageService.saved_mod)"""
+        wanted = str(relative_path).replace("\\", "/").casefold()
+        entry = next((e for e in self.entries if e["id"].casefold() == wanted), None)
+        if entry is None:
+            return None
+        kind = entry["id"].split("/", 1)[0]
+        stored = self.mods_root / entry["path"]
+        return SavedMod(
+            kind=kind, directory=self.mods_root / kind, key=entry["name"], name=entry["name"],
+            relative_path=entry["id"], ltk_id=entry.get("ltkId"), missing=bool(entry.get("missing")),
+            stored=stored if stored.exists() else None, facts=None, display_name=None,
+            target_skin_ids=(), updated_at=0.0, metadata={},
+        )
 
 
 class StagingPlanTests(unittest.TestCase):
