@@ -2199,6 +2199,18 @@ class RestartMissedGameTests(LtfSessionTestCase):
         self.assertEqual(self.killed, [self.game])  # created before the scan: restarted
         self.assertEqual(len(self.reconnects), 1)
 
+    def ended_with_the_test(self, session):
+        """End *session* and its watcher with the test: a watcher left running
+        resumes its game under the next test's patches, and its report lands in
+        that test's (unittest runs these before the auto-resume one)"""
+        def end():
+            self.overlay._end_session(session)
+            thread = session.get("hold_thread")
+            if thread is not None:
+                thread.join(2)
+        self.addCleanup(end)
+        return session
+
     def lobby_cleanup_then_countdown(self):
         """The lobby's cleanup marks a stop even with no session running (03:53:38),
         then a countdown begins"""
@@ -2209,7 +2221,7 @@ class RestartMissedGameTests(LtfSessionTestCase):
     def test_a_stop_before_the_countdown_does_not_end_its_watcher(self):
         """The game ran unfrozen: the staged patcher's watcher quit on the lobby's stop"""
         self.game = self.running = self._game()
-        session = self._session()
+        session = self.ended_with_the_test(self._session())
         self.lobby_cleanup_then_countdown()
 
         self._watch(session)
@@ -2230,7 +2242,7 @@ class RestartMissedGameTests(LtfSessionTestCase):
     def test_a_restart_for_another_pick_after_a_lobby_cleanup_waits_for_the_last_build(self):
         """The staged patcher's restart gave up at once ("already running"), the
         injection then waited 4.5s with no watcher, and the game started in between"""
-        session = self._session()
+        session = self.ended_with_the_test(self._session())
         self.lobby_cleanup_then_countdown()
         starts = []
 
