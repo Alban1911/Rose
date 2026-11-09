@@ -49,7 +49,6 @@ class CategoryModHistoricTests(unittest.TestCase):
             ('utils.core.mod_historic.write_historic_mod', {}),
             ('utils.core.historic.write_historic_entry', {}),
             ('utils.core.historic.write_historic_target', {}),
-            ('injection.mods.mod_source.get_injection_dir', {'return_value': self.root / 'injection'}),
         ):
             patcher = patch(target, **kwargs)
             patcher.start()
@@ -127,7 +126,6 @@ class CategoryHistoricRoundtripTests(unittest.TestCase):
             ('utils.core.mod_historic._mod_historic_file_path', {'return_value': self.history}),
             ('injection.mods.storage.ModStorageService', {'return_value': self.storage}),
             ('utils.core.historic.get_historic_skin_for_champion', {'return_value': None}),
-            ('injection.mods.mod_source.get_injection_dir', {'return_value': self.root / 'injection'}),
             ('injection.mods.mod_source.link_or_extract', {'side_effect': self.link}),
         ):
             patcher = patch(target, **kwargs)

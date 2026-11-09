@@ -21,7 +21,6 @@ from injection.core.stage_plan import (
     prepare_plan,
     skin_plan,
 )
-from injection.mods import mod_source as mod_source_module
 from injection.mods.fingerprint import mod_fingerprint
 from injection.mods.ltk_ref import ltk_ref
 from injection.mods.manifest import SavedMod
@@ -117,11 +116,11 @@ class OverlayStagingTests(LtfSessionTestCase):
         cache = self.root / "injection" / ".extract_cache"
         self.make_mod("Rift", "Rift", where=cache, wad=b"map")
         skin = self.make_mod(where=self.stage_dir)
-        link_or_extract(cache / "Rift", self.stage_dir / "Rift", cache_dir=cache)
+        link_or_extract(cache / "Rift", self.stage_dir / "Rift")
         self.assertTrue(self.overlay.stage_mods(self.stage_dir, [skin, "Rift"]))
         before = list(self.bridge.calls)
         self.make_mod()  # the injection extracts the skin and links the map again
-        link_or_extract(cache / "Rift", self.mods / "Rift", cache_dir=cache)
+        link_or_extract(cache / "Rift", self.mods / "Rift")
 
         result = self.overlay.mk_run_overlay([skin, "Rift"], stop_callback=lambda: True)
 
@@ -855,7 +854,6 @@ class StagingPlanTests(unittest.TestCase):
             patch("utils.core.historic.get_historic_skin_for_champion", return_value=None),
             patch("utils.core.mod_historic.load_mod_historic", side_effect=lambda: dict(self.saved)),
             patch("injection.mods.storage.ModStorageService", side_effect=lambda: self.storage),
-            patch("injection.mods.mod_source.get_injection_dir", return_value=self.mods_root / "injection"),
         ):
             patcher.start()
             self.addCleanup(patcher.stop)
@@ -1017,9 +1015,6 @@ class PreparePlanTests(unittest.TestCase):
         self.target.mkdir(parents=True)
         self.injector = MagicMock()
         self.injector.game_dir = self.root / "game"
-        cache = patch.object(mod_source_module, "get_injection_dir", return_value=self.root / "injection")
-        cache.start()
-        self.addCleanup(cache.stop)
 
     def mod_folder(self, name, data=b"mod"):
         folder = self.root / "mods" / name

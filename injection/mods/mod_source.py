@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import Optional, Union
 
 from utils.core.junction import is_junction, link_or_extract, safe_remove_entry
-from utils.core.paths import get_injection_dir
 
 from .ltk_ref import ltk_ref
 from .mod_facts import ModFacts
@@ -43,7 +42,7 @@ class RoseFile:
         dest = Path(mods_dir) / self.linked_name
         if dest.exists() or is_junction(dest):
             safe_remove_entry(dest)
-        link_or_extract(self.path, dest, cache_dir=get_injection_dir() / ".extract_cache")
+        link_or_extract(self.path, dest)
         return self.linked_name if dest.exists() or is_junction(dest) else None
 
     def take_back(self, mods_dir: Path) -> None:

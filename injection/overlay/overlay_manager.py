@@ -28,6 +28,7 @@ from ..mods.fantome import fantome_display_name, write_fantome_zip
 from ..mods.fingerprint import mod_fingerprint
 from ..mods.ltk_ref import split_mod_names
 from ..mods.mod_files import is_mod_archive
+from utils.core.modpkg import is_modpkg
 from .ltf_report import (
     LATE_JOIN_MESSAGE,
     LTF_LOGS_HINT,
@@ -395,7 +396,7 @@ class OverlayManager:
         wanted = []
         for name in files:
             folder = folder_dir / name
-            if not folder.is_dir() and not is_mod_archive(folder):
+            if not folder.is_dir() and not is_mod_archive(folder) and not is_modpkg(folder):
                 log.error(f"[INJECT] Mod not found: {folder}")
                 continue
             try:

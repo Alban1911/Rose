@@ -20,6 +20,7 @@ import psutil
 from utils.core.issue_reporter import report_issue
 from utils.core.junction import link_file
 from utils.core.logging import get_logger
+from utils.core.modpkg import MODPKG_SUFFIX, is_modpkg
 from utils.core.paths import get_user_data_dir
 from ..mods.fantome import fantome_display_name, write_fantome_zip
 from ..mods.manifest import lives_in_ltk, manifest_ltk_ids
@@ -166,9 +167,13 @@ def heavy_builtin_mods(settings: dict) -> List[str]:
 
 
 def archive_for_ltk(mod: Path, dest: Path) -> Path:
-    """Put at *dest* the .fantome LTK Manager installs for the mod at *mod*:
-    an archive goes as it is (a hard link, however large), a folder is packed."""
+    """Put at *dest* the .fantome LTK Manager installs for the mod at *mod*,
+    and return where it is: an archive goes as it is (a hard link, however
+    large), a .modpkg under that suffix (LTK Manager reads the format by
+    it), a folder is packed."""
     if mod.is_file():
+        if is_modpkg(mod):
+            dest = dest.with_suffix(MODPKG_SUFFIX)
         link_file(mod, dest)
         log.debug(f"[INJECT] {mod.name} goes to LTK Manager as it is")
     else:

@@ -325,8 +325,9 @@ def _stored_candidates(directory: Path) -> List[tuple[Path, bool]]:
 
 
 def _unstored_modpkg(candidate: Path) -> bool:
-    """Whether *candidate* is a .modpkg file: never what Rose stores a mod as,
-    and reading it would mean unpacking it."""
+    """Whether *candidate* is a .modpkg file: never what Rose stores a custom
+    skin as (only a category's mod is kept as one), and hashing it would mean
+    unpacking it."""
     return candidate.is_file() and candidate.suffix.lower() == MODPKG_SUFFIX
 
 

@@ -139,6 +139,7 @@ class ModPackage:
             placed.add((folder, path_hash))
             self._wad_files[f"WAD/{folder}/{path_hash:016x}{_extension(stored_path)}"] = record
         self.optional_layers = sorted(optional_layers)
+        self._cached_layout: Optional[dict[str, Union[bytes, _Record]]] = None
 
     @classmethod
     @contextmanager
@@ -226,23 +227,53 @@ class ModPackage:
 
     def _layout(self) -> dict[str, Union[bytes, _Record]]:
         """Relative path -> the bytes or package file it holds, for the unpacked mod"""
-        layout: dict[str, Union[bytes, _Record]] = {"META/info.json": self._info_json()}
-        thumbnail = self._meta_file(_THUMBNAIL_PATH)
-        if thumbnail is not None:
-            layout["META/image.webp"] = thumbnail
-        layout.update(self._wad_files)
+        layout = self._cached_layout
+        if layout is None:
+            layout = {"META/info.json": self._info_json()}
+            thumbnail = self._meta_file(_THUMBNAIL_PATH)
+            if thumbnail is not None:
+                layout["META/image.webp"] = thumbnail
+            layout.update(self._wad_files)
+            self._cached_layout = layout
         return layout
 
     def file_paths(self) -> list[str]:
         """Relative paths of the files in the unpacked mod, without reading them"""
         return sorted(self._layout())
 
+    def read_file(self, relative_path: str) -> bytes:
+        """The bytes of one file of the unpacked mod, by its path in file_paths
+        (KeyError when it has none)"""
+        source = self._layout()[relative_path]
+        return source if isinstance(source, bytes) else self.read(source)
+
+    def file_size(self, relative_path: str) -> int:
+        """The size of one file of the unpacked mod, without reading it (KeyError when it has none)"""
+        source = self._layout()[relative_path]
+        return len(source) if isinstance(source, bytes) else source.uncompressed_size
+
     def iter_files(self) -> Iterator[tuple[str, bytes]]:
         """(relative path, bytes) of every file in the unpacked mod, sorted by path"""
-        layout = self._layout()
-        for relative_path in sorted(layout):
-            source = layout[relative_path]
-            yield relative_path, source if isinstance(source, bytes) else self.read(source)
+        for relative_path in self.file_paths():
+            yield relative_path, self.read_file(relative_path)
+
+
+def is_modpkg(path: Union[str, Path]) -> bool:
+    """Whether the file at *path* is a .modpkg package, whatever its name (a
+    package linked into the injection's mods folder has no extension)."""
+    try:
+        with open(path, "rb") as handle:
+            return handle.read(len(_MAGIC)) == _MAGIC
+    except OSError:  # missing, or a folder
+        return False
+
+
+def check_modpkg(path: Union[str, Path]) -> None:
+    """Raise ModpkgError unless *path* is a .modpkg Rose can inject: its
+    header and table of contents readable, and game files in its base layer."""
+    with ModPackage.open(path) as package:
+        if not package.wad_file_count:
+            raise ModpkgError("The .modpkg has no game files Rose can inject")
 
 
 def extract_modpkg(source: Union[str, Path], dest_dir: Union[str, Path]) -> None:

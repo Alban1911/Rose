@@ -40,9 +40,6 @@ class CustomModInjectionCase(unittest.TestCase):
         )
         self.trigger = InjectionTrigger(lcu=MagicMock(), state=state, injection_manager=self.manager)
         self.trigger._force_base_skin = MagicMock()
-        cache = patch("injection.mods.mod_source.get_injection_dir", return_value=self.root / "injection")
-        cache.start()
-        self.addCleanup(cache.stop)
 
     def custom_mod(self, mod_path):
         return {

@@ -680,7 +680,6 @@ class InjectionHookTests(unittest.TestCase):
         self.mods_dir = self.root / "mods_dir"
         self.mods_dir.mkdir()
         for target, value in (
-            ("injection.mods.mod_source.get_injection_dir", self.root / "injection"),
             ("party.integration.injection_hook.get_mods_root", self.root / "mods"),
         ):
             patcher = patch(target, return_value=value)

@@ -155,7 +155,7 @@ def ships_language_table(mod_path: Path) -> bool:
     try:
         with ModFiles(Path(mod_path)) as mod:
             return ships_language_table_of(mod)
-    except (OSError, zipfile.BadZipFile) as e:
+    except (OSError, ValueError, zipfile.BadZipFile) as e:  # ValueError: a .modpkg it cannot read
         log.debug(f"[LOADNAME] could not read {Path(mod_path).name}: {e}")
         return False
 

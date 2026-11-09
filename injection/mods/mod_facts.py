@@ -134,15 +134,16 @@ def read_mod_facts(mod: Path) -> ModFacts:
     """The facts of the mod at *mod* (a folder, a ZIP archive whatever its
     name, or a .modpkg), without hashing its content: only the names of its
     files and the headers of its language WADs are read, a moment for a
-    voiceover pack that compute_mod_facts takes seconds to hash.
+    voiceover pack that compute_mod_facts takes seconds to hash. A .modpkg
+    is read from its table of contents, never unpacked (ModFiles).
 
     Raises OSError, zipfile.BadZipFile or ValueError (a .modpkg it cannot
-    unpack): a mod it cannot read has no facts rather than wrong ones.
+    read): a mod it cannot read has no facts rather than wrong ones.
     """
     mod = Path(mod)
     if not mod.exists():
         raise FileNotFoundError(f"Mod not found: {mod}")
-    with _readable(mod) as readable, ModFiles(readable) as files:
+    with ModFiles(mod) as files:
         return ModFacts(ships_language_table_of(files))
 
 

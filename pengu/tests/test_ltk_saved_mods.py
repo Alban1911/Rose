@@ -69,7 +69,6 @@ class SavedLtkModSelectionTests(unittest.TestCase):
         self.linked = []
         for target, kwargs in (
             ("injection.mods.mod_source.link_or_extract", {"side_effect": self.link}),
-            ("injection.mods.mod_source.get_injection_dir", {"return_value": root / "injection"}),
             ("utils.core.mod_historic.write_historic_mod", {}),
             ("utils.core.mod_historic.clear_historic_mod", {}),
             ("utils.core.mod_historic.get_historic_mod", {"return_value": None}),

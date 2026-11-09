@@ -375,6 +375,29 @@ class InjectionSessionTests(LtfSessionTestCase):
         self.assertEqual(imported, [(f"{mod}.fantome", stored, "Eternal Aspect Leona")])
         self.assertEqual(self.reported_codes(), [])
 
+    def test_a_modpkg_goes_to_ltk_manager_as_it_is_named_as_one(self):
+        """LTK Manager reads the format by its suffix: Rose unpacked the package
+        into a cache, then packed that into a .fantome at every game"""
+        from utils.tests.test_modpkg import SKIN0, Chunk, build_package
+
+        package = self.mods / "VO Japanese"  # linked in without an extension
+        package.write_bytes(build_package([Chunk(SKIN0, b"skin" * 100)]))
+        stored = package.read_bytes()
+        imported = []
+        install = FakeBridge.import_fantome
+
+        def import_fantome(bridge_self, path, name=None):
+            imported.append((Path(path).name, Path(path).read_bytes(), name))
+            return install(bridge_self, path, name)
+
+        with patch.object(FakeBridge, "import_fantome", import_fantome), \
+                patch.object(ltf_session, "write_fantome_zip", side_effect=AssertionError("packed")):
+            result = self.overlay.mk_run_overlay(["VO Japanese"], stop_callback=lambda: True)
+
+        self.assertEqual(result, 0)
+        self.assertEqual(imported, [("VO Japanese.modpkg", stored, "Old Aatrox")])
+        self.assertEqual(self.reported_codes(), [])
+
     def test_an_archive_and_a_folder_install_side_by_side(self):
         archive = self.make_archive_mod("VO Korean", display="VO Korean")
         folder = self.make_mod("ROSE-LoadingName", display="Loading screen name")

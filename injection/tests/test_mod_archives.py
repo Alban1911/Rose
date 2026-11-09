@@ -112,7 +112,7 @@ class LinkTests(TempCase):
         dest.parent.mkdir(parents=True)
         cache = self.root / "injection" / ".extract_cache"
 
-        link_or_extract(source, dest, cache_dir=cache)
+        link_or_extract(source, dest)
 
         self.assertTrue(dest.is_file())
         self.assertTrue(os.path.samefile(source, dest))  # a hard link: no copy, whatever the size

@@ -11,7 +11,6 @@ from pathlib import Path
 from typing import Callable, Dict, Iterator, List, Mapping, Optional
 
 from utils.core.logging import get_logger
-from utils.core.modpkg import MODPKG_SUFFIX
 
 from ..mods.fingerprint import mod_fingerprint
 from ..mods.manifest import ARCHIVE_SUFFIX, manifest_ltk_ids
@@ -252,11 +251,8 @@ class LibrarySession:
         staging = self._host.staging_root() / f"import-{uuid.uuid4().hex}"
         staging.mkdir(parents=True, exist_ok=True)
         try:
-            if archive.is_file():
-                suffix = MODPKG_SUFFIX if archive.suffix.lower() == MODPKG_SUFFIX else ".fantome"
-                staged = archive_for_ltk(archive, staging / f"{archive.stem}{suffix}")
-            else:
-                staged = archive_for_ltk(archive, staging / f"{archive.name}.fantome")
+            name = archive.stem if archive.is_file() else archive.name
+            staged = archive_for_ltk(archive, staging / f"{name}.fantome")
             return self._host.import_archive(self._session, staged, archive, display_name)
         finally:
             shutil.rmtree(staging, ignore_errors=True)

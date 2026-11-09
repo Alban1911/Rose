@@ -1,4 +1,5 @@
 import json
+import os
 import struct
 import tempfile
 import unittest
@@ -9,15 +10,18 @@ from unittest.mock import patch
 import xxhash
 import zstandard
 
+from injection.mods.mod_facts import ModFacts, read_mod_facts
 from injection.mods.mod_files import ModFiles
+from injection.mods.mod_source import RoseFile
 from injection.mods.storage import ModStorageService
 from party.discovery import custom_mods
 from utils.core.junction import link_or_extract
-from utils.core.modpkg import ModPackage, ModpkgError, _unpack_msgpack, extract_modpkg
+from utils.core.modpkg import ModPackage, ModpkgError, _unpack_msgpack, extract_modpkg, is_modpkg
 
 NONE = 0xFFFFFFFF
 SKIN0 = "DATA/Characters/Aatrox/Skins/Skin0/Skin0.bin"
 SKIN0_HASH = 0x35FA033498B5C335
+LTK_ID = "5e9b2219-f49f-4cf1-bc7e-774fb43e1349"
 METADATA = {
     "schema_version": 5,
     "name": "old-aatrox",
@@ -384,6 +388,52 @@ class ModpkgModTests(unittest.TestCase):
         with ModFiles(category_archive) as files:
             self.assertTrue(files.is_file("META/info.json"))
 
+    def test_a_categorys_package_is_stored_as_it_came_and_never_unpacked(self):
+        """LTK Manager installs a .modpkg: Rose unpacked it and packed it into a .fantome first"""
+        storage = ModStorageService(mods_root=self.root / "mods")
+        with patch("injection.mods.storage.extract_mod_archive", side_effect=AssertionError("unpacked")), \
+                patch("injection.mods.mod_facts.extract_modpkg", side_effect=AssertionError("unpacked")):
+            stored, name, _ = storage.import_category_mod_file("voiceover", self.package)
+
+        self.assertEqual(stored.name, "old-aatrox_1.2.0.modpkg")
+        self.assertEqual(stored.read_bytes(), self.package.read_bytes())
+        self.assertFalse(os.path.samefile(stored, self.package), "Rose's own copy")
+        self.assertEqual(stored.with_suffix(".webp").read_bytes(), b"RIFF-webp")
+        mod = storage.saved_mod(f"voiceover/{stored.name}")
+        self.assertEqual((mod.pending, mod.source, mod.facts), (True, RoseFile.at(stored), ModFacts(False)))
+        self.assertTrue(storage.attach_ltk_entry(mod.identity, LTK_ID))
+        self.assertTrue(storage.drop_stored_copy(f"voiceover/{stored.name}"), "found by the path it was added as")
+        self.assertFalse(stored.exists())
+        self.assertEqual(storage.saved_mod(f"voiceover/{name}.fantome").ltk_id, LTK_ID)
+
+    def test_a_categorys_package_ltk_manager_takes_is_linked_as_picked(self):
+        storage = ModStorageService(mods_root=self.root / "mods")
+
+        stored, *_ = storage.import_category_mod_file("maps", self.package, as_picked=True)
+
+        self.assertTrue(os.path.samefile(stored, self.package))
+
+    def test_a_package_carrying_its_language_table_says_so_unpacked_or_not(self):
+        table = self.root / "font.modpkg"
+        table.write_bytes(build_package([
+            Chunk("data/menu/en_us/lol.stringtable", b"table", wad="global.fr_fr.wad.client"),
+        ]))
+        folder = self.root / "font"
+        extract_modpkg(table, folder)
+
+        self.assertEqual(read_mod_facts(table), ModFacts(True))
+        self.assertEqual(read_mod_facts(folder), ModFacts(True))
+        self.assertEqual(read_mod_facts(self.package), ModFacts(False))
+
+    def test_a_custom_skins_package_is_still_converted(self):
+        """The base-skin fix and LTK Manager's repair rewrite a .fantome"""
+        storage = ModStorageService(mods_root=self.root / "mods")
+
+        archive, *_ = storage.import_mod_file(266, self.package, [266001])
+
+        self.assertEqual(archive.suffix, ".fantome")
+        self.assertFalse(is_modpkg(archive))
+
     def test_a_package_dropped_in_storage_is_listed(self):
         storage = ModStorageService(mods_root=self.root / "mods")
         skin_dir = storage.get_skin_dir(266001)
@@ -394,12 +444,38 @@ class ModpkgModTests(unittest.TestCase):
             ["old-aatrox_1.2.0"],
         )
 
-    def test_links_into_the_injection_folder(self):
+    def test_links_into_the_injection_folder_as_it_is(self):
+        """LTK Manager installs a .modpkg: Rose unpacked it into a cache, then packed it again"""
         dest = self.root / "injection" / "mods" / self.package.stem
         dest.parent.mkdir(parents=True)
-        link_or_extract(self.package, dest, cache_dir=self.root / "cache")
-        self.assertTrue((dest / "META" / "info.json").is_file())
-        self.assertTrue((dest / "WAD" / "aatrox.wad.client" / f"{SKIN0_HASH:016x}.bin").is_file())
+
+        link_or_extract(self.package, dest)
+
+        self.assertTrue(os.path.samefile(dest, self.package), "a hard link, whatever its size")
+        with ModFiles(dest) as files:  # no extension there: known by its content
+            self.assertTrue(files.is_archive)
+            self.assertTrue(files.is_file("META/info.json"))
+            self.assertTrue(files.is_file(f"WAD/aatrox.wad.client/{SKIN0_HASH:016x}.bin"))
+
+    def test_reads_as_the_folder_it_unpacks_to_without_unpacking(self):
+        folder = self.root / "unpacked"
+        extract_modpkg(self.package, folder)
+
+        with ModFiles(self.package) as package, ModFiles(folder) as unpacked:
+            self.assertEqual(sorted(package.files_under()), sorted(unpacked.files_under()))
+            self.assertEqual(sorted(package.children("WAD")), sorted(unpacked.children("WAD")))
+            for name in unpacked.files_under():
+                self.assertEqual(package.read(name), unpacked.read(name), name)
+                self.assertEqual(package.size(name), unpacked.size(name), name)
+                self.assertIsNone(package.span(name))
+        self.assertEqual(list(self.root.glob("**/.rose-facts*")), [])
+
+    def test_is_known_by_its_content_whatever_its_name(self):
+        named = self.root / "named.fantome"
+        named.write_bytes(self.package.read_bytes())
+
+        self.assertTrue(is_modpkg(named))
+        self.assertFalse(is_modpkg(self.root))
 
     def test_party_hash_matches_the_imported_folder(self):
         folder = self.root / "imported"

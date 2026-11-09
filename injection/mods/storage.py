@@ -4,8 +4,9 @@
 Mod storage service
 Handles mods organized by category: skins, maps, fonts, announcers, others
 
-A mod is stored as the .fantome LTK Manager installs, as it is: a .fantome or
-.zip is kept as it came, a .modpkg is converted once. Its preview image and
+A mod is stored as the archive LTK Manager installs, as it is: a .fantome or
+.zip is kept as it came, as is a category's .modpkg; a custom skin's .modpkg
+is converted once. Its preview image and
 description sit beside it under its name (<name>.png / <name>.webp,
 <name>.txt). Mods stored as folders by an earlier Rose are packed into
 archives once, when Rose starts (convert_folder_mod).
@@ -27,7 +28,7 @@ from typing import List, Mapping, NamedTuple, Optional
 from utils.core.junction import is_junction, link_file, safe_remove_entry
 from utils.core.atomic_file import atomic_write
 from utils.core.logging import get_logger
-from utils.core.modpkg import MODPKG_SUFFIX
+from utils.core.modpkg import MODPKG_SUFFIX, check_modpkg
 from utils.core.paths import get_user_data_dir
 from utils.core.safe_extract import (
     MOD_ARCHIVE_SUFFIXES,
@@ -228,23 +229,22 @@ class ModStorageService:
         parent_dir: Path,
         targets: tuple[int, ...] = (),
         as_picked: bool = False,
-        content_hashes: bool = True,
+        skin: bool = True,
     ) -> AddedMod:
-        """Store one user-selected mod archive in *parent_dir* as the .fantome
-        LTK Manager installs, its preview image beside it, and register it in
-        the folder's manifest with what Rose needs to know about it, read
-        once: a category's mod moves into LTK Manager, and Rose keeps no copy
-        to read it from again. Nothing it wrote stays when a step fails.
-        *as_picked*: _write_stored_archive.
+        """Store one user-selected mod archive in *parent_dir* as the archive
+        LTK Manager installs (_write_stored_archive), its preview image beside
+        it, and register it in the folder's manifest with what Rose needs to
+        know about it, read once: a category's mod moves into LTK Manager,
+        and Rose keeps no copy to read it from again. Nothing it wrote stays
+        when a step fails. *as_picked*: _write_stored_archive.
 
-        With *content_hashes* (a custom skin), its content is hashed
-        (compute_mod_facts) and so is the file picked: a skin renamed on disk
-        is found by them, and the same skin added again (the same file, or
-        the same content: LTK Manager's or still Rose's) is not added twice:
-        *targets* join its own, and it is returned, nothing_added. Without
-        (a category's mod), only its facts are read (read_mod_facts), a
-        moment where hashing a voiceover pack took seconds, and the same mod
-        added again is another mod, "Name (2)"."""
+        A custom skin (*skin*) has its content hashed (compute_mod_facts),
+        and so has the file picked: a skin renamed on disk is found by them,
+        and the same skin added again (the same file, or the same content:
+        LTK Manager's or still Rose's) is not added twice: *targets* join its
+        own, and it is returned, nothing_added. A category's mod only has its
+        facts read (read_mod_facts), a moment where hashing a voiceover pack
+        took seconds, and the same mod added again is another mod, "Name (2)"."""
         source = Path(source_path).expanduser()
         if not source.is_file():
             raise FileNotFoundError(f"Mod file not found: {source}")
@@ -255,16 +255,19 @@ class ModStorageService:
             raise ValueError("The selected mod file has no usable name")
 
         picked_file_hash = None
-        if content_hashes:
+        if skin:
             with source.open("rb") as stream:
                 picked_file_hash = hashlib.file_digest(stream, "sha256").hexdigest()
         parent_dir.mkdir(parents=True, exist_ok=True)
         mod_name, target = self._choose_archive_destination(parent_dir, base_name)
+        keeps_package = not skin and source.suffix.lower() == MODPKG_SUFFIX
+        if keeps_package:
+            target = target.with_suffix(MODPKG_SUFFIX)
         temporary = parent_dir / f"{self.IMPORT_TEMP_PREFIX}{uuid.uuid4().hex}.tmp"
         existing = None
         try:
-            self._write_stored_archive(source, temporary, mod_name, as_picked)
-            if content_hashes:
+            self._write_stored_archive(source, temporary, mod_name, as_picked, keep_package=keeps_package)
+            if skin:
                 facts, full_hash, wad_hashes = compute_mod_facts(temporary)
                 existing = saved_manifest.same_content(self.mods_root, parent_dir, full_hash, picked_file_hash)
             else:
@@ -293,15 +296,20 @@ class ModStorageService:
         self._champion_listing_cache.clear()
         return AddedMod(target, mod_name)
 
-    def _write_stored_archive(self, source: Path, dest: Path, mod_name: str, as_picked: bool = False) -> None:
-        """Write at *dest* the .fantome stored for the mod archive *source*.
+    def _write_stored_archive(self, source: Path, dest: Path, mod_name: str, as_picked: bool = False,
+                              keep_package: bool = False) -> None:
+        """Write at *dest* the archive stored for the mod archive *source*.
 
         A .fantome or .zip that names its mod (META/info.json) is stored as
         it came, after the checks an extraction makes, whatever its
         compression: LTK Manager stores a deflated packed WAD uncompressed
-        as it imports the mod. A .modpkg, or an archive without
-        META/info.json, is unpacked and packed into a .fantome, as an
-        injection did before Rose kept archives.
+        as it imports the mod. So is a .modpkg with *keep_package* (a
+        category's: LTK Manager installs the format, and Rose reads it from
+        its table of contents, ModFiles), after the checks unpacking it
+        makes. A custom skin's .modpkg, or an archive without META/info.json,
+        is unpacked and packed into a .fantome, as an injection did before
+        Rose kept archives: the base-skin fix and LTK Manager's repair
+        rewrite a .fantome.
 
         *as_picked*: LTK Manager takes the mod as it is added (a category's
         mod, into its library). Such an archive is linked as the user picked
@@ -310,7 +318,14 @@ class ModStorageService:
         Manager did not take it.
         """
         if source.suffix.lower() == MODPKG_SUFFIX:
-            self._repack(source, dest, mod_name, metadata=False)
+            if not keep_package:
+                self._repack(source, dest, mod_name, metadata=False)
+                return
+            check_modpkg(source)
+            if as_picked:
+                link_file(source, dest)
+            else:
+                shutil.copyfile(source, dest)
             return
         names = check_mod_archive(source)
         if not names:
@@ -896,7 +911,7 @@ class ModStorageService:
         (_write_stored_archive)."""
         if category not in self.MOD_CATEGORIES:
             raise ValueError(f"Unsupported mod category: {category}")
-        return self._add_archive(source_path, self.mods_root / category, as_picked=as_picked, content_hashes=False)
+        return self._add_archive(source_path, self.mods_root / category, as_picked=as_picked, skin=False)
 
     def list_mods_for_skin(self, skin_id: int | str) -> List[SkinModEntry]:
         """Return mods for a skin, including champion-level target metadata."""
