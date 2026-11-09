@@ -529,15 +529,66 @@ class BackupTests(MigrationTestCase):
 
     def test_a_desktop_without_room_for_the_backup_moves_nothing(self):
         archive = self.category_mod("VO Korean")
-        self.free = 100
 
-        report = self.migrate(FakeUi(backup=True))
+        with patch.object(migration, "free_space", side_effect=lambda path: 100 if Path(path) == self.desktop else 100 * GB):
+            report = self.migrate(FakeUi(backup=True))
 
         self.assertFalse(self.desktop.exists())
         self.assertTrue(archive.exists())
         self.assertEqual(report.skipped_reason, "not enough space for the backup")
         (notice,) = self.ui.notices
         self.assertIn("100 B free", notice)
+        self.migrate(FakeUi(backup=True))
+        self.assertEqual(len(self.ui.asked), 1, "no backup was made: the next start asks again")
+
+    def test_no_backup_is_offered_while_ltk_managers_drive_cannot_take_the_mods(self):
+        """It would be made for nothing, and again at the next start"""
+        archive = self.category_mod("VO Korean")
+        self.free = 100 * 1024 ** 2
+
+        report = self.migrate(FakeUi(backup=True))
+
+        self.assertEqual(self.ui.asked, [])
+        self.assertFalse(self.desktop.exists())
+        self.assertIn("needed", report.skipped_reason)
+        self.assertTrue(archive.exists())
+
+    def test_a_backup_that_would_fill_ltk_managers_drive_moves_nothing(self):
+        """The desktop is on the drive of LTK Manager's library: the backup would take the room the imports need"""
+        archive = self.category_mod("VO Korean")
+        self.free = archive.stat().st_size + migration.LIBRARY_IMPORT_HEADROOM_BYTES + 1
+
+        report = self.migrate(FakeUi(backup=True))
+
+        self.assertEqual(len(self.ui.asked), 1)
+        self.assertFalse(self.desktop.exists())
+        self.assertTrue(archive.exists())
+        self.assertEqual(report.skipped_reason, "not enough space for the backup and the mods")
+        (notice,) = self.ui.notices
+        self.assertIn("room for both the backup and your mods", notice)
+
+    def migrate_twice_with_a_failed_import(self, backup):
+        """Migrate a mod an older Rose saved, whose import fails, at two starts"""
+        archive = self.category_mod("Broken")
+        with patch.object(FakeBridge, "import_fantome",
+                          side_effect=BridgeCommandError("import failed: unsupported archive")):
+            first = self.migrate(FakeUi(backup=backup))
+            self.assertEqual(len(self.ui.asked), 1)
+            second = self.migrate(FakeUi(backup=backup))
+        self.assertEqual([len(first.failed), len(second.failed)], [1, 1])
+        self.assertTrue(archive.exists())
+
+    def test_a_backup_made_is_not_asked_or_made_again_while_a_mod_stays_in_rose(self):
+        self.migrate_twice_with_a_failed_import(backup=True)
+
+        self.assertEqual(self.ui.asked, [])
+        self.assertEqual(len(list(self.desktop.iterdir())), 1, "one backup, made at the first start")
+
+    def test_a_backup_turned_down_is_not_asked_again(self):
+        self.migrate_twice_with_a_failed_import(backup=False)
+
+        self.assertEqual(self.ui.asked, [])
+        self.assertFalse(self.desktop.exists())
 
     def test_a_backup_that_fits_is_made_without_the_room_imports_keep(self):
         """The 512 MB LTK Manager's imports keep free is no part of a backup's room"""

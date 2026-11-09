@@ -33,13 +33,14 @@ from ..overlay.ltk_library import (
     MissingComponent,
 )
 from .conversion import convert_folder_mods, rename_saved_paths
-from .manifest import ARCHIVE_SUFFIX, SavedMod, ltk_library_mods
+from .manifest import ARCHIVE_SUFFIX, SavedMod, ltk_library_mods, update_listed_mod
 from .mod_facts import compute_mod_facts, stamp_of
 from .storage import ModStorageService
 
 log = get_logger()
 
 BACKUP_FOLDER = "Rose mods backup {date:%Y-%m-%d}"
+BACKUP_ASKED = "backupAsked"
 INJECTION_LINK_FOLDERS = ("mods", "stage", "ltf_staging")
 REASONS_THE_DLL_CHECK_REPORTS = tuple(MissingComponent)
 COPY_CHUNK_BYTES = 8 * 1024 * 1024
@@ -136,8 +137,9 @@ def migrate_saved_mods(storage: ModStorageService, library: LtkLibrary, ui: Migr
     or moving them: the mods stored as folders are packed, the injection's
     folders emptied, LTK Manager opened (it must be there before anything is
     asked or copied), the user asked whether to back the mods up to the
-    desktop first (only for a mod an older Rose saved: one added while LTK
-    Manager was busy moves silently), and each mod moved. LTK Manager
+    desktop first (once LTK Manager's drive is known to take them, and once
+    for each mod an older Rose saved: one added while LTK Manager was busy
+    moves silently), and each mod moved. LTK Manager
     missing or failing, a backup asked for that fails, a drive too full:
     nothing is moved or deleted, and the next start tries again. A mod that
     fails stays in Rose, pending; the user is told which.
@@ -203,8 +205,11 @@ class _Migration:
         except (BridgeUnavailable, BridgeCommandError) as e:
             raise MigrationStopped(str(e), _unavailable_notice(str(e))) from e
         moves, leftovers = self._plan(library)
-        if any(move.mod.facts is None for move in moves):
-            self._offer_backup()
+        unasked = [move.mod for move in moves if _backup_unasked(move.mod)]
+        if unasked:
+            self._check_space(moves)
+            self._offer_backup(moves)
+            _remember_backup_asked(unasked)
         for mod in leftovers:
             delete_copy(self.storage, mod)
         if moves:
@@ -231,11 +236,12 @@ class _Migration:
             moves.append(_Move(mod, mod.display_name or mod.name, _stored_size(mod.rose_copy), kept_id))
         return moves, leftovers
 
-    def _offer_backup(self) -> None:
+    def _offer_backup(self, moves: List[_Move]) -> None:
         """Ask whether to copy the mods folder (manifests, images and
         descriptions too) to the desktop first, and do it. Raises
-        MigrationStopped when a backup the user wants cannot be made:
-        nothing is deleted without it."""
+        MigrationStopped when a backup the user wants cannot be made, or
+        leaves no room for *moves* on a drive it shares with LTK Manager's
+        library: nothing is deleted without it."""
         mods_root = self.storage.mods_root
         try:
             files = _files_under(mods_root)
@@ -253,6 +259,7 @@ class _Migration:
                 _backup_notice(f"there is not enough free space on its drive ({size_text(size)} needed, "
                                f"{size_text(free)} free)"),
             )
+        self._check_space_beside_backup(moves, desktop, size)
         destination = None
         try:
             destination = _backup_folder(desktop)
@@ -264,22 +271,51 @@ class _Migration:
             raise MigrationStopped(f"the backup failed: {e}", _backup_notice(str(e))) from e
         log.info(f"[MIGRATE] Backed up the saved mods ({size_text(size)}) to {destination}")
 
-    def _check_space(self, moves: List[_Move]) -> None:
-        """Raise MigrationStopped when LTK Manager's drive cannot take the
-        mods. Each import copies a mod there and Rose's copy goes after it:
-        a drive Rose's mods share needs room for the largest, another drive
-        for all of them."""
+    def _import_space(self, moves: List[_Move]) -> Optional[Tuple[Path, int, int]]:
+        """(LTK Manager's library folder, the bytes free on its drive, the
+        bytes the imports of *moves* need there). Each import copies a mod
+        there and Rose's copy goes after it: a drive Rose's mods share needs
+        room for the largest, another drive for all of them. None when
+        nothing is imported, or the folder or its space cannot be told."""
         imports = [move.size for move in moves if move.ltk_id_left_by_game is None]
         root = mod_storage_root()
         if not imports or root is None:
-            return
+            return None
         try:
             free = free_space(root)
             shared = _volume(root) == _volume(self.storage.mods_root)
         except OSError as e:
             log.debug(f"[MIGRATE] Could not tell the free space on LTK Manager's drive: {e}")
+            return None
+        return root, free, (max(imports) if shared else sum(imports)) + LIBRARY_IMPORT_HEADROOM_BYTES
+
+    def _check_space_beside_backup(self, moves: List[_Move], desktop: Path, size: int) -> None:
+        """Raise MigrationStopped when a backup of *size* bytes on *desktop*
+        would leave LTK Manager's drive, the same drive, without the room
+        the imports need."""
+        space = self._import_space(moves)
+        if space is None:
             return
-        need = (max(imports) if shared else sum(imports)) + LIBRARY_IMPORT_HEADROOM_BYTES
+        root, free, need = space
+        try:
+            shared = _volume(desktop) == _volume(root)
+        except OSError:
+            return
+        if shared and free < size + need:
+            raise MigrationStopped(
+                "not enough space for the backup and the mods",
+                _backup_notice(f"your desktop is on the drive of LTK Manager's library, which does not have room "
+                               f"for both the backup and your mods ({size_text(size + need)} needed, "
+                               f"{size_text(free)} free)"),
+            )
+
+    def _check_space(self, moves: List[_Move]) -> None:
+        """Raise MigrationStopped when LTK Manager's drive cannot take the
+        mods (_import_space)."""
+        space = self._import_space(moves)
+        if space is None:
+            return
+        root, free, need = space
         if free < need:
             raise MigrationStopped(
                 f"{size_text(free)} free on LTK Manager's drive, {size_text(need)} needed",
@@ -361,6 +397,22 @@ def _launcher_migration_mutex() -> Iterator[None]:
     finally:
         if handle:
             kernel32.CloseHandle(handle)
+
+
+def _backup_unasked(mod: SavedMod) -> bool:
+    """Whether the user is still to be asked to back up the mods before *mod*
+    moves: an older Rose saved it (its manifest has no facts), and no start
+    asked yet."""
+    return mod.facts is None and mod.metadata.get(BACKUP_ASKED) is not True
+
+
+def _remember_backup_asked(mods: List[SavedMod]) -> None:
+    """Note in each mod's manifest entry that the backup was made or turned
+    down: a mod that stays in Rose (its import failed, LTK Manager stopped)
+    does not have the user asked, and the mods copied, again at each start."""
+    for mod in mods:
+        if not update_listed_mod(mod, **{BACKUP_ASKED: True}):
+            log.debug(f"[MIGRATE] Could not note that the backup was asked for {mod.name}: the next start asks again")
 
 
 def _empty_injection_folders(injection_dir: Path) -> None:
