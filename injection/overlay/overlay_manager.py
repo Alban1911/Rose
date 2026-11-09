@@ -632,7 +632,17 @@ class OverlayManager:
 
     # -- staging during the loadout countdown ---------------------------------
     def open_staging(self) -> None:
-        """Let stage_mods prepare LTK Manager for this champ select."""
+        """Let stage_mods prepare LTK Manager for this champ select.
+
+        A stop Rose or the user asked for before it (the lobby's cleanup
+        stops a session even when none runs) was the last session's, as
+        mk_run_overlay clears it for the injection: left set, the staged
+        patcher's game hold quit at once, and its restart for another pick
+        gave up instead of waiting for the last build, so the client's game
+        ran before the overlay was ready. A stop from here on counts."""
+        if self.process_manager:
+            self.process_manager.stopped_by_user = False
+            self.process_manager.stopped_by_rose = False
         with self._early_session_lock:
             self._countdown_staging_open = True
             self._early_session_unwanted = False

@@ -2189,6 +2189,55 @@ class RestartMissedGameTests(LtfSessionTestCase):
         self.assertEqual(self.killed, [self.game])  # created before the scan: restarted
         self.assertEqual(len(self.reconnects), 1)
 
+    def lobby_cleanup_then_countdown(self):
+        """The lobby's cleanup marks a stop even with no session running (03:53:38),
+        then a countdown begins"""
+        self.process_manager.stop_overlay_process()
+        self.assertTrue(self.process_manager.stopped_by_rose)
+        self.overlay.open_staging()
+
+    def test_a_stop_before_the_countdown_does_not_end_its_watcher(self):
+        """The game ran unfrozen: the staged patcher's watcher quit on the lobby's stop"""
+        self.game = self.running = self._game()
+        session = self._session()
+        self.lobby_cleanup_then_countdown()
+
+        self._watch(session)
+
+        self._until(lambda: session.get("held_game") is self.game)
+        self.game.suspend.assert_called_once()
+
+    def test_a_stop_during_the_countdown_still_ends_the_watcher(self):
+        session = self._session()
+        self.lobby_cleanup_then_countdown()
+        thread = self._watch(session)
+
+        self.process_manager.stop_overlay_process()
+        thread.join(1)
+
+        self.assertFalse(thread.is_alive())
+
+    def test_a_restart_for_another_pick_after_a_lobby_cleanup_waits_for_the_last_build(self):
+        """The staged patcher's restart gave up at once ("already running"), the
+        injection then waited 4.5s with no watcher, and the game started in between"""
+        session = self._session()
+        self.lobby_cleanup_then_countdown()
+        starts = []
+
+        def start_patcher(bridge_self):
+            starts.append(1)
+            if len(starts) == 1:
+                raise overlay_manager.BridgeCommandError(
+                    "start_patcher failed: PATCHER ALREADY_RUNNING: The patcher is already running")
+            return {"ok": True, "response": {"ok": True, "value": None}}
+
+        FakeBridge.patcher_statuses = [status(running=True, phase="building"), status(running=False, phase="idle")]
+        with patch.object(FakeBridge, "start_patcher", start_patcher), \
+                patch.object(overlay_manager, "PATCHER_READY_POLL_S", 0.001):
+            self.assertTrue(self.overlay._start_patcher(session, report=False))
+
+        self.assertEqual(len(starts), 2)
+
     def test_the_watcher_resumes_the_game_at_the_auto_resume_timeout(self):
         self.window = 0.05
         self.game = self.running = self._game()
