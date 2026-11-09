@@ -40,7 +40,12 @@ def member(summoner_id, name, champion_id=None, skin_id=None, **skin_fields):
     skin = None
     if champion_id is not None:
         skin = {"champion_id": champion_id, "skin_id": skin_id, **skin_fields}
-    return {"summoner_id": summoner_id, "summoner_name": name, "skin": skin}
+    return {
+        "summoner_id": summoner_id,
+        "summoner_name": name,
+        "member_key": f"{summoner_id:064x}",
+        "skin": skin,
+    }
 
 
 class TokenTests(unittest.TestCase):
@@ -72,6 +77,32 @@ class PartyStorageTests(unittest.TestCase):
             with patch.object(party_storage, "get_user_data_dir", return_value=Path(temp_dir)):
                 key = party_storage.load_party_key(1)
                 self.assertEqual(party_storage.load_party_key(1), key)
+
+    def test_party_identity_is_persistent_and_separate_from_the_invitation(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with patch.object(party_storage, "get_user_data_dir", return_value=Path(temp_dir)):
+                invitation = party_storage.load_party_key(1)
+                identity = party_storage.load_party_identity_key(1)
+                self.assertEqual(party_storage.load_party_identity_key(1), identity)
+                self.assertNotEqual(party_storage.load_party_identity_key(2), identity)
+                self.assertNotEqual(invitation, identity)
+                self.assertEqual(party_storage.load_party_key(1), invitation)
+
+    def test_unreadable_identity_is_preserved_for_recovery(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / party_storage.PARTY_IDENTITY_KEYS_FILE
+            path.write_text('{"1":"invalid"}', encoding="utf-8")
+            with patch.object(party_storage, "get_user_data_dir", return_value=Path(temp_dir)):
+                with self.assertRaisesRegex(RuntimeError, "Couldn't read"):
+                    party_storage.load_party_identity_key(1)
+            self.assertEqual(path.read_text(encoding="utf-8"), '{"1":"invalid"}')
+
+    def test_unsaved_identity_is_not_returned(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with patch.object(party_storage, "get_user_data_dir", return_value=Path(temp_dir)), \
+                    patch.object(party_storage, "write_text_atomic", side_effect=OSError("disk is full")):
+                with self.assertRaisesRegex(RuntimeError, "Couldn't save"):
+                    party_storage.load_party_identity_key(1)
 
 
 class CustomModsTests(unittest.TestCase):
@@ -371,15 +402,20 @@ class SkinCollectorInjectionTests(unittest.TestCase):
 
 
 class MergedMembersTests(unittest.TestCase):
+    def add_room(self, manager, room_key, members, **kwargs):
+        relay = SimpleNamespace(room_key=room_key, members=members, connected=True, **kwargs)
+        manager._relays[room_key] = relay
+        manager._on_relay_members_changed(relay)
+        return relay
+
     def test_newest_state_wins_and_removed_peers_are_hidden(self):
         manager = PartyManager(Mock(), make_state())
         manager.party_state.my_summoner_id = 1
         older = member(2, "B", 11, 11001, sent_at=100)
         newer = member(2, "B", 11, 11002, sent_at=200)
-        manager._relays = {
-            "a" * 32: SimpleNamespace(members=[member(1, "Me"), newer], connected=False),
-            "b" * 32: SimpleNamespace(members=[older, member(3, "C", 22, 22001)], connected=True),
-        }
+        first = self.add_room(manager, "a" * 32, [member(1, "Me"), newer])
+        first.connected = False
+        self.add_room(manager, "b" * 32, [older, member(3, "C", 22, 22001)])
         manager._ignored_peers = {3}
 
         merged = manager._merged_members()
@@ -389,11 +425,24 @@ class MergedMembersTests(unittest.TestCase):
         self.assertEqual(state["skin"]["skin_id"], 11002)
         self.assertTrue(connected)
 
+    def test_a_newer_state_in_another_room_cannot_replace_a_pinned_identity(self):
+        manager = PartyManager(Mock(), make_state())
+        manager.party_state.my_summoner_id = 1
+        known = member(2, "B", 11, 11001, sent_at=100)
+        conflict = member(2, "Wrong identity", 11, 11002, sent_at=200, removed=["1"], rooms=["c" * 32])
+        conflict["member_key"] = "f" * 64
+        first = self.add_room(manager, "a" * 32, [known])
+        first.connected = False
+        self.add_room(manager, "b" * 32, [conflict])
+
+        self.assertEqual(manager._merged_members(), {2: (known, False)})
+        self.assertEqual(manager._peers_who_removed_us(), set())
+
     def test_a_friend_who_removed_us_is_gone_for_us_too(self):
         manager = PartyManager(Mock(), make_state())
         manager.party_state.my_summoner_id = 1
-        remover = member(2, "B", 11, 11002, removed=[1])
-        manager._relays = {"a" * 32: SimpleNamespace(members=[member(1, "Me"), remover], connected=True)}
+        remover = member(2, "B", 11, 11002, removed=["1"])
+        self.add_room(manager, "a" * 32, [member(1, "Me"), remover])
 
         self.assertEqual(manager._merged_members(), {})
         self.assertEqual(manager._peers_who_removed_us(), {2})
@@ -414,19 +463,18 @@ class MergedMembersTests(unittest.TestCase):
 
         asyncio.run(manager.remove_peer(2))
 
-        self.assertEqual(relay.sent[-1]["removed"], [2])
+        self.assertEqual(relay.sent[-1]["removed"], ["2"])
 
     def test_both_removing_each_other_then_adding_back(self):
         me = PartyManager(Mock(), make_state())
         me.party_state.my_summoner_id = 1
         me.party_state.enabled = True
         friend = member(2, "B", 11, 11002, removed=[1])  # they removed us too
-        relay = SimpleNamespace(members=[member(1, "Me"), friend], connected=True, sent=[], resume=Mock())
+        relay = self.add_room(me, "a" * 32, [member(1, "Me"), friend], sent=[], resume=Mock())
 
         async def send_state(state):
             relay.sent.append(state)
         relay.send_state = send_state
-        me._relays = {"a" * 32: relay}
         asyncio.run(me.remove_peer(2))
 
         token = create_token(summoner_id=2, encryption_key=b"k" * 32).encode()
@@ -467,7 +515,7 @@ class RelayQuietWhenAloneTests(unittest.TestCase):
 
     def setUp(self):
         from party.network.ws_relay import PartyRelay
-        self.relay = PartyRelay("a" * 32, 1, "Me")
+        self.relay = PartyRelay("a" * 32, 1, "Me", b"k" * 32)
         self.socket = FakeSocket()
         self.relay._ws = self.socket
         self.relay._connected = True
@@ -513,7 +561,7 @@ class RelayReconnectTests(unittest.TestCase):
     def setUp(self):
         from party.network import ws_relay
         self.module = ws_relay
-        self.relay = ws_relay.PartyRelay("a" * 32, 1, "Me")
+        self.relay = ws_relay.PartyRelay("a" * 32, 1, "Me", b"k" * 32)
         self.clock = [0.0]
         self.delays = []
         self.opens = 0
@@ -585,7 +633,7 @@ class RelayReconnectTests(unittest.TestCase):
     def test_a_full_room_stops_at_once(self):
         async def open_(timeout):
             self.opens += 1
-            self.relay._room_full = True
+            self.relay._refused_status = self.module.ROOM_FULL_STATUS
             return False
         self.relay._open = open_
         asyncio.run(self.relay._run())
@@ -595,7 +643,7 @@ class RelayReconnectTests(unittest.TestCase):
     def test_a_relay_asking_for_a_newer_rose_stops_at_once(self):
         async def open_(timeout):
             self.opens += 1
-            self.relay._update_required = True
+            self.relay._refused_status = self.module.UPDATE_REQUIRED_STATUS
             return False
         self.relay._open = open_
         asyncio.run(self.relay._run())
@@ -605,6 +653,22 @@ class RelayReconnectTests(unittest.TestCase):
     def test_the_update_refusal_says_so(self):
         error = SimpleNamespace(status_code=426)
         self.assertIn("update Rose", self.module._describe_error(error))
+
+    def test_an_identity_conflict_clears_members_and_prevents_automatic_retry(self):
+        async def open_(timeout):
+            self.opens += 1
+            self.relay._refused_status = self.module.IDENTITY_CONFLICT_STATUS
+            return False
+
+        self.relay._open = open_
+        self.relay.members = [member(2, "Stale friend")]
+        asyncio.run(self.relay._run())
+        self.assertEqual(self.opens, 1)
+        self.assertTrue(self.relay.stopped)
+        self.assertEqual(self.relay.members, [])
+        with patch.object(self.module.asyncio, "create_task") as create_task:
+            self.relay.resume()
+        create_task.assert_not_called()
 
     def test_resume_reconnects_a_stopped_room(self):
         self.relay._stopped = True
@@ -647,7 +711,11 @@ class EnableTwiceTests(unittest.TestCase):
         async def enable_twice():
             return await asyncio.gather(manager.enable(), manager.enable())
 
-        with patch.object(module, "LobbyMatcher", return_value=matcher),                 patch.object(module, "SkinCollector"),                 patch.object(module, "load_party_key", return_value=b"k" * 32),                 patch.object(module, "compute_room_key", return_value="room"):
+        with patch.object(module, "LobbyMatcher", return_value=matcher), \
+                patch.object(module, "SkinCollector"), \
+                patch.object(module, "load_party_key", return_value=b"k" * 32), \
+                patch.object(module, "load_party_identity_key", return_value=b"i" * 32), \
+                patch.object(module, "compute_room_key", return_value="room"):
             self.assertEqual(asyncio.run(enable_twice()), ["token", "token"])
         self.assertEqual(joins, ["room"])
         self.assertEqual(len(loops), 2)  # one lobby check and one skin broadcast

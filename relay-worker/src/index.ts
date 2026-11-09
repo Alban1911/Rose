@@ -1,3 +1,4 @@
+import { readIdentity } from './room';
 export { PartyRoom } from './room';
 
 interface Env {
@@ -32,16 +33,20 @@ export default {
 
     // WebSocket upgrade at /room?key=<room_id>
     const upgrade = request.headers.get('Upgrade');
-    if (upgrade?.toLowerCase() === 'websocket') {
+    if (url.pathname === '/room' && request.method === 'GET' && upgrade?.toLowerCase() === 'websocket') {
       const roomKey = url.searchParams.get('key');
-      if (!roomKey || roomKey.length < 8 || roomKey.length > 64) {
+      if (!roomKey || !/^[0-9a-f]{32}$/.test(roomKey)) {
         return new Response('Invalid room key', { status: 400 });
       }
-      if (!supported(url.searchParams.get('v'))) {
+      if (url.searchParams.get('p') !== '2' || !supported(url.searchParams.get('v'))) {
         return new Response('Update Rose to use party mode', { status: 426 });
       }
+      if (!readIdentity(request.headers)) {
+        return new Response('Invalid party identity', { status: 400 });
+      }
 
-      const id = env.ROOM.idFromName(roomKey);
+      // Legacy sockets never enter authenticated rooms, including across deploys.
+      const id = env.ROOM.idFromName(`v2:${roomKey}`);
       const stub = env.ROOM.get(id);
       return stub.fetch(request);
     }
