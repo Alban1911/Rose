@@ -6,9 +6,8 @@ Orchestrator for party mode skin sharing via WebSocket relay.
 
 Everyone keeps their own room open and also joins the rooms of the friends
 whose token they paste. Members advertise the rooms they're in, so everyone
-linked to a party ends up in all of its rooms: any member's token works,
-friends can be added one by one, and older Rose versions (one room each)
-still see everybody.
+linked to a party ends up in all of its rooms: any member's token works
+and friends can be added one by one.
 """
 
 import asyncio
@@ -28,7 +27,7 @@ from ..discovery.custom_mods import saved_mod_hashes
 from ..discovery.lobby_matcher import LobbyMatcher
 from ..discovery.skin_collector import SkinCollector, PartySkinData
 from .party_state import PartyState
-from .party_storage import load_party_key
+from .party_storage import load_party_identity_key, load_party_key
 
 log = get_logger()
 
@@ -58,7 +57,11 @@ def _removed(member: dict, summoner_id: Optional[int]) -> bool:
     """Whether this member's state says they removed that summoner."""
     skin = member.get("skin")
     removed = skin.get("removed") if isinstance(skin, dict) else None
-    return isinstance(removed, list) and summoner_id is not None and summoner_id in removed
+    return (
+        isinstance(removed, list)
+        and summoner_id is not None
+        and (str(summoner_id) in removed or summoner_id in removed)
+    )
 
 
 def _state_time(member: dict) -> int:
@@ -81,9 +84,13 @@ class PartyManager:
 
         # Networking
         self._my_key: Optional[bytes] = None
+        self._identity_key: Optional[bytes] = None
         self._home_room: Optional[str] = None
         self._relays: Dict[str, PartyRelay] = {}
         self._unreachable_rooms: Dict[str, float] = {}
+        # Keep the first authenticated identity seen for each player across
+        # all rooms until Party Mode is disabled.
+        self._member_keys: Dict[int, str] = {}
 
         # Our skin pick and the full state last sent to our rooms
         self._skin_state: Optional[dict] = None
@@ -151,6 +158,7 @@ class PartyManager:
 
             # Same key every session, so the token friends already have keeps working
             self._my_key = load_party_key(my_summoner_id)
+            self._identity_key = load_party_identity_key(my_summoner_id)
             self._home_room = compute_room_key(my_summoner_id, self._my_key)
             self._running = True
 
@@ -165,7 +173,7 @@ class PartyManager:
             self._lobby_check_task = asyncio.create_task(self._lobby_check_loop())
             self._skin_broadcast_task = asyncio.create_task(self._skin_broadcast_loop())
 
-            log.info(f"[PARTY] Party mode enabled. Token: {self.party_state.my_token[:20]}...")
+            log.info("[PARTY] Party mode enabled")
             self._notify_state_change()
             return self.party_state.my_token
 
@@ -196,11 +204,13 @@ class PartyManager:
             await asyncio.gather(*(relay.disconnect() for relay in relays), return_exceptions=True)
 
         self._unreachable_rooms.clear()
+        self._member_keys.clear()
         self._ignored_peers.clear()
         self._skin_state = None
         self._published_state = None
         self.party_state.clear_all()
         self._my_key = None
+        self._identity_key = None
         self._home_room = None
 
         log.info("[PARTY] Party mode disabled")
@@ -305,6 +315,7 @@ class PartyManager:
             room_key,
             self.party_state.my_summoner_id,
             self.party_state.my_summoner_name,
+            self._identity_key,
         )
         relay.set_callbacks(
             on_members_changed=self._on_relay_members_changed,
@@ -315,7 +326,7 @@ class PartyManager:
 
     async def _connect_relay(self, relay: PartyRelay) -> Optional[str]:
         """Connect a registered room. Returns an error message on failure."""
-        # Send our current state along with the join
+        # Keep our current state ready to send when the relay lists other members
         await relay.send_state(self._published_state)
         connected = await relay.connect()
 
@@ -341,7 +352,9 @@ class PartyManager:
     async def _follow_room(self, relay: PartyRelay):
         error = await self._connect_relay(relay)
         if error and self._running:
-            self._unreachable_rooms[relay.room_key] = time.monotonic()
+            self._unreachable_rooms[relay.room_key] = (
+                float("inf") if relay.permanently_refused else time.monotonic() + FOLLOW_RETRY_S
+            )
             log.warning(f"[PARTY] Could not join room {relay.room_key[:8]}: {error}")
 
     def _follow_advertised_rooms(self):
@@ -361,8 +374,8 @@ class PartyManager:
                     continue
                 if room_key in self._relays:
                     continue
-                failed_at = self._unreachable_rooms.get(room_key)
-                if failed_at is not None and now - failed_at < FOLLOW_RETRY_S:
+                retry_at = self._unreachable_rooms.get(room_key)
+                if retry_at is not None and now < retry_at:
                     continue
                 if len(self._relays) >= MAX_ROOMS:
                     log.warning(f"[PARTY] Already in {MAX_ROOMS} rooms, not joining more")
@@ -379,7 +392,7 @@ class PartyManager:
             state["rooms"] = sorted(self._relays)[:MAX_ROOMS]
         if self._ignored_peers:
             # The friends we removed hide us too (see _merged_members)
-            state["removed"] = sorted(self._ignored_peers)
+            state["removed"] = [str(sid) for sid in sorted(self._ignored_peers)]
         if state:
             state["sent_at"] = int(time.time() * 1000)
         else:
@@ -390,19 +403,24 @@ class PartyManager:
         if relays:
             await asyncio.gather(*(relay.send_state(state) for relay in relays), return_exceptions=True)
 
+    def _trusted_member_id(self, member: dict) -> Optional[int]:
+        sid = _to_int(member.get("summoner_id"))
+        key = self._member_keys.get(sid)
+        return sid if key is not None and key == member.get("member_key") else None
+
     def _merged_members(self) -> Dict[int, Tuple[dict, bool]]:
         """Members of all our rooms, one entry per summoner, with whether
         they're seen in a connected room.
 
-        The newest state wins, so a stale copy (a connection the relay hasn't
-        dropped yet, or a room that hasn't received the update yet) is ignored.
+        For the same identity, the newest state wins. A room that registered
+        the same summoner ID with a different credential cannot replace it.
         """
         my_id = self.party_state.my_summoner_id
         merged: Dict[int, Tuple[dict, bool]] = {}
 
         for relay in list(self._relays.values()):
             for member in relay.members:
-                sid = _to_int(member.get("summoner_id"))
+                sid = self._trusted_member_id(member)
                 if not sid or sid == my_id or sid in self._ignored_peers:
                     continue
                 previous = merged.get(sid)
@@ -417,12 +435,13 @@ class PartyManager:
 
     def _peers_who_removed_us(self) -> Set[int]:
         my_id = self.party_state.my_summoner_id
-        return {
-            _to_int(member.get("summoner_id"))
-            for relay in list(self._relays.values())
-            for member in relay.members
-            if _removed(member, my_id)
-        }
+        removed = set()
+        for relay in list(self._relays.values()):
+            for member in relay.members:
+                sid = self._trusted_member_id(member)
+                if sid is not None and _removed(member, my_id):
+                    removed.add(sid)
+        return removed
 
     async def _wait_for_peer(self, summoner_id: int, timeout: float) -> Optional[str]:
         """Wait until a summoner shows up in one of our rooms; returns their name."""
@@ -439,6 +458,10 @@ class PartyManager:
 
     def _on_relay_members_changed(self, relay: PartyRelay):
         """Called by a relay when its member list changes."""
+        if self._relays.get(relay.room_key) is not relay:
+            return
+        for member in relay.members:
+            self._member_keys.setdefault(member["summoner_id"], member["member_key"])
         self._refresh_peers()
         self._follow_advertised_rooms()
 

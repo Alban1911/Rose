@@ -7,19 +7,26 @@ Connects to a shared room where party members broadcast skin selections.
 
 import asyncio
 import hashlib
+import hmac
 import json
+import logging
 import os
+import re
 import ssl
 import time
 from typing import Callable, List, Optional
+from urllib.parse import quote, urlencode, urlsplit
 
-import websockets
-from websockets.exceptions import ConnectionClosed
+from websockets.exceptions import ConnectionClosed, SecurityError
+from websockets.legacy.client import Connect
 
 from config import APP_VERSION
 from utils.core.logging import get_logger
 
 log = get_logger()
+# websockets logs request headers at DEBUG, including Authorization.
+connection_log = logging.getLogger(f"{__name__}.connection")
+connection_log.setLevel(logging.INFO)
 
 try:
     from .relay_config import RELAY_URL as _CONFIGURED_URL
@@ -44,6 +51,13 @@ REPLACED_EVENT = "replaced"
 REPLACED_REASON = "replaced"
 # The relay refuses a Rose too old for it with this status: no point retrying
 UPDATE_REQUIRED_STATUS = 426
+IDENTITY_CONFLICT_STATUS = 403
+ROOM_FULL_STATUS = 409
+IDENTITY_LIMIT_STATUS = 507
+RELAY_PROTOCOL_VERSION = "2"
+RELAY_PROTOCOL_HEADER = "X-Rose-Party-Protocol"
+_PERMANENT_REFUSALS = (UPDATE_REQUIRED_STATUS, IDENTITY_CONFLICT_STATUS, IDENTITY_LIMIT_STATUS)
+_MEMBER_KEY = re.compile(r"[0-9a-f]{64}")
 
 _ssl_contexts_cache: Optional[List[ssl.SSLContext]] = None
 
@@ -52,6 +66,12 @@ def compute_room_key(host_summoner_id: int, host_key: bytes) -> str:
     """Derive a room key from the host's token."""
     raw = str(host_summoner_id).encode() + host_key
     return hashlib.sha256(raw).hexdigest()[:32]
+
+
+class _RelayConnect(Connect):
+    def handle_redirect(self, uri: str) -> None:
+        # websockets 12 reuses the Authorization header across redirects.
+        raise SecurityError("the party server redirected the connection")
 
 
 def _ssl_contexts() -> List[ssl.SSLContext]:
@@ -86,10 +106,14 @@ def _describe_error(error: Optional[BaseException]) -> str:
     if isinstance(error, ssl.SSLCertVerificationError):
         return f"secure connection failed ({error.verify_message or error})"
     status = _status_code(error)
-    if status == 409:
+    if status == ROOM_FULL_STATUS:
         return "this party is full (10 players max)"
     if status == UPDATE_REQUIRED_STATUS:
         return "this version of Rose is too old for party mode, please update Rose"
+    if status == IDENTITY_CONFLICT_STATUS:
+        return "this account is already linked to a different Rose installation in this party"
+    if status == IDENTITY_LIMIT_STATUS:
+        return "this party has reached its registered identity limit"
     if status:
         return f"the party server answered with HTTP {status}"
     if isinstance(error, asyncio.TimeoutError):
@@ -104,8 +128,8 @@ class PartyRelay:
 
     Members join, announce themselves, and broadcast their state (skin pick
     and the other rooms they are in). The Worker broadcasts the full member
-    list on every change. A dropped connection is reopened in the background,
-    and our join and last state are sent again, until _run gives up.
+    list on every change. A dropped connection is reopened with the same
+    credentials in the background, and our last state is sent again.
 
     Our state only goes out while someone else is in the room: every message
     wakes the room on the relay, whose active time is what the relay pays for,
@@ -113,13 +137,13 @@ class PartyRelay:
     someone joins.
     """
 
-    def __init__(self, room_key: str, summoner_id: int, summoner_name: str):
+    def __init__(self, room_key: str, summoner_id: int, summoner_name: str, identity_key: bytes):
         self.room_key = room_key
         self._summoner_id = summoner_id
-        self._join_msg = {
-            "type": "join",
-            "summoner_id": summoner_id,
-            "summoner_name": summoner_name,
+        self._identity_key = identity_key
+        self._identity_headers = {
+            "X-Rose-Summoner-Id": str(summoner_id),
+            "X-Rose-Summoner-Name": quote(summoner_name[:64], safe=""),
         }
         self._state: Optional[dict] = None
         # The state the room has for us on the current connection
@@ -130,10 +154,7 @@ class PartyRelay:
         self._run_task: Optional[asyncio.Task] = None
         # Reconnecting stopped (see _run) until resume()
         self._stopped = False
-        # The last connection attempt was refused because the room is full,
-        # or because the relay needs a newer Rose
-        self._room_full = False
-        self._update_required = False
+        self._refused_status: Optional[int] = None
         # The relay gave our place in the room to another connection of ours
         self._replaced = False
 
@@ -154,6 +175,10 @@ class PartyRelay:
     def stopped(self) -> bool:
         """Reconnecting gave up; resume() starts it again."""
         return self._stopped
+
+    @property
+    def permanently_refused(self) -> bool:
+        return self._refused_status in _PERMANENT_REFUSALS
 
     def set_callbacks(
         self,
@@ -182,7 +207,7 @@ class PartyRelay:
     def resume(self):
         """Reconnect a room we stopped reconnecting to (at a moment the party
         needs it: a lobby, a champ select, a friend added again)."""
-        if not self._stopped or self._closing:
+        if not self._stopped or self._closing or self.permanently_refused:
             return
         self._stopped = False
         log.info(f"[RELAY] Reconnecting to room {self.room_key[:8]}")
@@ -241,25 +266,46 @@ class PartyRelay:
             pass
 
     async def _open(self, timeout: float) -> bool:
-        """Open the connection and announce ourselves."""
+        """Join the room using a credential scoped to the configured relay."""
+        self._refused_status = None
         if not RELAY_URL:
             self.last_error = "no party server is configured in this build"
             log.warning("[RELAY] No relay URL configured")
             return False
 
-        # The version tells the relay's logs which Rose a looping connection comes from
-        url = f"{RELAY_URL}/room?key={self.room_key}&v={APP_VERSION}"
-        self._room_full = False
-        self._update_required = False
-        contexts = _ssl_contexts() if url.startswith("wss://") else [None]
+        try:
+            endpoint = urlsplit(RELAY_URL)
+            hostname = endpoint.hostname
+            port = endpoint.port
+        except ValueError:
+            self.last_error = "the party server URL is invalid"
+            return False
+        if not hostname or endpoint.query or endpoint.fragment or endpoint.username is not None:
+            self.last_error = "the party server URL is invalid"
+            return False
+        local = endpoint.scheme == "ws" and hostname in ("localhost", "127.0.0.1", "::1")
+        if endpoint.scheme != "wss" and not local:
+            self.last_error = "the party server must use a secure WebSocket connection"
+            log.warning("[RELAY] Refusing to send credentials over an insecure connection")
+            return False
+        if port is None:
+            port = 443 if endpoint.scheme == "wss" else 80
+        # Stable across rooms on this relay, distinct across relay origins.
+        origin = f"{endpoint.scheme}://{hostname}:{port}".encode("utf-8")
+        credential = hmac.digest(self._identity_key, b"rose-party-relay-v2:" + origin, "sha256")
+        headers = {**self._identity_headers, "Authorization": f"Bearer {credential.hex()}"}
+        query = urlencode({"key": self.room_key, "v": APP_VERSION, "p": RELAY_PROTOCOL_VERSION})
+        url = f"{RELAY_URL.rstrip('/')}/room?{query}"
+        contexts = _ssl_contexts() if endpoint.scheme == "wss" else [None]
         error: Optional[BaseException] = None
 
         for context in contexts:
-            kwargs = {"max_size": 65536}
+            # A room can send ten members' state, each with an 8 KiB limit.
+            kwargs = {"max_size": 128 * 1024, "extra_headers": headers, "logger": connection_log}
             if context is not None:
                 kwargs["ssl"] = context
             try:
-                ws = await asyncio.wait_for(websockets.connect(url, **kwargs), timeout=timeout)
+                ws = await asyncio.wait_for(_RelayConnect(url, **kwargs), timeout=timeout)
             except ssl.SSLCertVerificationError as e:
                 error = e
                 continue  # try the next trust store
@@ -267,12 +313,12 @@ class PartyRelay:
                 error = e
                 break
 
-            try:
-                # Our state follows once the room's member list shows someone else
-                await ws.send(json.dumps(self._join_msg))
-            except Exception as e:
-                error = e
-                break
+            if ws.response_headers.get_all(RELAY_PROTOCOL_HEADER) != [RELAY_PROTOCOL_VERSION]:
+                await self._close_socket(ws)
+                self.last_error = "the party server does not support authenticated connections"
+                self._refused_status = UPDATE_REQUIRED_STATUS
+                log.warning("[RELAY] Party server did not confirm protocol %s", RELAY_PROTOCOL_VERSION)
+                return False
 
             self._ws = ws
             self._connected = True
@@ -284,8 +330,7 @@ class PartyRelay:
             return True
 
         self.last_error = _describe_error(error)
-        self._room_full = _status_code(error) == 409
-        self._update_required = _status_code(error) == UPDATE_REQUIRED_STATUS
+        self._refused_status = _status_code(error)
         log.warning(f"[RELAY] Connection to room {self.room_key[:8]} failed: {error}")
         return False
 
@@ -294,9 +339,9 @@ class PartyRelay:
 
         Every connection wakes the room on the relay, which the relay pays for,
         so this gives up (until resume()) rather than retry forever: when the
-        relay handed our place to another connection of ours, when the room is
-        full, and after trying every delay without getting a connection that
-        lasts.
+        relay handed our place to another connection of ours, when the room
+        is full or refuses our identity or protocol, and after trying every
+        delay without getting a connection that lasts.
         """
         attempt = 0
         while not self._closing:
@@ -309,11 +354,10 @@ class PartyRelay:
                 if self._closing:
                     return
                 if not await self._open(CONNECT_TIMEOUT):
-                    if self._room_full:
-                        self._stop("the room is full")
-                        return
-                    if self._update_required:
-                        self._stop("the party server needs a newer Rose")
+                    if self.permanently_refused or self._refused_status == ROOM_FULL_STATUS:
+                        if self.permanently_refused:
+                            self.members = []
+                        self._stop(self.last_error or "the party server refused the connection")
                         return
                     continue
 
@@ -338,7 +382,7 @@ class PartyRelay:
                 self._stop("this account joined it from another connection")
                 if replaced:
                     # The relay stopped listening but left the connection open
-                    await self._close_replaced(ws)
+                    await self._close_socket(ws)
                 return
             if time.monotonic() - opened_at >= STABLE_CONNECTION_S:
                 attempt = 0
@@ -346,9 +390,8 @@ class PartyRelay:
             self._notify(self._on_connection_changed)
 
     @staticmethod
-    async def _close_replaced(ws):
-        """Close a connection the relay gave away. No leave message: the room
-        already dropped us, and our player is in it on the other connection."""
+    async def _close_socket(ws):
+        """Close a socket without sending a room message."""
         try:
             await asyncio.wait_for(ws.close(), timeout=2.0)
         except Exception:
@@ -375,16 +418,40 @@ class PartyRelay:
                     return
                 if isinstance(msg, dict) and msg.get("type") == "members":
                     members = msg.get("members")
-                    self.members = [m for m in members if isinstance(m, dict)] if isinstance(members, list) else []
+                    self.members = self._normalize_members(members)
                     log.debug(f"[RELAY] Room {self.room_key[:8]}: {len(self.members)} member(s)")
-                    await self._deliver_state()
                     self._notify(self._on_members_changed)
+                    await self._deliver_state()
         except ConnectionClosed as e:
             log.info(f"[RELAY] Room {self.room_key[:8]} connection closed: {e}")
         except asyncio.CancelledError:
             raise
         except Exception as e:
             log.warning(f"[RELAY] Receive error in room {self.room_key[:8]}: {e}")
+
+    @staticmethod
+    def _normalize_members(members) -> List[dict]:
+        """The relay sends decimal IDs to preserve all 64 bits on the wire."""
+        normalized = []
+        if not isinstance(members, list):
+            return normalized
+        for member in members:
+            if not isinstance(member, dict):
+                continue
+            member_key = member.get("member_key")
+            if not isinstance(member_key, str) or not _MEMBER_KEY.fullmatch(member_key):
+                continue
+            summoner_id = member.get("summoner_id")
+            if (
+                isinstance(summoner_id, str)
+                and len(summoner_id) <= 20
+                and summoner_id.isascii()
+                and summoner_id.isdecimal()
+            ):
+                summoner_id = int(summoner_id)
+            if type(summoner_id) is int and 0 < summoner_id < 2**64:
+                normalized.append({**member, "summoner_id": summoner_id})
+        return normalized
 
     async def _keepalive(self, ws):
         """App-level ping; the relay answers it without waking the room."""
