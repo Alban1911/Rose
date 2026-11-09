@@ -288,8 +288,8 @@ class AddTests(TempCase):
     """An added mod is registered with what Rose needs to know about it, read
     once: a category's mod moves into LTK Manager, and Rose keeps no copy to
     read it from. Its name is its own in its folder, against the mods LTK
-    Manager holds (or lost) too; a mod the folder holds already is not added
-    twice"""
+    Manager holds (or lost) too; a skin the folder holds already is not added
+    twice, a category's mod added again is another mod"""
 
     def setUp(self):
         super().setUp()
@@ -356,7 +356,6 @@ class AddTests(TempCase):
         self.assertEqual((name, stored.name), ("Rift (2)", "Rift (2).fantome"))
         mods = self.entries(self.maps_manifest)
         self.assertEqual(mods["Rift"], lost)
-        self.assertEqual(mods[name]["folderHash"], lost["folderHash"])
         listed = {mod.name: mod for mod in self.service.saved_mods("maps")}
         self.assertEqual((listed["Rift"].source, listed["Rift"].display_name),
                          (LtkEntry(LOST_ID, None, gone_at_last_sync=True), "My Rift"))
@@ -397,43 +396,33 @@ class AddTests(TempCase):
         self.assertEqual(sorted(p.name for p in self.ezreal.iterdir()),
                          sorted([self.skins_manifest.name, "Ezreal.fantome", "Ezreal.png"]))
 
-    def test_the_same_category_mod_added_again_is_the_one_ltk_manager_holds(self):
-        """No second copy, in Rose or in LTK Manager"""
+    def test_a_category_mod_is_registered_without_hashing_its_content(self):
+        """Hashing a voiceover pack took seconds; only a custom skin's hashes are ever read"""
+        with patch("injection.mods.storage.compute_mod_facts", side_effect=AssertionError("hashed")):
+            stored, name, _ = self.add_map()
+
+        entry = self.entries(self.maps_manifest)[name]
+        self.assertEqual(ModFacts.from_manifest(entry), compute_mod_facts(stored)[0])
+        for key in ("folderHash", "sourceHash", "wadHashes"):
+            self.assertNotIn(key, entry)
+
+    def test_the_same_category_mod_added_again_is_another_mod(self):
+        """The one LTK Manager holds, or still Rose's, is left as it is"""
         first, name, _ = self.add_map()
         relative = first.relative_to(self.service.mods_root).as_posix()
         self.service.attach_ltk_entry(relative, MOVED_ID)
         self.service.drop_stored_copy(relative)
 
-        again = self.add_map("Rift copy")
+        again = self.add_map("Rift")
+        pending_again = self.add_map("Rift")
 
-        self.assertEqual(again, (first, name, True))
-        self.assertFalse(again.identity_path.exists())
-        [entry] = self.entries(self.maps_manifest).values()
-        self.assertEqual(entry["ltkId"], MOVED_ID)
-        self.assertEqual(sorted(p.name for p in self.maps.iterdir()),
-                         sorted([self.maps_manifest.name, "Rift.png"]))
+        self.assertEqual([(added.name, added.nothing_added) for added in (again, pending_again)],
+                         [("Rift (2)", False), ("Rift (3)", False)])
+        mods = self.entries(self.maps_manifest)
+        self.assertEqual(mods[name]["ltkId"], MOVED_ID)
+        self.assertEqual(sorted(mods), ["Rift", "Rift (2)", "Rift (3)"])
+        self.assertTrue(again.identity_path.is_file())
         self.assertEqual(ltk_removals(self.service.mods_root), [])
-
-    def test_the_same_file_without_its_info_added_again_is_the_one_saved_already(self):
-        """Rose names the mod in the archive it packs for it ("Rift", then
-        "Rift (2)"): the content differs, the file the user picked does not"""
-        source = make_archive(self.root / "Rift.zip", {"WAD/Map11.wad.client": b"map"})
-        stored, name, _ = self.service.import_category_mod_file("maps", source)
-
-        self.assertEqual(self.service.import_category_mod_file("maps", source), (stored, name, True))
-
-        self.assertEqual(list(self.entries(self.maps_manifest)), [name])
-        self.assertEqual(sorted(p.name for p in self.maps.iterdir()), sorted([self.maps_manifest.name, stored.name]))
-
-    def test_the_same_category_mod_added_again_writes_nothing(self):
-        stored, name, _ = self.add_map()
-        before = self.maps_manifest.read_bytes()
-
-        self.assertEqual(self.add_map("Rift copy"), (stored, name, True))
-
-        self.assertEqual(self.maps_manifest.read_bytes(), before)
-        self.assertEqual(sorted(p.name for p in self.maps.iterdir()),
-                         sorted([self.maps_manifest.name, "Rift.fantome", "Rift.png"]))
 
 
 class ManifestListingTests(TempCase):

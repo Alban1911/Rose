@@ -146,20 +146,22 @@ class ModCheckOnImportTests(ModCheckCase):
         self.assertEqual(kept[0]["health"], verdict)
         self.assertEqual(errors, [])
 
-    def test_the_same_mod_added_again_is_not_checked_again(self):
-        """LTK Manager holds it, its copy still in Rose: importing that copy
-        again would put another entry in the place of the one Rose recorded,
-        and leave that one in LTK Manager for good"""
+    def test_the_same_mod_added_again_is_another_mod_and_the_saved_one_stays_as_it_is(self):
+        """LTK Manager holds it, its copy still in Rose: the mod added again
+        takes another name, so it never takes the place of the entry Rose
+        recorded (which would then stay in LTK Manager for good)"""
         self.storage.attach_ltk_entry(self.relative_path, LTK_ID)
+        self.library.check_mod.return_value = None
         instance = self.handler()
 
         with patch.object(message_handler, "_choose_mod_files", return_value=[self.source]):
             instance._handle_add_custom_mods_category_selected({"category": "voiceover"})
 
-        self.library.check_mod.assert_not_called()
         response = instance.sent[-1]
         self.assertTrue(response["success"])
-        self.assertEqual(response["imported"][0]["relativePath"], self.relative_path)
+        again = response["imported"][0]["relativePath"]
+        self.assertNotEqual(again, self.relative_path)
+        self.assertEqual(Path(self.library.check_mod.call_args.args[0]), self.storage.mods_root / again)
         self.assertEqual(self.saved().ltk_id, LTK_ID)
 
     def test_nothing_is_checked_in_a_queue_champion_select_or_while_injecting(self):

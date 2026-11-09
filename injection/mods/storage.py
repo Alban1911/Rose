@@ -41,7 +41,7 @@ from .fantome import deflated_packed_wads, store_packed_wads, write_fantome_zip
 from .ltk_ref import is_ltk_id
 from .manifest import MANIFEST_WRITERS_LOCK
 from .manifest import SavedMod, normalize_target_ids
-from .mod_facts import ModFacts, compute_mod_facts
+from .mod_facts import ModFacts, compute_mod_facts, read_mod_facts
 from .mod_files import ModFiles
 from .mod_source import ModSource
 
@@ -228,18 +228,23 @@ class ModStorageService:
         parent_dir: Path,
         targets: tuple[int, ...] = (),
         as_picked: bool = False,
+        content_hashes: bool = True,
     ) -> AddedMod:
         """Store one user-selected mod archive in *parent_dir* as the .fantome
         LTK Manager installs, its preview image beside it, and register it in
         the folder's manifest with what Rose needs to know about it, read
-        once (compute_mod_facts): a category's mod moves into LTK Manager,
-        and Rose keeps no copy to read it from again. Nothing it wrote stays
-        when a step fails. *as_picked*: _write_stored_archive.
+        once: a category's mod moves into LTK Manager, and Rose keeps no copy
+        to read it from again. Nothing it wrote stays when a step fails.
+        *as_picked*: _write_stored_archive.
 
-        A mod the folder holds already (the same file added again, or the
-        same content: LTK Manager's or still Rose's) is not added twice:
-        *targets* join its own, and it is returned, nothing_added: LTK Manager
-        has nothing new to check."""
+        With *content_hashes* (a custom skin), its content is hashed
+        (compute_mod_facts) and so is the file picked: a skin renamed on disk
+        is found by them, and the same skin added again (the same file, or
+        the same content: LTK Manager's or still Rose's) is not added twice:
+        *targets* join its own, and it is returned, nothing_added. Without
+        (a category's mod), only its facts are read (read_mod_facts), a
+        moment where hashing a voiceover pack took seconds, and the same mod
+        added again is another mod, "Name (2)"."""
         source = Path(source_path).expanduser()
         if not source.is_file():
             raise FileNotFoundError(f"Mod file not found: {source}")
@@ -249,15 +254,21 @@ class ModStorageService:
         if not base_name or base_name in {".", ".."}:
             raise ValueError("The selected mod file has no usable name")
 
-        with source.open("rb") as stream:
-            picked_file_hash = hashlib.file_digest(stream, "sha256").hexdigest()
+        picked_file_hash = None
+        if content_hashes:
+            with source.open("rb") as stream:
+                picked_file_hash = hashlib.file_digest(stream, "sha256").hexdigest()
         parent_dir.mkdir(parents=True, exist_ok=True)
         mod_name, target = self._choose_archive_destination(parent_dir, base_name)
         temporary = parent_dir / f"{self.IMPORT_TEMP_PREFIX}{uuid.uuid4().hex}.tmp"
+        existing = None
         try:
             self._write_stored_archive(source, temporary, mod_name, as_picked)
-            facts, full_hash, wad_hashes = compute_mod_facts(temporary)
-            existing = saved_manifest.same_content(self.mods_root, parent_dir, full_hash, picked_file_hash)
+            if content_hashes:
+                facts, full_hash, wad_hashes = compute_mod_facts(temporary)
+                existing = saved_manifest.same_content(self.mods_root, parent_dir, full_hash, picked_file_hash)
+            else:
+                facts, full_hash, wad_hashes = read_mod_facts(temporary), None, {}
             if existing is None:
                 temporary.replace(target)
         finally:
@@ -902,7 +913,7 @@ class ModStorageService:
         (_write_stored_archive)."""
         if category not in self.MOD_CATEGORIES:
             raise ValueError(f"Unsupported mod category: {category}")
-        return self._add_archive(source_path, self.mods_root / category, as_picked=as_picked)
+        return self._add_archive(source_path, self.mods_root / category, as_picked=as_picked, content_hashes=False)
 
     def list_mods_for_skin(self, skin_id: int | str) -> List[SkinModEntry]:
         """Return mods for a skin, including champion-level target metadata."""

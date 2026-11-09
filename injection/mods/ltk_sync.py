@@ -15,7 +15,7 @@ from utils.threading.thread_manager import create_daemon_thread
 from ..overlay.ltk_data import IndexEntry, library_index_mtime, read_library_index
 from .manifest import MANIFEST_WRITERS_LOCK, SavedMod, find_saved_mod, ltk_library_mods, update_saved_mod
 from .migration import delete_copy
-from .mod_facts import compute_mod_facts, stamp_of
+from .mod_facts import read_mod_facts, stamp_of
 from .storage import ModStorageService
 
 log = get_logger()
@@ -141,7 +141,7 @@ def _changed_facts(mod: SavedMod, entry: IndexEntry) -> dict:
     if stamp is None or (mod.facts is not None and stamp == mod.metadata.get("ltkStamp")):
         return {}
     try:
-        facts = compute_mod_facts(entry.archive)[0]
+        facts = read_mod_facts(entry.archive)
     except (OSError, ValueError, zipfile.BadZipFile) as e:
         log.warning(f"[MODS] Could not read {mod.name} in LTK Manager's library ({entry.archive}): {e}")
         return {}

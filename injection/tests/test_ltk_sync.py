@@ -137,7 +137,7 @@ class LtkSyncTests(unittest.TestCase):
         self.save("VO Korean", VO_ID, archive=self.ltk_archive("vo-korean", VOICEOVER))
         self.write_index((VO_ID, "vo-korean"))
 
-        with patch.object(ltk_sync, "compute_mod_facts", side_effect=AssertionError("read again")):
+        with patch.object(ltk_sync, "read_mod_facts", side_effect=AssertionError("read again")):
             report = self.sync()
 
         self.assertFalse(report)
@@ -200,7 +200,7 @@ class LtkSyncTests(unittest.TestCase):
 
         for case, index, during in (
             ("its entry gone", (), "read_library_index"),
-            ("its archive changed", ((VO_ID, "vo-korean"),), "compute_mod_facts"),
+            ("its archive changed", ((VO_ID, "vo-korean"),), "read_mod_facts"),
         ):
             with self.subTest(case):
                 self.save("VO Korean", VO_ID, **STALE.to_manifest(), ltkStamp=[1, 1])

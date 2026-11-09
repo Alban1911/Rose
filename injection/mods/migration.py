@@ -34,7 +34,7 @@ from ..overlay.ltk_library import (
 )
 from .conversion import convert_folder_mods, rename_saved_paths
 from .manifest import ARCHIVE_SUFFIX, SavedMod, ltk_library_mods, update_listed_mod
-from .mod_facts import compute_mod_facts, stamp_of
+from .mod_facts import read_mod_facts, stamp_of
 from .storage import ModStorageService
 
 log = get_logger()
@@ -349,7 +349,7 @@ class _Migration:
         it is), the entry named by its manifest once LTK Manager lists it,
         kept there, and Rose's copy deleted. Raises with the mod still Rose's."""
         mod = move.mod
-        facts = mod.facts or compute_mod_facts(mod.rose_copy)[0]
+        facts = mod.facts or read_mod_facts(mod.rose_copy)
         ltk_id = move.ltk_id_left_by_game or str(self.session.import_archive(mod.rose_copy, move.display_name).get("id"))
         entry = self.session.confirm(ltk_id)
         if entry is None:
