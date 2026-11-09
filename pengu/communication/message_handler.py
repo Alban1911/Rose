@@ -2851,6 +2851,29 @@ class MessageHandler:
             for note in result.findings.notes:
                 log.debug(f"[BASESKIN] {name}: {note}")
 
+    def _ltk_takes_added_mods(self) -> bool:
+        """Whether LTK Manager is to check the mods added now, and keep a
+        category's in its library (_check_imported_mods): the injection
+        knows the game folder, and no game wants LTK Manager. Such a mod is
+        stored as it was picked (ModStorageService._write_stored_archive)."""
+        overlay = getattr(getattr(getattr(self, "injection_manager", None), "injector", None), "overlay_manager", None)
+        return overlay is not None and getattr(overlay, "game_dir", None) is not None and not self._ltk_wanted_by_game()
+
+    def _keep_mods_left_in_rose(self, imported: list[dict]) -> None:
+        """Store each added category mod LTK Manager did not take (it was
+        busy, missing, or could not check it) as Rose keeps one
+        (ModStorageService.keep_own_copy): it stays in Rose, imported for
+        each game."""
+        for item in imported:
+            if item.get("savedAlready"):
+                continue
+            try:
+                saved = self.mod_storage.saved_mod(item["relativePath"])
+                if saved is not None and saved.pending:
+                    self.mod_storage.keep_own_copy(item["relativePath"])
+            except Exception as e:  # noqa: BLE001 - the mod is added; it works as it is
+                log.warning(f"[MODS] Could not store {item.get('modName')} as Rose keeps a mod: {e}")
+
     def _ltk_wanted_by_game(self) -> bool:
         """Whether LTK Manager is, or is about to be, the game's: the client
         queues, found a match, is in champion select or a game, or an
@@ -3014,11 +3037,13 @@ class MessageHandler:
             self._send_mod_import_started(selected_mod_files)
             imported = []
             errors = []
+            as_picked = self._ltk_takes_added_mods()
             for mod_file in selected_mod_files:
                 try:
                     added = self.mod_storage.import_category_mod_file(
                         category,
                         mod_file,
+                        as_picked=as_picked,
                     )
                     imported.append({
                         "fileName": mod_file.name,
@@ -3040,6 +3065,7 @@ class MessageHandler:
                 imported, errors,
                 lambda item: self.mod_storage.delete_category_mod(category, item["modName"]),
             )
+            self._keep_mods_left_in_rose(imported)
             response_payload = {
                 "type": "folder-opened-response",
                 "success": bool(imported) and not errors,

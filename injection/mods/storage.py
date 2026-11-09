@@ -24,7 +24,7 @@ import zipfile
 from pathlib import Path
 from typing import List, Mapping, NamedTuple, Optional
 
-from utils.core.junction import is_junction, safe_remove_entry
+from utils.core.junction import is_junction, link_file, safe_remove_entry
 from utils.core.atomic_file import atomic_write
 from utils.core.logging import get_logger
 from utils.core.modpkg import MODPKG_SUFFIX
@@ -37,7 +37,7 @@ from utils.core.safe_extract import (
 from utils.core.utilities import get_champion_id_from_skin_id
 
 from . import manifest as saved_manifest
-from .fantome import is_packed_wad, write_fantome_zip
+from .fantome import deflated_packed_wads, store_packed_wads, write_fantome_zip
 from .ltk_ref import is_ltk_id
 from .manifest import MANIFEST_WRITERS_LOCK
 from .manifest import SavedMod, normalize_target_ids
@@ -227,13 +227,14 @@ class ModStorageService:
         source_path: str | Path,
         parent_dir: Path,
         targets: tuple[int, ...] = (),
+        as_picked: bool = False,
     ) -> AddedMod:
         """Store one user-selected mod archive in *parent_dir* as the .fantome
         LTK Manager installs, its preview image beside it, and register it in
         the folder's manifest with what Rose needs to know about it, read
         once (compute_mod_facts): a category's mod moves into LTK Manager,
         and Rose keeps no copy to read it from again. Nothing it wrote stays
-        when a step fails.
+        when a step fails. *as_picked*: _write_stored_archive.
 
         A mod the folder holds already (the same file added again, or the
         same content: LTK Manager's or still Rose's) is not added twice:
@@ -254,7 +255,7 @@ class ModStorageService:
         mod_name, target = self._choose_archive_destination(parent_dir, base_name)
         temporary = parent_dir / f"{self.IMPORT_TEMP_PREFIX}{uuid.uuid4().hex}.tmp"
         try:
-            self._write_stored_archive(source, temporary, mod_name)
+            self._write_stored_archive(source, temporary, mod_name, as_picked)
             facts, full_hash, wad_hashes = compute_mod_facts(temporary)
             existing = saved_manifest.same_content(self.mods_root, parent_dir, full_hash, picked_file_hash)
             if existing is None:
@@ -281,16 +282,23 @@ class ModStorageService:
         self._champion_listing_cache.clear()
         return AddedMod(target, mod_name)
 
-    def _write_stored_archive(self, source: Path, dest: Path, mod_name: str) -> None:
+    def _write_stored_archive(self, source: Path, dest: Path, mod_name: str, as_picked: bool = False) -> None:
         """Write at *dest* the .fantome stored for the mod archive *source*.
 
         A .fantome or .zip that names its mod (META/info.json) is copied as
         it is, after the checks an extraction makes. A .modpkg, or an archive
         without META/info.json, is unpacked and packed into a .fantome, as an
-        injection did before Rose kept archives. So is an archive holding a
-        packed WAD deflated: LTK Manager stores its packed WADs, and rewrote
-        a deflated one whole at every install (ltk_fantome's normalize), here
-        once.
+        injection did before Rose kept archives. An archive holding a packed
+        WAD deflated has its packed WADs stored, in one pass
+        (store_packed_wads): LTK Manager stores them, and rewrote a deflated
+        one whole at every install (ltk_fantome's normalize), here once.
+
+        *as_picked*: LTK Manager takes the mod as it is added (a category's
+        mod, into its library). Such an archive is linked as the user picked
+        it, neither copied nor rewritten: LTK Manager copies it into its
+        library and stores its packed WADs as it imports it, once, and Rose
+        deletes its copy after. keep_own_copy makes it Rose's own when
+        LTK Manager did not take it.
         """
         if source.suffix.lower() == MODPKG_SUFFIX:
             self._repack(source, dest, mod_name, metadata=False)
@@ -299,18 +307,51 @@ class ModStorageService:
         if not names:
             raise ValueError("The selected mod archive contains no files")
         has_info = any(name.replace("\\", "/").lstrip("/").casefold() == _INFO_KEY for name in names)
-        with zipfile.ZipFile(source) as archive:
-            deflated_wads = [
-                info.filename for info in archive.infolist()
-                if is_packed_wad(info.filename) and info.compress_type != zipfile.ZIP_STORED
-            ]
+        if has_info and as_picked:
+            link_file(source, dest)
+            return
+        deflated_wads = deflated_packed_wads(source)
         if has_info and not deflated_wads:
             shutil.copyfile(source, dest)
             return
         if deflated_wads:
             log.info(f"[MODS] Storing the {len(deflated_wads)} packed WAD(s) of {source.name} uncompressed, "
                      "as LTK Manager keeps them")
+            if has_info:
+                store_packed_wads(source, dest)
+                return
         self._repack(source, dest, mod_name, metadata=not has_info)
+
+    def keep_own_copy(self, relative_path: str) -> None:
+        """Make Rose's copy of a saved mod it keeps (one LTK Manager did not
+        take as it was added) Rose's own, as a mod staying in Rose is stored:
+        imported for each game, its packed WADs stored (store_packed_wads)
+        so that LTK Manager does not rewrite them at each import, and no
+        longer the file the user picked, which an add as_picked links. A copy
+        that is both already is left as it is; one that cannot be rewritten
+        too, logged: it still works."""
+        mod = self.saved_mod(relative_path)
+        copy = mod.rose_copy if mod is not None else None
+        if copy is None or not copy.is_file():
+            return
+        temporary = copy.with_name(f"{self.IMPORT_TEMP_PREFIX}{uuid.uuid4().hex}.tmp")
+        try:
+            deflated = bool(deflated_packed_wads(copy))
+            if not deflated and copy.stat().st_nlink == 1:
+                return
+            if deflated:
+                store_packed_wads(copy, temporary)
+            else:
+                shutil.copyfile(copy, temporary)
+            temporary.replace(copy)
+        except (OSError, ValueError, zipfile.BadZipFile) as exc:
+            log.warning(f"[MODS] Kept {mod.name} as it was added: it could not be stored as Rose keeps a mod ({exc})")
+            return
+        finally:
+            safe_remove_entry(temporary)
+        self._champion_listing_cache.clear()
+        log.info(f"[MODS] Stored {mod.name} in Rose{', its packed WADs uncompressed' if deflated else ''}: "
+                 "LTK Manager did not take it")
 
     def _repack(self, source: Path, dest: Path, mod_name: str, metadata: bool) -> None:
         with tempfile.TemporaryDirectory(
@@ -853,11 +894,15 @@ class ModStorageService:
         self,
         category: str,
         source_path: str | Path,
+        *,
+        as_picked: bool = False,
     ) -> AddedMod:
-        """Add one user-selected mod archive to a category's folder (_add_archive)."""
+        """Add one user-selected mod archive to a category's folder
+        (_add_archive). *as_picked*: LTK Manager takes it as it is added
+        (_write_stored_archive)."""
         if category not in self.MOD_CATEGORIES:
             raise ValueError(f"Unsupported mod category: {category}")
-        return self._add_archive(source_path, self.mods_root / category)
+        return self._add_archive(source_path, self.mods_root / category, as_picked=as_picked)
 
     def list_mods_for_skin(self, skin_id: int | str) -> List[SkinModEntry]:
         """Return mods for a skin, including champion-level target metadata."""

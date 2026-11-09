@@ -177,6 +177,67 @@ class StorageTests(TempCase):
             for name in VOICEOVER:
                 self.assertEqual(files.read(name), original.read(name))
 
+    def deflated(self, name="VO.fantome"):
+        """A voiceover pack whose packed WADs are deflated, as mods are shared"""
+        source = self.root / "Downloads" / name
+        source.parent.mkdir(parents=True, exist_ok=True)
+        with zipfile.ZipFile(source, "w", zipfile.ZIP_DEFLATED) as archive:
+            for entry, data in VOICEOVER.items():
+                archive.writestr(entry, data)
+        return source
+
+    def test_a_mod_ltk_manager_takes_as_it_is_added_is_kept_as_picked(self):
+        """LTK Manager copies it into its library and stores its packed WADs as it imports it, once"""
+        source = self.deflated()
+        before = source.read_bytes()
+
+        stored, name, _ = self.service.import_category_mod_file("voiceover", source, as_picked=True)
+
+        self.assertTrue(os.path.samefile(stored, source), "linked, neither copied nor rewritten")
+        mod = self.service.saved_mod(f"voiceover/{name}.fantome")
+        self.assertTrue(mod.pending)
+        self.assertEqual(mod.facts, compute_mod_facts(source)[0])
+        self.assertTrue(self.service.attach_ltk_entry(mod.identity, MOVED_ID))
+        self.assertTrue(self.service.drop_stored_copy(mod.identity))
+        self.assertEqual(source.read_bytes(), before, "the file the user picked is theirs")
+
+    def test_a_mod_left_in_rose_becomes_its_own_copy_with_its_wads_stored(self):
+        source = self.deflated()
+        before = source.read_bytes()
+        stored, name, _ = self.service.import_category_mod_file("voiceover", source, as_picked=True)
+
+        self.service.keep_own_copy(f"voiceover/{name}.fantome")
+
+        self.assertFalse(os.path.samefile(stored, source))
+        self.assertEqual(source.read_bytes(), before)
+        with zipfile.ZipFile(stored) as archive:
+            self.assertEqual(archive.getinfo("WAD/Ahri.ko_KR.wad.client").compress_type, zipfile.ZIP_STORED)
+        with ModFiles(stored) as files, ModFiles(source) as original:
+            for entry in VOICEOVER:
+                self.assertEqual(files.read(entry), original.read(entry))
+        self.assertEqual(self.service.saved_mod(f"voiceover/{name}.fantome").rose_copy, stored)
+
+    def test_a_linked_mod_whose_wads_are_stored_is_copied_once_left_in_rose(self):
+        source = make_archive(self.root / "Downloads" / "Rift.fantome", VOICEOVER)
+        stored, name, _ = self.service.import_category_mod_file("maps", source, as_picked=True)
+
+        self.service.keep_own_copy(f"maps/{name}.fantome")
+
+        self.assertFalse(os.path.samefile(stored, source))
+        self.assertEqual(stored.read_bytes(), source.read_bytes())
+
+    def test_a_copy_rose_owns_already_is_left_as_it_is(self):
+        stored, name, _ = self.service.import_category_mod_file("voiceover", self.deflated())
+        written = stored.stat().st_mtime_ns
+
+        with patch("injection.mods.storage.store_packed_wads") as rewrite, \
+                patch("injection.mods.storage.shutil.copyfile") as copy:
+            self.service.keep_own_copy(f"voiceover/{name}.fantome")
+
+        rewrite.assert_not_called()
+        copy.assert_not_called()
+        self.assertEqual(stored.stat().st_mtime_ns, written)
+
     def test_an_unsafe_archive_is_refused_and_nothing_is_left(self):
         source = make_archive(self.root / "Evil.fantome", {"../../evil.txt": b"x", "META/info.json": "{}"})
 

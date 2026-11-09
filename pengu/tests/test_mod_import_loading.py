@@ -27,7 +27,7 @@ class ModImportLoadingTests(unittest.TestCase):
         self.handler.mod_storage = storage
 
     def _import(self, result):
-        def run(*args):
+        def run(*args, **kwargs):
             self.sent.append({"type": "import"})
             return result
         return run

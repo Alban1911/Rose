@@ -4,6 +4,7 @@ its library, a custom skin stays Rose's; a mod LTK Manager will turn off in
 game is not added."""
 
 import json
+import os
 import sys
 import tempfile
 import threading
@@ -207,6 +208,61 @@ class ModCheckOnImportTests(ModCheckCase):
 
         self.assertEqual(self.library.check_mod.call_count, 1)
         self.assertEqual(len(kept), 2)
+
+
+class AddedAsPickedTests(ModCheckCase):
+    """A category's mod LTK Manager takes as it is added is stored as it was
+    picked: LTK Manager copies it into its library and stores its packed WADs
+    as it imports it, once (a 3 GB voiceover pack was unpacked and packed
+    again first)"""
+
+    def setUp(self):
+        super().setUp()
+        self.picked = Path(self.source).with_name("vo-japanese.fantome")
+        with zipfile.ZipFile(self.picked, "w", zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr("META/info.json", json.dumps({"Name": "VO Japanese"}))
+            archive.writestr("WAD/Ahri.ja_JP.wad.client", b"japanese voice" * 100)
+        self.before = self.picked.read_bytes()
+
+    def add(self, phase="Lobby"):
+        instance = self.handler(phase)
+        with patch.object(message_handler, "_choose_mod_files", return_value=[self.picked]):
+            instance._handle_add_custom_mods_category_selected({"category": "voiceover"})
+        response = instance.sent[-1]
+        self.assertTrue(response["success"], response)
+        return self.saved(response["imported"][0]["relativePath"])
+
+    def test_a_mod_ltk_manager_keeps_is_neither_copied_nor_rewritten_by_rose(self):
+        def check(mod, display_name, on_kept, stop=None):
+            self.assertTrue(os.path.samefile(mod, self.picked), "LTK Manager imports the file as picked")
+            self.assertTrue(on_kept(LTK_ID, stamp=None))
+            return {"health": "healthy", "repaired": 0, "problems": [], "ltkId": LTK_ID}
+        self.library.check_mod.side_effect = check
+
+        mod = self.add()
+
+        self.assertEqual((mod.ltk_id, mod.rose_copy), (LTK_ID, None))
+        self.assertEqual(self.picked.read_bytes(), self.before, "the file the user picked is theirs")
+
+    def test_a_mod_ltk_manager_did_not_take_is_stored_as_rose_keeps_one(self):
+        self.library.check_mod.return_value = None
+
+        mod = self.add()
+
+        self.assertTrue(mod.pending)
+        self.assertFalse(os.path.samefile(mod.rose_copy, self.picked))
+        with zipfile.ZipFile(mod.rose_copy) as archive:
+            self.assertEqual(archive.getinfo("WAD/Ahri.ja_JP.wad.client").compress_type, zipfile.ZIP_STORED)
+        self.assertEqual(self.picked.read_bytes(), self.before)
+
+    def test_a_mod_added_while_a_game_wants_ltk_manager_is_stored_at_once(self):
+        mod = self.add("ChampSelect")
+
+        self.library.check_mod.assert_not_called()
+        self.assertTrue(mod.pending)
+        self.assertFalse(os.path.samefile(mod.rose_copy, self.picked))
+        with zipfile.ZipFile(mod.rose_copy) as archive:
+            self.assertEqual(archive.getinfo("WAD/Ahri.ja_JP.wad.client").compress_type, zipfile.ZIP_STORED)
 
 
 class SkinCheckOnImportTests(ModCheckCase):
