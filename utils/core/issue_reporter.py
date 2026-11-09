@@ -12,10 +12,11 @@ File: %LOCALAPPDATA%\\Rose\\rose_diagnostics.txt
 from __future__ import annotations
 
 import re
+import secrets
 import threading
 import time
 from datetime import datetime
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, NamedTuple, Optional
 
 from utils.core.logging import get_logger
 from utils.core.paths import get_user_data_dir
@@ -46,41 +47,65 @@ _ALLOWED_CODES = {
     'WINDOWS_ADMIN_SHELL',    # Windows runs every program as administrator: LTK Manager refuses to patch
 }
 
-# Reports about how the PC is set up, which Rose checks again whenever they
-# matter (startup, League connecting, LTK Manager starting): an earlier
-# session's copy would only repeat or contradict this session's
+# Reports about how the PC is set up, which Rose checks again as it starts
+# (Pengu Loader's activation, the Windows account) or as League connects: an
+# earlier session's copy would only repeat or contradict this session's
 _SETUP_CODES = {
     'LEAGUE_ELEVATED',
-    'LTF_MISSING',
-    'LTK_ELEVATED',
-    'LTK_MANAGER_MISSING',
     'PENGU_ACTIVATION_FAILED',
     'PENGU_INJECTION_FAILED',
     'WINDOWS_ADMIN_SHELL',
 }
 
+# Setup reports Rose only checks again as LTK Manager starts (a champion
+# select, a mod added): an earlier session's copy is kept, and counts as this
+# session's, until that check removes it (resolve_issue) or reports it again.
+# Dropped at Rose's start, the problem went unseen until a game's injection failed
+_UNTIL_RECHECKED = {
+    'LTF_MISSING',
+    'LTK_ELEVATED',
+    'LTK_MANAGER_MISSING',
+}
+
 # An earlier session's other reports stay this long
 EARLIER_REPORTS_KEPT_S = 7 * 24 * 3600
 
-# When this Rose started (start_session): reports from before are an earlier session's
+# When this Rose started (start_session), shown in Troubleshooting
 SESSION_START = time.time()
 
-# "2026-11-08 14:02:31 [LTF_FAILED]"; older reports hold "Nov 08 14:02" (no year, no code)
+# Which run of Rose wrote a report: its stamp carries it, so this session's
+# reports are told from earlier ones whatever the clock did between them
+# (a daylight saving change, a clock set right after a boot)
+SESSION_ID = secrets.token_hex(4)
+
+# "2026-11-08 14:02:31 [LTF_FAILED] #3f9a0c21": time, code and session. Reports
+# from before the session was stamped hold no "#..."; older ones hold
+# "Nov 08 14:02" (no year, no code)
 _STAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
-_STAMP = re.compile(r"^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})(?: \[([A-Z_]+)\])?$")
+_STAMP = re.compile(r"^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})(?: \[([A-Za-z0-9_]+)\])?(?: #([0-9a-f]+))?$")
 _OLD_STAMP = re.compile(r"^([A-Za-z]{3}) (\d{1,2}) (\d{1,2}):(\d{2})$")
 _MONTHS = ("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec")
 
 
-def parse_stamp(stamp: str, now: Optional[float] = None) -> tuple[Optional[float], str]:
-    """(time, code) of a report's stamp, the part before " | ". The time is
-    None when the stamp can't be read, the code empty for older reports. An
-    older report has no year: it gets the latest one that is not in the future."""
+class Stamp(NamedTuple):
+    """A report's stamp (parse_stamp)."""
+
+    when: Optional[float]
+    code: str
+    session: str
+
+
+def parse_stamp(stamp: str, now: Optional[float] = None) -> Stamp:
+    """The time, code and session of a report's stamp, the part before " | ".
+    The time is None when the stamp can't be read; the code is empty for older
+    reports, the session for reports from before stamps held it. An older
+    report has no year: it gets the latest one that is not in the future."""
     stamp = (stamp or "").strip()
     try:
         m = _STAMP.match(stamp)
         if m:
-            return datetime.strptime(m.group(1), _STAMP_FORMAT).timestamp(), m.group(2) or ""
+            return Stamp(datetime.strptime(m.group(1), _STAMP_FORMAT).timestamp(), m.group(2) or "",
+                         m.group(3) or "")
         m = _OLD_STAMP.match(stamp)
         if m:
             current = datetime.fromtimestamp(time.time() if now is None else now)
@@ -92,31 +117,46 @@ def parse_stamp(stamp: str, now: Optional[float] = None) -> tuple[Optional[float
                 except ValueError:  # Feb 29 of a year without it
                     continue
                 if when <= current:
-                    return when.timestamp(), ""
+                    return Stamp(when.timestamp(), "", "")
     except Exception:
         pass
-    return None, ""
+    return Stamp(None, "", "")
 
 
-def in_this_session(when: Optional[float]) -> bool:
-    """Whether a report at *when* (parse_stamp) is from this session."""
-    # Stamps hold whole seconds: one from the second Rose started is this session's
-    return when is not None and when >= int(SESSION_START)
+def in_this_session(stamp: Stamp) -> bool:
+    """Whether a report (parse_stamp) is this session's: written by this run of
+    Rose, or a setup problem LTK Manager's next start is still to check again
+    (_UNTIL_RECHECKED), which is the PC's until then."""
+    return stamp.session == SESSION_ID or stamp.code in _UNTIL_RECHECKED
 
 
 def start_session() -> None:
-    """Mark Rose's start, and drop the earlier sessions' setup reports (Rose
-    checks those again) and their reports older than EARLIER_REPORTS_KEPT_S.
-    Never raises."""
-    global SESSION_START
+    """Start a new session (its id stamps the reports from here on), and drop
+    the earlier sessions' setup reports Rose checks again as it starts, and
+    their reports older than EARLIER_REPORTS_KEPT_S. Never raises."""
+    global SESSION_START, SESSION_ID
     SESSION_START = time.time()
+    SESSION_ID = secrets.token_hex(4)
     cutoff = SESSION_START - EARLIER_REPORTS_KEPT_S
 
     def stale(line: str, fix: str) -> bool:
-        when, code = parse_stamp(line.split(" | ", 1)[0], SESSION_START)
-        return code in _SETUP_CODES or (when is not None and when < cutoff)
+        stamp = parse_stamp(line.split(" | ", 1)[0], SESSION_START)
+        if stamp.code in _UNTIL_RECHECKED:
+            return False
+        return stamp.code in _SETUP_CODES or (stamp.when is not None and stamp.when < cutoff)
 
     remove_issues(stale)
+
+
+def resolve_issue(code: str, message: Optional[str] = None) -> None:
+    """Remove the reports of *code*, of any session: the problem it reports is
+    gone. *message*, part of the report's line, also finds one an older Rose
+    wrote, whose stamp holds no code. Never raises."""
+    def resolved(line: str, fix: str) -> bool:
+        stamp = parse_stamp(line.split(" | ", 1)[0])
+        return stamp.code == code or (not stamp.code and message is not None and message in line)
+
+    remove_issues(resolved)
 
 
 def _issues_path():
@@ -155,10 +195,14 @@ def report_issue(
             return
         _LAST[key] = now
 
+        # One report of a setup problem kept across sessions: this one replaces it
+        if code in _UNTIL_RECHECKED:
+            resolve_issue(code)
+
         # Novice-friendly formatting:
-        #   2026-12-15 00:39:12 [LTF_FAILED] | Something happened...
+        #   2026-12-15 00:39:12 [LTF_FAILED] #3f9a0c21 | Something happened...
         #   Fix: Do this...
-        stamp = f"{time.strftime(_STAMP_FORMAT, time.localtime(now))} [{code}]"
+        stamp = f"{time.strftime(_STAMP_FORMAT, time.localtime(now))} [{code}] #{SESSION_ID}"
         lines = [f"{stamp} | {message}".rstrip()]
         if hint:
             lines.append(f"Fix: {hint}".rstrip())
@@ -198,7 +242,8 @@ def read_issues_tail(*, max_lines: int = 60) -> list[str]:
 
 
 def remove_issues(should_remove: Callable[[str, str], bool]) -> bool:
-    """Remove the reports for which should_remove(message_line, fix_line) is true (safe, never raises)."""
+    """Remove the reports for which should_remove(message_line, fix_line) is
+    true, writing the file only when one goes (safe, never raises)."""
     try:
         with _LOCK:
             p = _issues_path()
@@ -206,6 +251,7 @@ def remove_issues(should_remove: Callable[[str, str], bool]) -> bool:
                 return True
             lines = p.read_text(encoding="utf-8", errors="ignore").splitlines()
             kept: list[str] = []
+            removed = False
             i = 0
             while i < len(lines):
                 line = lines[i]
@@ -214,12 +260,15 @@ def remove_issues(should_remove: Callable[[str, str], bool]) -> bool:
                 if " | " in line and i + 1 < len(lines) and lines[i + 1].startswith("Fix:"):
                     fix = lines[i + 1]
                     i += 1
-                if not (" | " in line and should_remove(line, fix)):
+                if " | " in line and should_remove(line, fix):
+                    removed = True
+                else:
                     kept.append(line)
                     if fix:
                         kept.append(fix)
                 i += 1
-            p.write_text("\n".join(kept) + "\n" if kept else "", encoding="utf-8")
+            if removed:
+                p.write_text("\n".join(kept) + "\n" if kept else "", encoding="utf-8")
         return True
     except Exception as e:
         log.debug("[ISSUES] Could not remove diagnostics entries: %s", e)

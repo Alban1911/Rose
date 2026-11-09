@@ -6,15 +6,18 @@ from unittest.mock import patch
 from pengu.communication import message_handler
 from utils.core import issue_reporter
 
+THIS_SESSION = "aaaa0001"
+EARLIER_SESSION = "bbbb0002"
 
-def stamp(seconds_ago: float, code: str) -> str:
+
+def stamp(seconds_ago: float, code: str, session: str) -> str:
     when = time.localtime(time.time() - seconds_ago)
-    return f"{time.strftime('%Y-%m-%d %H:%M:%S', when)} [{code}]"
+    return f"{time.strftime('%Y-%m-%d %H:%M:%S', when)} [{code}] #{session}"
 
 
 LINES = [
-    f"{stamp(2 * 24 * 3600, 'LOW_DISK_SPACE')} | Injection failed: not enough disk space",
-    f"{stamp(60, 'LTF_FAILED')} | Injection failed: LTK Manager is already open without Rose's bridge",
+    f"{stamp(2 * 24 * 3600, 'LOW_DISK_SPACE', EARLIER_SESSION)} | Injection failed: not enough disk space",
+    f"{stamp(60, 'LTF_FAILED', THIS_SESSION)} | Injection failed: LTK Manager is already open without Rose's bridge",
     "Fix: Close LTK Manager, then retry.",
 ]
 
@@ -24,7 +27,7 @@ class DiagnosticsSessionTests(unittest.TestCase):
         self.handler = object.__new__(message_handler.MessageHandler)
         for patcher in (
             patch.object(message_handler, "read_issues_tail", return_value=LINES),
-            patch.object(issue_reporter, "SESSION_START", time.time() - 3600),
+            patch.object(issue_reporter, "SESSION_ID", THIS_SESSION),
         ):
             patcher.start()
             self.addCleanup(patcher.stop)

@@ -1113,11 +1113,12 @@ class MessageHandler:
                 if summary_text in seen:
                     continue
                 seen.add(summary_text)
-                when, _ = parse_stamp(ent.get("ts", ""))
+                stamp = parse_stamp(ent.get("ts", ""))
+                when = stamp.when
                 payload = {
                     "ts": datetime.fromtimestamp(when).strftime("%d/%m/%y %H:%M") if when is not None else ent.get("ts", ""),
                     "at": when,
-                    "thisSession": in_this_session(when),
+                    "thisSession": in_this_session(stamp),
                     "key": summary_text,
                     **summary_obj,
                 }

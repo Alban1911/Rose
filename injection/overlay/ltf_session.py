@@ -17,7 +17,7 @@ from typing import Any, Callable, Dict, List, Optional, Set
 
 import psutil
 
-from utils.core.issue_reporter import report_issue
+from utils.core.issue_reporter import report_issue, resolve_issue
 from utils.core.junction import link_file
 from utils.core.logging import get_logger
 from utils.core.modpkg import MODPKG_SUFFIX, is_modpkg
@@ -318,6 +318,8 @@ class LtfHost:
                          "from your antivirus quarantine, then restart Rose.",
                 )
             return None
+        # Found: an earlier session's report of them missing is stale
+        resolve_issue("LTF_MISSING", "LTF bridge files are missing")
 
         manager = tools_manager.detect_ltk_manager()
         if manager is None:
@@ -332,6 +334,7 @@ class LtfHost:
                          "ltk-manager.exe, then retry.",
                 )
             return None
+        resolve_issue("LTK_MANAGER_MISSING", "LTK Manager is not installed")
 
         # LTK Manager set to run as administrator: Windows refuses to start it
         # as the desktop user (error 740), which Rose's bridge cannot work with

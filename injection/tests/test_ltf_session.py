@@ -252,6 +252,7 @@ class LtfSessionTestCase(unittest.TestCase):
         self.ltk_logs = self.root / "ltk-logs"
         self.ltk_logs.mkdir()
         self.report_issue = MagicMock()
+        self.resolve_issue = MagicMock()
 
         for patcher in (
             patch.object(ltf_session, "LtkBridge", FakeBridge),
@@ -259,6 +260,7 @@ class LtfSessionTestCase(unittest.TestCase):
             patch.object(ToolsManager, "detect_ltk_manager", return_value=self.root / "ltk-manager.exe"),
             patch.object(overlay_manager, "report_issue", self.report_issue),
             patch.object(ltf_session, "report_issue", self.report_issue),
+            patch.object(ltf_session, "resolve_issue", self.resolve_issue),
             patch.object(ltf_report, "report_issue", self.report_issue),
             patch.object(OverlayManager, "_running_game", return_value=None),
             patch.object(LtfHost, "_ltk_manager_running", return_value=False),
@@ -564,6 +566,14 @@ class InjectionSessionTests(LtfSessionTestCase):
 
         self.assertEqual(result, 1)
         self.assertIn("LTK_MANAGER_MISSING", self.reported_codes())
+        self.assertEqual([call.args[0] for call in self.resolve_issue.call_args_list], ["LTF_MISSING"])
+
+    def test_finding_the_bridge_and_ltk_manager_clears_their_missing_reports(self):
+        """Kept across Rose's restarts until this check: the next LTK Manager start, early or not"""
+        self.overlay.start_patcher_early()
+
+        self.assertEqual([call.args[0] for call in self.resolve_issue.call_args_list],
+                         ["LTF_MISSING", "LTK_MANAGER_MISSING"])
 
     def test_the_early_session_reports_nothing_itself(self):
         with patch.object(ToolsManager, "detect_ltk_manager", return_value=None):

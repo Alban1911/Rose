@@ -5629,8 +5629,9 @@
       const itemHtml = (e, idx, earlier) => {
           const ts = String(e?.ts || "").trim();
           const at = typeof e?.at === "number" ? e.at : null;
-          // This session's: the time. An earlier one's: how long ago, the date on hover
-          const when = at == null ? ts : earlier ? timeAgo(at) : formatTime(at, { timeStyle: "short" });
+          // This session's: the date and time (Rose runs for days, and a setup problem
+          // can be carried from an earlier session). An earlier one's: how long ago, the date on hover
+          const when = at == null ? ts : earlier ? timeAgo(at) : formatTime(at, { dateStyle: "short", timeStyle: "short" });
           const desc = describe(e);
           const title = escapeHtml(desc.title);
           const tsHtml = when ? `<span style="opacity:0.75;" title="${escapeHtml(ts)}">${escapeHtml(when)}</span>` : "";
