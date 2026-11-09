@@ -944,12 +944,32 @@ class StagingPlanTests(unittest.TestCase):
 
     def test_a_selected_map_mod_on_the_default_skin_is_staged_alone(self):
         self.state.last_hovered_skin_id = 1000
-        rift = RoseFile(Path("C:/mods/maps/Rift"), "Rift")
+        rift = RoseFile(self.mods_root / "maps" / "Rift", "Rift")
+        rift.path.mkdir(parents=True)
         self.state.selected_map_mod = {"mod_name": "Rift", "source": rift}
 
         plan = self.trigger.staging_plan("skin_1000", "Leona")
 
         self.assertEqual(plan.steps, (ModStep(rift), LoadingNameStep(1000)))
+
+    def test_a_selected_mod_ltk_manager_lost_since_it_was_picked_is_left_out(self):
+        """The pick keeps the entry its mod had then: a sync marked it missing since"""
+        self.storage.entries.append({"id": "maps/Rift.fantome", "name": "Rift", "path": "maps/Rift.fantome",
+                                     "ltkId": SAVED_ID, "missing": True})
+        self.state.selected_map_mod = {"mod_name": "Rift", "relative_path": "maps/Rift.fantome",
+                                       "source": LtkEntry(SAVED_ID)}
+
+        self.assertEqual(self.trigger.staging_plan("skin_1001", "Leona"), skin_plan("skin_1001", "Leona", 1, False))
+
+    def test_a_selected_mod_follows_its_entry_ltk_manager_listed_again(self):
+        self.storage.entries.append({"id": "voiceover/VO.fantome", "name": "VO", "path": "voiceover/VO.fantome",
+                                     "ltkId": SAVED_ID})
+        self.state.selected_other_mods = [{"mod_name": "VO", "relative_path": "voiceover/VO.fantome",
+                                           "source": LtkEntry(SAVED_ID, gone_at_last_sync=True)}]
+
+        plan = self.trigger.staging_plan("skin_1001", "Leona")
+
+        self.assertEqual(plan.steps[1], ModStep(LtkEntry(SAVED_ID)))
 
     def test_a_saved_mod_whose_file_is_gone_is_left_out(self):
         self.save_map(exists=False)

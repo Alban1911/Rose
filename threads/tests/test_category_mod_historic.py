@@ -94,6 +94,21 @@ class CategoryModHistoricTests(unittest.TestCase):
         self.assertIn('Current VFX', names)
         self.assertNotIn('Saved VFX', names)
 
+    def test_a_picked_mod_ltk_manager_lost_since_is_dropped_not_injected(self):
+        """The pick keeps the entry its mod had when it was picked: a sync marked it missing since"""
+        (self.storage.mods_root / 'maps' / self.storage.CATEGORY_METADATA).write_text(json.dumps({
+            'mods': {'Rift': {'name': 'Rift', 'path': 'Rift', 'ltkId': LTK_ID, 'missing': True}},
+        }), encoding='utf-8')
+        self.state.selected_map_mod = {
+            'mod_name': 'Rift', 'relative_path': 'maps/Rift.fantome', 'source': LtkEntry(LTK_ID),
+        }
+
+        with patch('utils.core.mod_historic.load_mod_historic', return_value={}):
+            self.trigger.trigger_injection('skin_1000', ticker_id=1)
+
+        self.manager.injector.overlay_manager.mk_run_overlay.assert_not_called()
+        self.assertIsNone(self.state.selected_map_mod)
+
 
 class CategoryHistoricRoundtripTests(unittest.TestCase):
     def setUp(self):

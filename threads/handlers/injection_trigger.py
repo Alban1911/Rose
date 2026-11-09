@@ -8,7 +8,7 @@ Handles triggering skin injection based on countdown timer
 import logging
 import threading
 import time
-from typing import Optional
+from typing import TYPE_CHECKING, Callable, Optional
 
 from config import BASE_SKIN_VERIFICATION_WAIT_S, LOG_SEPARATOR_WIDTH
 from lcu import LCU
@@ -32,6 +32,10 @@ from injection.core.stage_plan import (
 from injection.game.game_monitor import make_game_ended_callback
 from injection.loadingname.loading_name import build as build_loading_name
 from injection.mods.manifest import find_saved_mod
+from injection.mods.mod_source import ModSource
+
+if TYPE_CHECKING:
+    from injection.mods.storage import ModStorageService
 
 log = get_logger()
 
@@ -351,6 +355,49 @@ class InjectionTrigger:
         return {"mod_name": mod.name, "relative_path": mod.identity, "source": mod.source}
 
     @staticmethod
+    def _lazy_mod_storage() -> Callable[[], "ModStorageService"]:
+        """A getter of one ModStorageService, made at its first call: most
+        injections read no saved mod."""
+        storage = []
+
+        def get():
+            if not storage:
+                from injection.mods.storage import ModStorageService
+                storage.append(ModStorageService())
+            return storage[0]
+        return get
+
+    @staticmethod
+    def _current_source(picked: dict, mod_storage: Callable[[], "ModStorageService"]) -> Optional[ModSource]:
+        """Where the injection takes a picked map, font, announcer or other
+        mod from now. A pick keeps the source its mod had when it was picked,
+        and a sync since may have found that LTK Manager lost its entry: the
+        mod is looked up again by the pick's path (*mod_storage()*). The
+        pick's own source when that names no saved mod (a pick without a
+        path, a manifest that cannot be read)."""
+        source = picked.get("source")
+        relative_path = picked.get("relative_path")
+        if not relative_path:
+            return source
+        try:
+            saved = mod_storage().saved_mod(str(relative_path))
+        except Exception as e:
+            log.debug(f"[INJECT] Could not look up {relative_path} again, its pick's source is used: {e}")
+            return source
+        return saved.source if saved is not None else source
+
+    @classmethod
+    def _available_now(cls, picked: Optional[dict], mod_storage: Callable[[], "ModStorageService"]) -> Optional[dict]:
+        """*picked* with its current source (_current_source), or None when
+        that is not available: the injection leaves it out."""
+        if not picked:
+            return None
+        source = cls._current_source(picked, mod_storage)
+        if source is None or not source.available:
+            return None
+        return {**picked, "source": source}
+
+    @staticmethod
     def _other_mod_paths_per_category(historic_mods: dict) -> list:
         """The saved category mods (ui/voiceover/loading_screen/vfx/sfx/others), each once.
 
@@ -471,18 +518,13 @@ class InjectionTrigger:
 
     def _planned_other_mods(self) -> list:
         """The map, font, announcer and other mods the injection installs, in
-        its order: the selected ones, else the saved ones trigger_injection
-        auto-selects (without linking anything)."""
+        its order: the selected ones that are still available
+        (_available_now: the injection drops the others), else the saved ones
+        trigger_injection auto-selects (without linking anything)."""
         from utils.core.mod_historic import load_mod_historic
 
         historic_mods = load_mod_historic()
-        storage = []
-
-        def mod_storage():
-            if not storage:
-                from injection.mods.storage import ModStorageService
-                storage.append(ModStorageService())
-            return storage[0]
+        mod_storage = self._lazy_mod_storage()
 
         mods = []
         for mod_type, category_attr in (
@@ -492,26 +534,33 @@ class InjectionTrigger:
         ):
             selected = getattr(self.state, f"selected_{mod_type}_mod", None)
             historic_path = historic_mods.get(mod_type)
-            if not selected and historic_path:
+            if selected:
+                selected = self._available_now(selected, mod_storage)
+            elif historic_path:
                 saved = self._find_saved_mod(mod_storage(), getattr(mod_storage(), category_attr), historic_path)
                 if saved and saved["source"].available:
                     selected = saved
             if selected:
                 mods.append(selected)
 
-        other_mods = list(getattr(self.state, 'selected_other_mods', None) or [])
-        if not other_mods:
+        picked_others = list(getattr(self.state, 'selected_other_mods', None) or [])
+        other_mods = []
+        if not picked_others:
             for historic_path in self._other_mod_paths_per_category(historic_mods):
                 saved = self._find_saved_mod(
                     mod_storage(), self._other_mod_category(mod_storage(), historic_path), historic_path
                 )
                 if saved and saved["source"].available:
                     other_mods.append(saved)
-        if not other_mods:
-            # Fallback to legacy single mod
-            selected_other_mod = getattr(self.state, 'selected_other_mod', None)
-            if selected_other_mod:
-                other_mods = [selected_other_mod]
+            if not other_mods:
+                # Fallback to legacy single mod
+                selected_other_mod = getattr(self.state, 'selected_other_mod', None)
+                if selected_other_mod:
+                    picked_others = [selected_other_mod]
+        for picked in picked_others:
+            picked = self._available_now(picked, mod_storage)
+            if picked:
+                other_mods.append(picked)
         return mods + other_mods
 
     def planned_party_skins(self) -> tuple:
@@ -1516,9 +1565,12 @@ class InjectionTrigger:
             else:
                 log.info(f"[INJECT] No custom skin mod selected, injecting base skin + map/font/announcer/other mods only")
             
+            mod_storage = self._lazy_mod_storage()
+
             def re_extract_mod(mod_dict, mod_type_name):
-                """Prepare a selected mod again after cleaning (its source's put)"""
-                mod = mod_dict.get("source") if mod_dict else None
+                """Prepare a selected mod again after cleaning: its current
+                source's put (_current_source)"""
+                mod = self._current_source(mod_dict, mod_storage) if mod_dict else None
                 if mod is None:
                     return None
                 try:
