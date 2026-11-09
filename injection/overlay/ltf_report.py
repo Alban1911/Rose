@@ -24,6 +24,7 @@ CDP_UNREACHABLE_REASON = "Rose's bridge could not reach LTK Manager's built-in b
 # Tauri rejecting a command LTK Manager does not declare ("Command
 # plugin:library|get_installed_mods not allowed by ACL")
 LTK_ACL_REFUSAL = "not allowed by acl"
+PATCHER_OUT_OF_DATE_VERDICT = "patcheroutofdate"
 LTF_API_LOG = "ltk_api.log"
 LTF_LOGS_HINT = f"Details are in {LTF_API_LOG} and ltk_launcher.log, in the ltk folder of Rose's logs."
 
@@ -61,6 +62,10 @@ def ltk_failure_cause(reason: str) -> str:
         return "disabled"
     if NOT_ATTACHED_MESSAGE.lower() in lowered:
         return "not_attached"
+    # LTK Manager's verdict on a game its patcher does not support ("Unsupported
+    # Game Build"): an LTK Manager update brings the patcher for the new patch
+    if PATCHER_OUT_OF_DATE_VERDICT in lowered:
+        return "patcher_outdated"
     if "corruptarchive" in lowered:
         return "corrupt"
     if "recorded an incident" in lowered:
@@ -161,6 +166,11 @@ def ltk_failure_hint(reason: str) -> str:
                 "download its patcher: something on this PC or network blocks it. Allow ltk-manager.exe "
                 "through your firewall and antivirus, turn off any VPN, proxy or DNS blocker, then retry. "
                 f"{logs}")
+    if cause == "patcher_outdated":
+        return ("LTK Manager is out of date: its patcher does not support this League patch. Open LTK Manager "
+                "from the Start menu, install the update it offers, then close it (also from the system tray) "
+                "and retry. If it is already up to date, it has not caught up with this League patch yet: retry "
+                f"after its next update. {logs}")
     if cause == "corrupt":
         return ("League could not read a file of the overlay, most often a mod made for an older patch. Turn "
                 "your mods off, then back on one at a time to find it; LTK Manager's incident file names the "

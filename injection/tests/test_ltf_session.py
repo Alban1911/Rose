@@ -2431,6 +2431,16 @@ class FailureCauseTests(unittest.TestCase):
         self.assertIn("firewall", hint)
         self.assertNotIn("refused", hint)
 
+    def test_a_game_ltk_managers_patcher_does_not_support_asks_for_its_update(self):
+        """The game's build was newer than LTK Manager's patcher, and the hint
+        only pointed at the incident file"""
+        reason = ("LTK Manager recorded an incident after the game: Unsupported Game Build (PatcherOutOfDate; "
+                  "%APPDATA%\\dev.leaguetoolkit.manager\\incidents\\2026-11-09T09-55-04.json)")
+        self.assertEqual(ltk_failure_cause(reason), "patcher_outdated")
+        hint = ltk_failure_hint(reason)
+        self.assertIn("install the update it offers", hint)
+        self.assertNotIn("incident file", hint)
+
     def test_a_refused_rose_package_is_sent_to_leagueskins(self):
         """#454: the refused WAD came from an official skin's chroma, and the
         hint said to use the official one"""
