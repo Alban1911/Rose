@@ -347,8 +347,8 @@ var
 begin
   if not RegQueryStringValue(HKLM, IfeoKey, 'Debugger', Debugger) then
     exit;
-  // The elevated uninstaller's localappdata can be another account's, so match
-  // the folder names rather than the full path.
+  { The elevated uninstaller's localappdata can be another account's, so match
+    the folder names rather than the full path. }
   if _ContainsTextLower(Debugger, '\rose\pengu loader\core.dll"') or
      _ContainsTextLower(Debugger, '"' + LowerCase(ExpandConstant('{app}\_internal\Pengu Loader\core.dll')) + '"') then
     RegDeleteValue(HKLM, IfeoKey, 'Debugger');
@@ -412,8 +412,8 @@ begin
     { Inno removes installed files; a shared/custom install root may also
       contain unrelated files. Remove the root only when it is empty. }
     RemoveDir(ExpandConstant('{app}'));
-    { Safety net if Pengu's own --uninstall could not run }
     _RemoveRosePenguIfeo();
+    { Safety net if Pengu's own --uninstall could not run }
     _RemoveDeadPenguIfeo();
   end;
 end;
