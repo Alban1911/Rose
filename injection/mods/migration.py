@@ -129,7 +129,8 @@ def needs_migration(mods_root: Path) -> bool:
     return any(mod.rose_copy is not None for mod in ltk_library_mods(mods_root))
 
 
-def migrate_saved_mods(storage: ModStorageService, library: LtkLibrary, ui: MigrationUi) -> MigrationReport:
+def migrate_saved_mods(storage: ModStorageService, library: LtkLibrary, ui: MigrationUi, *,
+                       holds_instance_lock: bool = False) -> MigrationReport:
     """Move every saved mod Rose still holds of those that live in LTK
     Manager's library (manifest.lives_in_ltk) into it.
 
@@ -148,7 +149,7 @@ def migrate_saved_mods(storage: ModStorageService, library: LtkLibrary, ui: Migr
     if not needs_migration(storage.mods_root):
         return report
     try:
-        with _launcher_migration_mutex():
+        with _launcher_migration_mutex(holds_instance_lock):
             convert_folder_mods(storage, progress=lambda index, total, name: ui.progress(
                 Step.CONVERT, index, total, name))
             _empty_injection_folders(library.host.injection_dir)
@@ -368,11 +369,8 @@ class _Migration:
 
 
 @contextmanager
-def _launcher_migration_mutex() -> Iterator[None]:
-    """Hold the migration's mutex while it runs, in Rose's launcher, before
-    Rose takes its single-instance mutex: a Rose starting meanwhile must not
-    run beside it. Raises MigrationStopped while another Rose runs (the
-    launcher runs before Rose's single-instance check) or moves the mods."""
+def _launcher_migration_mutex(holds_instance_lock: bool = False) -> Iterator[None]:
+    """Keep other Rose versions and direct callers out during migration."""
     if sys.platform != "win32":
         yield
         return
@@ -384,19 +382,21 @@ def _launcher_migration_mutex() -> Iterator[None]:
     kernel32.CreateMutexW.argtypes = [wintypes.LPVOID, wintypes.BOOL, wintypes.LPCWSTR]
     kernel32.CreateMutexW.restype = wintypes.HANDLE
     kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
-    running = kernel32.OpenMutexW(_SYNCHRONIZE, False, SINGLE_INSTANCE_MUTEX_NAME)
-    if running:
-        kernel32.CloseHandle(running)
-        raise MigrationStopped("Rose is running already")
+    if not holds_instance_lock:
+        running = kernel32.OpenMutexW(_SYNCHRONIZE, False, SINGLE_INSTANCE_MUTEX_NAME)
+        if running:
+            kernel32.CloseHandle(running)
+            raise MigrationStopped("Rose is running already")
     handle = kernel32.CreateMutexW(None, False, MOD_MIGRATION_MUTEX_NAME)
-    if handle and ctypes.get_last_error() == _ERROR_ALREADY_EXISTS:
+    if not handle:
+        raise MigrationStopped("could not reserve the mod migration mutex")
+    if ctypes.get_last_error() == _ERROR_ALREADY_EXISTS:
         kernel32.CloseHandle(handle)
         raise MigrationStopped("another Rose is moving the mods")
     try:
         yield
     finally:
-        if handle:
-            kernel32.CloseHandle(handle)
+        kernel32.CloseHandle(handle)
 
 
 def _backup_unasked(mod: SavedMod) -> bool:

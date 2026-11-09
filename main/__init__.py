@@ -847,6 +847,7 @@ def main() -> None:
     # Update before checking the DLL: a Rose that refuses to start still
     # receives the version that fixes its check
     if sys.platform == "win32":
+        check_single_instance()
         if not args.dev:
             try:
                 from launcher import run_launcher
