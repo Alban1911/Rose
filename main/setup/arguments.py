@@ -19,7 +19,6 @@ from config import (
 
 
 def setup_arguments() -> argparse.Namespace:
-    """Parse and return command line arguments"""
     ap = argparse.ArgumentParser(
         description="Rose - Windows UI API skin detection"
     )
@@ -64,6 +63,9 @@ def setup_arguments() -> argparse.Namespace:
     # Testing arguments
     ap.add_argument("--test-download-fail", action="store_true", default=False,
                    help="Force skin download to fail (for testing error handling)")
+
+    ap.add_argument("--remove-ltk-mods", dest="uninstaller_removes_ltk_mods", action="store_true", default=False,
+                    help=argparse.SUPPRESS)
 
     # Log management arguments (none - retention managed by age in utils.logging)
 

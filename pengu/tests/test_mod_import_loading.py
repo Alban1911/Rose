@@ -3,7 +3,11 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+from injection.mods.storage import AddedMod
 from pengu.communication.message_handler import MessageHandler
+
+MODS_ROOT = Path("C:/Rose/mods")
+RIFT = AddedMod(MODS_ROOT / "maps" / "Summoner's Rift.fantome", "Summoner's Rift")
 
 
 class ModImportLoadingTests(unittest.TestCase):
@@ -16,12 +20,14 @@ class ModImportLoadingTests(unittest.TestCase):
         self.handler._send_response = lambda message: self.sent.append(json.loads(message))
         storage = MagicMock()
         storage.MOD_CATEGORIES = ("maps",)
-        storage.import_category_mod_file.side_effect = self._import(("maps-folder", "Summoner's Rift"))
-        storage.import_mod_file.side_effect = self._import(("skin-folder", "manifest.json", "Arcane Ezreal"))
+        storage.mods_root = MODS_ROOT
+        storage.import_category_mod_file.side_effect = self._import(RIFT)
+        storage.import_mod_file.side_effect = self._import(
+            AddedMod(MODS_ROOT / "skins" / "81000" / "Arcane Ezreal.fantome", "Arcane Ezreal"))
         self.handler.mod_storage = storage
 
     def _import(self, result):
-        def run(*args):
+        def run(*args, **kwargs):
             self.sent.append({"type": "import"})
             return result
         return run
@@ -59,10 +65,11 @@ class ModImportLoadingTests(unittest.TestCase):
         self.assertNotIn("fileName", self.sent[0])
         self.assertTrue(self.sent[-1]["success"])
         self.assertEqual(len(self.sent[-1]["imported"]), 2)
+        self.assertEqual(self.sent[-1]["imported"][0]["relativePath"], "maps/Summoner's Rift.fantome")
 
     def test_bulk_import_reports_partial_failures_and_continues(self):
         self.handler.mod_storage.import_category_mod_file.side_effect = [
-            ("maps-folder", "Summoner's Rift"),
+            RIFT,
             OSError("archive is invalid"),
         ]
         files = [Path("C:/Mods/Rift.fantome"), Path("C:/Mods/Invalid.zip")]

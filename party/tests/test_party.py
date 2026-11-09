@@ -1,4 +1,5 @@
 import asyncio
+import json
 import os
 import tempfile
 import time
@@ -13,6 +14,7 @@ from party.core.party_manager import PartyManager
 from party.discovery import custom_mods
 from party.discovery.skin_collector import PartySkinData, SkinCollector
 from party.integration.injection_hook import PartyInjectionHook
+from injection.mods.mod_facts import compute_mod_facts
 from injection.mods.mod_files import ModFiles
 from party.protocol.token_codec import PartyToken, create_token
 
@@ -156,6 +158,91 @@ class CustomModsTests(unittest.TestCase):
 
         self.assertEqual(replacement_hash, archive_hash)
         self.assertNotEqual(replacement_stamp, first_stamp)
+
+    def save_mod(self, name, **entry):
+        """Register a saved mod of Ahri's in her manifest"""
+        manifest = self.mods_root / "skins" / "103000" / "rose_mod_targets.json"
+        manifest.parent.mkdir(parents=True, exist_ok=True)
+        payload = json.loads(manifest.read_text(encoding="utf-8")) if manifest.exists() else {"version": 1, "mods": {}}
+        payload["mods"][name] = {"name": name, "targets": [103001], **entry}
+        manifest.write_text(json.dumps(payload), encoding="utf-8")
+
+    def our_pick(self, custom_mod_path):
+        manager = PartyManager(Mock(), make_state())
+        selection = SimpleNamespace(champion_id=103, skin_id=103001, chroma_id=None, custom_mod_path=custom_mod_path)
+        manager._skin_collector = Mock(get_my_selection=Mock(return_value=selection))
+        return manager._current_skin_state()
+
+    def test_polling_a_renamed_pending_pick_never_reads_the_whole_mod_to_match_it(self):
+        """Party mode asks every second: matching a renamed file to its entry
+        by content would read all of it (3.5 GB for a voiceover pack)"""
+        archive = self.mods_root / "skins" / "103000" / "Renamed Ahri.zip"
+        self._make_archive(archive)
+        self.save_mod("Original Ahri", folderHash=compute_mod_facts(archive)[1])
+
+        with patch("injection.mods.manifest.compute_mod_facts", wraps=compute_mod_facts) as read_whole_mod:
+            polls = [self.our_pick("skins/103000/Renamed Ahri.zip") for _ in range(3)]
+
+        read_whole_mod.assert_not_called()
+        self.assertEqual([poll["custom_mod_content_hash"] for poll in polls], [custom_mods.mod_hashes(archive)[0]] * 3)
+
+    def test_a_renamed_pending_pick_saved_as_its_folder_shares_its_archive(self):
+        archive = self.mods_root / "skins" / "103000" / "Renamed Ahri.fantome"
+        self._make_archive(archive)
+        self.save_mod("Original Ahri", folderHash=compute_mod_facts(archive)[1])
+
+        state = self.our_pick("skins/103000/Renamed Ahri")
+
+        self.assertEqual(state["custom_mod_content_hash"], custom_mods.mod_hashes(archive)[0])
+
+    def test_a_change_to_the_picked_archive_is_shared_at_the_next_poll(self):
+        archive = self.mods_root / "skins" / "103000" / "Ahri.fantome"
+        self._make_archive(archive)
+        self.save_mod("Ahri")
+        folder_an_older_rose_saved_as_the_pick = "skins/103000/Ahri"
+        before = self.our_pick(folder_an_older_rose_saved_as_the_pick)
+
+        with zipfile.ZipFile(archive, "w") as packed:
+            packed.writestr("WAD/Ahri.wad.client", b"the mod's newer version")
+        os.utime(archive, ns=(2_000_000_000, 2_000_000_000))
+        changed = self.our_pick("skins/103000/Ahri")
+        newer_hash = custom_mods._archive_content_hash(archive)
+        archive.unlink()
+        deleted = self.our_pick("skins/103000/Ahri")
+
+        self.assertNotEqual(newer_hash, before["custom_mod_content_hash"])
+        self.assertEqual(changed["custom_mod_content_hash"], newer_hash)
+        self.assertNotIn("custom_mod_content_hash", deleted)
+
+    def test_our_pick_of_a_pending_mod_shares_the_hashes_of_its_file(self):
+        archive = self.mods_root / "skins" / "103000" / "Old Ahri.zip"
+        self._make_archive(archive)
+        self.save_mod("Old Ahri")
+
+        state = self.our_pick("skins/103000/Old Ahri.zip")
+
+        self.assertEqual((state["custom_mod_content_hash"], state["custom_mod_hash"]), custom_mods.mod_hashes(archive))
+
+    def test_our_pick_of_a_skin_this_rose_added_shares_the_hash_of_the_file_picked(self):
+        """A friend's exact copy has it, whatever Rose rewrote since: nothing is read"""
+        self._make_archive(self.mods_root / "skins" / "103000" / "Ahri.fantome")
+        picked = "ab" * 32
+        self.save_mod("Ahri", sourceHash=picked)
+
+        with patch.object(custom_mods, "mod_hashes", side_effect=AssertionError("hashed")):
+            state = self.our_pick("skins/103000/Ahri.fantome")
+
+        self.assertEqual((state["is_custom"], state["custom_mod_hash"]), (True, picked[:16]))
+        self.assertNotIn("custom_mod_content_hash", state)
+
+    def test_a_friends_skin_matches_one_this_rose_added_by_the_file_picked_without_reading_it(self):
+        self._make_archive(self.mods_root / "skins" / "103000" / "Ahri.fantome")
+        picked = "ab" * 32
+        self.save_mod("Ahri", sourceHash=picked)
+
+        with patch.object(custom_mods, "mod_hashes", side_effect=AssertionError("hashed")):
+            self.assertEqual(custom_mods.find_local_mod(103, legacy_hash=picked[:16]), "skins/103000/Ahri.fantome")
+            self.assertIsNone(custom_mods.find_local_mod(103, content_hash="c0ffee", legacy_hash="0" * 16))
 
 
 class SkinCollectorSelectionTests(unittest.TestCase):
@@ -614,7 +701,6 @@ class InjectionHookTests(unittest.TestCase):
         self.mods_dir = self.root / "mods_dir"
         self.mods_dir.mkdir()
         for target, value in (
-            ("party.integration.injection_hook.get_injection_dir", self.root / "injection"),
             ("party.integration.injection_hook.get_mods_root", self.root / "mods"),
         ):
             patcher = patch(target, return_value=value)
@@ -654,6 +740,20 @@ class InjectionHookTests(unittest.TestCase):
 
         name = hook._prepare_single_skin(skin, self.injector())
 
+        self.assertEqual((self.mods_dir / name / "WAD" / "MasterYi.wad.client").read_bytes(), b"custom")
+
+    def test_a_registered_custom_mod_rose_still_holds_is_linked_for_the_friend(self):
+        champion = self.root / "mods" / "skins" / "11000"
+        (champion / "Custom Yi" / "WAD").mkdir(parents=True)
+        (champion / "Custom Yi" / "WAD" / "MasterYi.wad.client").write_bytes(b"custom")
+        (champion / "rose_mod_targets.json").write_text(json.dumps({"version": 1, "championId": 11, "mods": {
+            "Custom Yi": {"name": "Custom Yi", "targets": [11002]},
+        }}), encoding="utf-8")
+        skin = PartySkinData(2, "B", 11, 11002, custom_mod_path="skins/11000/Custom Yi")
+
+        name = PartyInjectionHook(Mock(), make_state())._prepare_single_skin(skin, self.injector())
+
+        self.assertEqual(name, "party_2")
         self.assertEqual((self.mods_dir / name / "WAD" / "MasterYi.wad.client").read_bytes(), b"custom")
 
     def test_rift_classic_uses_the_classic_skin(self):

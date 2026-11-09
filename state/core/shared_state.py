@@ -7,7 +7,23 @@ Shared state for the application
 # Standard library imports
 import threading
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import TYPE_CHECKING, List, Optional, TypedDict
+
+if TYPE_CHECKING:
+    from injection.mods.mod_source import ModSource
+
+
+class SelectedCustomMod(TypedDict, total=False):
+    """The custom skin mod picked for the injection."""
+
+    skin_id: int
+    storage_skin_id: int
+    target_skin_ids: List[int]
+    champion_id: Optional[int]
+    mod_name: str
+    display_name: Optional[str]
+    relative_path: str
+    source: "ModSource"
 
 
 @dataclass
@@ -102,8 +118,7 @@ class SharedState:
     # Own champion lock tracking
     own_champion_locked: bool = False
     
-    # Custom mod selection
-    selected_custom_mod: Optional[dict] = None  # Selected custom mod for injection: {skin_id, champion_id, mod_name, mod_path, relative_path}  # Flag to track if our champion is locked (triggers detection/UI pipeline)
+    selected_custom_mod: Optional[SelectedCustomMod] = None
 
     # Party mode - P2P skin sharing with friends
     party_mode_enabled: bool = False

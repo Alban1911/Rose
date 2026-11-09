@@ -1,36 +1,19 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""What an injection will install, so the loadout countdown can stage it.
-
-LTK Manager's patcher only overlays a game the client creates after its scan
-started, and the client creates the game about a second after the injection
-begins: too soon to install the mods and start the patcher then. So while the
-countdown runs, InjectionManager.stage_plan installs what the injection will
-install and starts the patcher; the injection then finds the same mods in
-place (mod_fingerprint) and the scan keeps running.
-
-A plan lists the mods in the order the injection installs them. The trigger
-builds it from the selection (InjectionTrigger.staging_plan), one path each:
-
-- a skin (SkinInjector.inject_skin): SkinStep, then friends' skins
-- a custom skin mod or map/font/announcer/other mods
-  (InjectionTrigger._run_custom_mod_injection): the carrier skin, the custom
-  mod, the other mods, the loading screen name, then friends' skins
-- friends' skins alone (InjectionManager.inject_party_skins_only)
-"""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, NamedTuple, Optional, Tuple
+from typing import Iterable, List, NamedTuple, Optional, Sequence, Tuple, Union
 
-from utils.core.junction import is_junction, link_or_extract, safe_remove_entry
+from utils.core.junction import is_junction
 from utils.core.logging import get_logger
-from utils.core.paths import get_injection_dir
 
 from ..loadingname.loading_name import build as build_loading_name
+from ..mods.mod_facts import ModFacts
 from ..mods.mod_manager import ModManager
+from ..mods.mod_source import LtkEntry, ModSource
 
 log = get_logger()
 
@@ -58,9 +41,8 @@ class CarrierStep:
 
 @dataclass(frozen=True)
 class ModStep:
-    """A mod from Rose's mods storage (a folder or an archive)."""
-    folder_name: str
-    source: str
+    """A saved mod: the custom skin mod, a map, font, announcer or other mod."""
+    source: ModSource
     # The custom skin mod: without it the injection installs nothing
     required: bool = False
 
@@ -139,8 +121,9 @@ def prepare_plan(injector, plan: StagePlan, target_dir: Path) -> Optional[List[s
             carrier_folder = folder
             names.append(folder)
         elif isinstance(step, ModStep):
-            folder = _link_mod(step, target_dir)
+            folder = step.source.put(target_dir)
             if folder is None:
+                log.debug(f"[STAGE] Mod not available: {step.source}")
                 if step.required:
                     return None
                 continue
@@ -150,10 +133,9 @@ def prepare_plan(injector, plan: StagePlan, target_dir: Path) -> Optional[List[s
         elif isinstance(step, LoadingNameStep):
             skin_folder = custom_folder or carrier_folder
             if skin_folder:
-                loading_name = build_loading_name(
-                    injector.game_dir, target_dir, target_dir / skin_folder, step.skin_id,
-                    other_mods=[target_dir / name for name in names if name != skin_folder],
-                )
+                mods = [mod.source for mod in plan.steps if isinstance(mod, ModStep)]
+                skin, others = loading_name_mods(target_dir, skin_folder, names, mods)
+                loading_name = build_loading_name(injector.game_dir, target_dir, skin, step.skin_id, other_mods=others)
                 if loading_name:
                     names.append(loading_name)
         elif isinstance(step, PartyStep):
@@ -163,8 +145,23 @@ def prepare_plan(injector, plan: StagePlan, target_dir: Path) -> Optional[List[s
     return names or None
 
 
+def loading_name_mods(
+    mods_dir: Path, skin: str, names: Sequence[str], sources: Iterable[ModSource]
+) -> Tuple[Path, List[Union[Path, ModFacts]]]:
+    """What the loading screen name (loading_name.build) reads of an
+    injection's skin and of its other mods, by their names in its list: the
+    files Rose put into *mods_dir* (the skin's always), and for a saved mod
+    LTK Manager holds (among *sources*), the facts its manifest keeps."""
+    entries = {source.name: source for source in sources if isinstance(source, LtkEntry)}
+    others = [
+        (entries[name].facts or ModFacts.unknown()) if name in entries else Path(mods_dir) / name
+        for name in names if name != skin
+    ]
+    return Path(mods_dir) / skin, others
+
+
 def _prepare_carrier(injector, step: CarrierStep, target_dir: Path) -> Optional[str]:
-    """Link the carrier skin archive (InjectionTrigger._run_custom_mod_injection)."""
+    """Link the carrier skin archive (InjectionTrigger._run_mod_injection)."""
     zp = injector._resolve_zip(
         step.skin_name, skin_name=step.skin_name, champion_name=step.champion_name,
         champion_id=step.champion_id,
@@ -176,21 +173,6 @@ def _prepare_carrier(injector, step: CarrierStep, target_dir: Path) -> Optional[
     if not folder or not (folder.exists() or is_junction(folder)):
         return None
     return folder.name
-
-
-def _link_mod(step: ModStep, target_dir: Path) -> Optional[str]:
-    """Link or extract a stored mod (InjectionTrigger._run_custom_mod_injection)."""
-    source = Path(step.source)
-    if not source.exists():
-        log.debug(f"[STAGE] Mod source not found: {source}")
-        return None
-    dest = target_dir / step.folder_name
-    if dest.exists() or is_junction(dest):
-        safe_remove_entry(dest)
-    link_or_extract(source, dest, cache_dir=get_injection_dir() / ".extract_cache")
-    if not (dest.exists() or is_junction(dest)):
-        return None
-    return step.folder_name
 
 
 def _prepare_party_skin(injector, step: PartyStep, target_dir: Path) -> Optional[str]:

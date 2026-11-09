@@ -64,23 +64,29 @@ def convert_folder_mods(
             f"in {time.monotonic() - started:.1f}s"
         )
     if renamed:
-        _rename_saved_paths(renamed)
+        rename_saved_paths(renamed)
     _clear_extract_cache()
     return len(renamed)
 
 
-def _rename_saved_paths(renamed: Dict[str, str]) -> None:
-    """Point the saved selections at the archives that replaced the folders."""
+def rename_saved_paths(renamed: Dict[str, str]) -> bool:
+    """Point the saved selections (historic.json, mod_historic.json) at the
+    new identities of saved mods ({old relative path: new}): the archive that
+    replaced a folder, or <dir>/<name>.fantome once LTK Manager holds a mod
+    stored under another name. False when one of them could not be updated."""
     from utils.core import historic, mod_historic
 
+    updated = True
     for module in (historic, mod_historic):
         try:
             changed = module.rename_mod_paths(renamed)
         except Exception as e:  # noqa: BLE001 - a saved selection is a convenience
             log.warning(f"[MODS] Could not update the saved mods in {module.__name__}: {e}")
+            updated = False
             continue
         if changed:
-            log.info(f"[MODS] Pointed {changed} saved selection(s) at the packed mods")
+            log.info(f"[MODS] Pointed {changed} saved selection(s) at the mods' new paths")
+    return updated
 
 
 def _clear_extract_cache() -> None:

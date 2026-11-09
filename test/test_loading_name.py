@@ -6,6 +6,7 @@ import zipfile
 from pathlib import Path
 
 from injection.loadingname import loading_name
+from injection.mods.mod_facts import ModFacts
 
 
 def make_table(texts):
@@ -341,6 +342,13 @@ class LoadingNameTests(unittest.TestCase):
         self.assertTrue(loading_name.ships_language_table(raw))
         self.assertFalse(loading_name.ships_language_table(other))
         self.assertIsNone(loading_name.build(game, mods, mod, 238001, other_mods=[packed]))
+
+    def test_the_facts_of_a_mod_ltk_manager_holds_tell_whether_it_carries_the_text_table(self):
+        game, mods, mod = self._zed_game()
+
+        self.assertIsNone(loading_name.build(game, mods, mod, 238001, other_mods=[ModFacts(True)]))
+        self.assertEqual(loading_name.build(game, mods, mod, 238001, other_mods=[ModFacts(False)]),
+                         loading_name.MOD_FOLDER)
 
     def test_the_chat_keeps_the_champions_name(self):
         game = self.root / 'game'

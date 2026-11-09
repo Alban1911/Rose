@@ -293,6 +293,44 @@
     return cleanModName(wanted) || wanted;
   }
 
+  // A category's mod LTK Manager lost (missing) is listed greyed, so the user
+  // adds it again or deletes it, and is never picked: no click, never auto-selected
+  function bindPick(listItem, nameRow, mod, pick) {
+    if (!mod?.missing) {
+      listItem.addEventListener("click", pick);
+      return;
+    }
+    listItem.classList.add("mod-missing");
+    const note = document.createElement("div");
+    note.className = "mod-missing-note";
+    note.textContent = tr("Missing - add it again");
+    nameRow.appendChild(note);
+  }
+
+  function historicEntry(list, relativePath, relativePathOf = (mod) => mod?.id) {
+    const wanted = String(relativePath || "").replace(/\\/g, "/");
+    return (list || []).find((mod) => !mod?.missing && String(relativePathOf(mod) || "").replace(/\\/g, "/") === wanted);
+  }
+
+  function historicModToAutoSelect(mods, historicMod, liveSkinId) {
+    if (!historicMod || selectedModId || pendingSelectionRequest) {
+      return null;
+    }
+    const historicModEntry = historicEntry(mods, historicMod, (mod) => mod.relativePath);
+    if (!historicModEntry) {
+      return null;
+    }
+    const modTargetSkinId = historicModEntry.skinId ? Number(historicModEntry.skinId) : null;
+    const userIsOnTargetSkinNow = Boolean(modTargetSkinId && (
+      modTargetSkinId === liveSkinId ||
+      historicModEntry.availableForRequestedSkin === true
+    ));
+    if (userIsOnTargetSkinNow) {
+      return historicModEntry.relativePath || historicModEntry.modName || `mod-${Date.now()}-${Math.random()}`;
+    }
+    return null;
+  }
+
   function getTabLabel(tabId) {
     const label = SUMMARY_TABS.find((t) => t.id === tabId)?.label;
     return label ? tr(label) : String(tabId || "");
@@ -830,6 +868,21 @@
     .${PANEL_CLASS} .mod-selection li .mod-name.none-label {
       font-style: italic;
       color: #8b8b8b;
+    }
+
+    .${PANEL_CLASS} .mod-selection li.mod-missing,
+    .${PANEL_CLASS} .mod-selection li.mod-missing:hover {
+      opacity: 0.5;
+      cursor: default;
+      transform: none;
+      border-left-color: transparent;
+    }
+
+    .${PANEL_CLASS} .mod-missing-note {
+      color: #a09b8c;
+      font-size: 10px;
+      font-style: italic;
+      flex: 0 0 auto;
     }
 
     .${PANEL_CLASS} .mod-name-row {
@@ -1589,7 +1642,7 @@
         listItem.classList.add("selected-row");
       }
 
-      listItem.addEventListener("click", () => {
+      bindPick(listItem, mapNameRow, map, () => {
         handleMapSelect(mapId, listItem, map);
       });
 
@@ -1671,7 +1724,7 @@
         listItem.classList.add("selected-row");
       }
 
-      listItem.addEventListener("click", () => {
+      bindPick(listItem, fontNameRow, font, () => {
         handleFontSelect(fontId, listItem, font);
       });
 
@@ -1753,7 +1806,7 @@
         listItem.classList.add("selected-row");
       }
 
-      listItem.addEventListener("click", () => {
+      bindPick(listItem, announcerNameRow, announcer, () => {
         handleAnnouncerSelect(announcerId, listItem, announcer);
       });
 
@@ -1840,7 +1893,7 @@
         listItem.classList.add("selected-row");
       }
 
-      listItem.addEventListener("click", () => {
+      bindPick(listItem, otherNameRow, other, () => {
         handleCategoryModSelect(categoryId, otherId, listItem, other);
       });
 
@@ -2487,31 +2540,8 @@
       }
     }
 
-    // Auto-select the historic mod when the user is hovering the skin it targets.
-    const historicMod = detail.historicMod;
-    let didAutoSelect = false;
-    let historicSelectionId = null;
-    if (historicMod && !selectedModId && !pendingSelectionRequest) {
-      // Find the mod that matches the historic path
-      const historicModEntry = mods.find(mod => {
-        const modPath = mod.relativePath || "";
-        // Normalize paths for comparison
-        return modPath.replace(/\\/g, "/") === historicMod.replace(/\\/g, "/");
-      });
-
-      if (historicModEntry) {
-        const modTargetSkinId = historicModEntry.skinId ? Number(historicModEntry.skinId) : null;
-        // Only auto-select if the user is CURRENTLY on the mod's target skin
-        if (modTargetSkinId && (
-          modTargetSkinId === liveSkinId ||
-          historicModEntry.availableForRequestedSkin === true
-        )) {
-          const modId = historicModEntry.relativePath || historicModEntry.modName || `mod-${Date.now()}-${Math.random()}`;
-          historicSelectionId = modId;
-          didAutoSelect = true;
-        }
-      }
-    }
+    const historicSelectionId = historicModToAutoSelect(mods, detail.historicMod, liveSkinId);
+    const didAutoSelect = historicSelectionId !== null;
 
     // Emit to backend immediately when historic auto-select fires, regardless
     // of whether the panel is open.  The backend needs this to broadcast the
@@ -2563,17 +2593,9 @@
     lastMapsList = mapsList;
     selectedMapId = pruneSingleSelection(selectedMapId, mapsList);
 
-    // Check for historic mod and auto-select it
     const historicMod = detail.historicMod;
     if (historicMod && !selectedMapId) {
-      // Find the mod that matches the historic path
-      // historicMod is the relative path (e.g., "maps/default-summoner-rift_1.0.1")
-      // map.id is also the relative path
-      const historicMap = mapsList.find(map => {
-        const mapId = map.id || "";
-        // Normalize paths for comparison
-        return mapId.replace(/\\/g, "/") === historicMod.replace(/\\/g, "/");
-      });
+      const historicMap = historicEntry(mapsList, historicMod);
 
       if (historicMap) {
         // Use the same ID format as updateMapsEntries uses
@@ -2618,15 +2640,9 @@
     lastFontsList = fontsList;
     selectedFontId = pruneSingleSelection(selectedFontId, fontsList);
 
-    // Check for historic mod and auto-select it
     const historicMod = detail.historicMod;
     if (historicMod && !selectedFontId) {
-      // Find the mod that matches the historic path
-      const historicFont = fontsList.find(font => {
-        const fontId = font.id || "";
-        // Normalize paths for comparison
-        return fontId.replace(/\\/g, "/") === historicMod.replace(/\\/g, "/");
-      });
+      const historicFont = historicEntry(fontsList, historicMod);
 
       if (historicFont) {
         const fontId = historicFont.id || historicFont.name || `font-${Date.now()}-${Math.random()}`;
@@ -2670,15 +2686,9 @@
     lastAnnouncersList = announcersList;
     selectedAnnouncerId = pruneSingleSelection(selectedAnnouncerId, announcersList);
 
-    // Check for historic mod and auto-select it
     const historicMod = detail.historicMod;
     if (historicMod && !selectedAnnouncerId) {
-      // Find the mod that matches the historic path
-      const historicAnnouncer = announcersList.find(announcer => {
-        const announcerId = announcer.id || "";
-        // Normalize paths for comparison
-        return announcerId.replace(/\\/g, "/") === historicMod.replace(/\\/g, "/");
-      });
+      const historicAnnouncer = historicEntry(announcersList, historicMod);
 
       if (historicAnnouncer) {
         const announcerId = historicAnnouncer.id || historicAnnouncer.name || `announcer-${Date.now()}-${Math.random()}`;
@@ -2729,14 +2739,9 @@
     
     const selectedIds = getSelectedIdsForCategory("others");
     if (historicMods.length > 0 && selectedIds.length === 0) {
-      // Find all mods that match the historic paths
       const historicOthers = [];
       for (const historicPath of historicMods) {
-        const historicOther = othersList.find(other => {
-          const otherId = other.id || "";
-          // Normalize paths for comparison
-          return otherId.replace(/\\/g, "/") === String(historicPath).replace(/\\/g, "/");
-        });
+        const historicOther = historicEntry(othersList, historicPath);
         if (historicOther) {
           historicOthers.push(historicOther);
         }
@@ -2761,26 +2766,26 @@
 
     updateOtherCategoryEntries("others", othersList);
 
-    // After UI is updated, emit selection to backend for all historic mods found
     if (historicMods.length > 0 && selectedIds.length > 0) {
-      for (const historicPath of historicMods) {
-        const historicOther = othersList.find(other => {
-          const otherId = other.id || "";
-          return otherId.replace(/\\/g, "/") === String(historicPath).replace(/\\/g, "/");
-        });
-        if (historicOther) {
-          const otherId = historicOther.id || historicOther.name || `other-${Date.now()}-${Math.random()}`;
-          const li = OTHER_CATEGORY_TABS.map((t) => panel?.[`_${t.id}List`])
-            .filter(Boolean)
-            .map((listEl) =>
-              listEl.querySelector(`[data-other-id="${otherId}"]`)
-            )
-            .find(Boolean);
-          if (li) {
-            li.classList.add("selected-row");
-          }
-          if (bridge) bridge.send({ type: "select-other", category: "others", otherId, otherData: historicOther, action: "select" });
+      emitHistoricSelections(othersList, historicMods);
+    }
+  }
+
+  function emitHistoricSelections(othersList, historicMods) {
+    for (const historicPath of historicMods) {
+      const historicOther = historicEntry(othersList, historicPath);
+      if (historicOther) {
+        const otherId = historicOther.id || historicOther.name || `other-${Date.now()}-${Math.random()}`;
+        const li = OTHER_CATEGORY_TABS.map((t) => panel?.[`_${t.id}List`])
+          .filter(Boolean)
+          .map((listEl) =>
+            listEl.querySelector(`[data-other-id="${otherId}"]`)
+          )
+          .find(Boolean);
+        if (li) {
+          li.classList.add("selected-row");
         }
+        if (bridge) bridge.send({ type: "select-other", category: "others", otherId, otherData: historicOther, action: "select" });
       }
     }
   }
@@ -2800,15 +2805,11 @@
     lastCategoryModsById[category] = modsList;
     pruneCategorySelection(category, modsList);
 
-    // Apply historic selections for this specific category.
     const historicMod = detail.historicMod;
     const historicMods = Array.isArray(historicMod) ? historicMod : (historicMod ? [historicMod] : []);
     if (historicMods.length > 0) {
       for (const historicPath of historicMods) {
-        const match = modsList.find((m) => {
-          const id = (m?.id || "").replace(/\\/g, "/");
-          return id === String(historicPath).replace(/\\/g, "/");
-        });
+        const match = historicEntry(modsList, historicPath);
         if (!match) continue;
         const otherId = match.id || match.name || `other-${Date.now()}-${Math.random()}`;
         const selectedIds = getSelectedIdsForCategory(category);

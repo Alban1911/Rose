@@ -7,8 +7,9 @@ Handles various startup verification sequences
 
 from .hash_check_sequence import HashCheckSequence
 from .skin_sync_sequence import SkinSyncSequence
+from .mod_migration_sequence import ModMigrationSequence
 
-__all__ = ['HashCheckSequence', 'SkinSyncSequence']
+__all__ = ['HashCheckSequence', 'SkinSyncSequence', 'ModMigrationSequence']
 
 
 

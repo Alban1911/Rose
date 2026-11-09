@@ -245,7 +245,8 @@ def _write_historic_mod_locked(mod_type: str, relative_path: Union[str, List[str
 
 def rename_mod_paths(renamed: Dict[str, str]) -> int:
     """Point the saved mods at their new paths ({old relative path: new},
-    compared as Windows compares paths). Returns how many changed."""
+    compared as Windows compares paths). Returns how many changed. Raises
+    when the file cannot be written: it then holds what it held."""
     wanted = {old.replace("\\", "/").casefold(): new for old, new in renamed.items()}
     if not wanted:
         return 0
@@ -262,11 +263,7 @@ def rename_mod_paths(renamed: Dict[str, str]) -> int:
                 m[key] = new_value
                 changed += 1
         if changed:
-            try:
-                _write_json(_mod_historic_file_path(), m)
-            except Exception as e:
-                log.warning(f"[HISTORIC] Could not save the renamed mods: {e}")
-                return 0
+            _write_json(_mod_historic_file_path(), m)
     return changed
 
 

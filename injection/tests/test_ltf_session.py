@@ -1,3 +1,5 @@
+import errno
+import io
 import json
 import tempfile
 import threading
@@ -8,12 +10,55 @@ import zipfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from injection.mods.mod_files import ModFiles
-from injection.overlay import overlay_manager
-from injection.overlay.overlay_manager import OverlayManager, ltk_failure_cause
+from injection.mods import manifest
+from injection.mods.ltk_ref import ltk_ref
+from injection.overlay import ltf_report, ltf_session, ltk_data, overlay_manager
+from injection.overlay.ltf_report import ltk_failure_cause, ltk_failure_hint
+from injection.overlay.ltf_session import LtfHost, LtfSession
+from injection.overlay.overlay_manager import OverlayManager
 from injection.overlay.process_manager import ProcessManager
 from injection.tools.bridge import BridgeCommandError, BridgeUnavailable
 from injection.tools.tools_manager import ToolsManager
+
+
+class FullDiskFile:
+    """A file opened for writing on a full disk: every write fails."""
+
+    def __init__(self, handle):
+        self.handle = handle
+
+    def write(self, data):
+        raise OSError(errno.ENOSPC, "No space left on device")
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.handle.close()
+
+    def __getattr__(self, name):
+        return getattr(self.handle, name)
+
+
+_real_open = io.open
+
+
+def full_disk_open(file, mode="r", *args, **kwargs):
+    """io.open on a full disk (patch io.open with it): opening for writing
+    works, and truncates, but no write does."""
+    handle = _real_open(file, mode, *args, **kwargs)
+    return FullDiskFile(handle) if "w" in mode else handle
+
+
+def turned_on_in_ltk_manager(entries) -> None:
+    """The user turns these library entries on in LTK Manager meanwhile."""
+    for entry in entries:
+        entry["enabled"] = True
+
+
+def user_removed_all_in_ltk_manager() -> None:
+    """The user removes every entry from LTK Manager's library."""
+    FakeBridge.initial_library = []
 
 
 def status(running=True, phase="patching", **extra):
@@ -92,7 +137,7 @@ class FakeBridge:
                                  f"broken mod entry {mod_id}: Serialization error: expected value at line 1 column 1\n")
         return [dict(entry) for entry in self.library_entries]
 
-    def _install(self, file_name, name):
+    def _install(self, file_name, name, data):
         mod_id = str(uuid.uuid4())
         entry = {
             "id": mod_id,
@@ -101,19 +146,21 @@ class FakeBridge:
             "enabled": True,
         }
         if FakeBridge.mod_storage is not None:
-            entry.update({"modDir": str(FakeBridge.mod_storage / f"mod-{mod_id[:8]}"), "storage": "archive",
-                          "format": "fantome"})
+            mod_dir = FakeBridge.mod_storage / f"mod-{mod_id[:8]}"
+            mod_dir.parent.mkdir(parents=True, exist_ok=True)
+            mod_dir.with_name(f"{mod_dir.name}.fantome").write_bytes(data)
+            entry.update({"modDir": str(mod_dir), "storage": "archive", "format": "fantome"})
         self.library_entries.append(entry)
         value = dict(entry) if FakeBridge.full_install_answer else {"id": mod_id}
         return {"ok": True, "response": {"ok": True, "value": value}}
 
     def import_fantome(self, path, name=None):
         self.calls.append(("import", path, name))
-        return self._install(path, name)
+        return self._install(path, name, Path(path).read_bytes() if FakeBridge.mod_storage is not None else b"")
 
     def import_fantome_bytes(self, data, name):
         self.calls.append(("import_bytes", len(data), name))
-        return self._install(name, name)
+        return self._install(name, name, data)
 
     def toggle(self, target, enabled=True):
         self.calls.append(("toggle", target, enabled))
@@ -197,45 +244,56 @@ class LtfSessionTestCase(unittest.TestCase):
         self.game.mkdir()
         self.process_manager = ProcessManager()
         self.overlay = OverlayManager(self.tools, self.mods, self.game, self.process_manager)
+        self.host = self.overlay.host
 
         FakeBridge.reset()
         self.state_path = self.root / "injection" / "ltf_installed.json"
         self.terminated = []
         self.ltk_logs = self.root / "ltk-logs"
         self.ltk_logs.mkdir()
+        self.report_issue = MagicMock()
 
         for patcher in (
-            patch.object(overlay_manager, "LtkBridge", FakeBridge),
-            patch.object(overlay_manager, "find_bridge", return_value=(46321, {"pid": 777})),
+            patch.object(ltf_session, "LtkBridge", FakeBridge),
+            patch.object(ltf_session, "find_bridge", return_value=(46321, {"pid": 777})),
             patch.object(ToolsManager, "detect_ltk_manager", return_value=self.root / "ltk-manager.exe"),
-            patch.object(overlay_manager, "report_issue"),
+            patch.object(overlay_manager, "report_issue", self.report_issue),
+            patch.object(ltf_session, "report_issue", self.report_issue),
+            patch.object(ltf_report, "report_issue", self.report_issue),
             patch.object(OverlayManager, "_running_game", return_value=None),
-            patch.object(OverlayManager, "_ltk_manager_running", return_value=False),
-            patch.object(OverlayManager, "_process_created", return_value=None),
-            patch.object(OverlayManager, "_terminate_manager",
+            patch.object(LtfHost, "_ltk_manager_running", return_value=False),
+            patch.object(LtfHost, "_process_created", return_value=None),
+            patch.object(LtfHost, "_terminate_manager",
                          lambda _self, pid, grace_s=0.0: self.terminated.append(pid)),
             patch.object(overlay_manager, "PROCESS_MONITOR_SLEEP_S", 0.01),
             patch.object(overlay_manager, "PATCHER_STATUS_POLL_TICKS", 1),
             patch.object(overlay_manager, "PATCHER_READY_POLL_S", 0.01),
             patch.object(overlay_manager, "PATCHER_IDLE_GRACE_S", 0.05),
-            patch.object(overlay_manager, "CDP_READY_POLL_S", 0.01),
-            patch.object(overlay_manager, "CDP_READY_TIMEOUT_S", 0.05),
+            patch.object(ltf_session, "CDP_READY_POLL_S", 0.01),
+            patch.object(ltf_session, "CDP_READY_TIMEOUT_S", 0.05),
             patch.object(overlay_manager, "PATCHER_STOP_WAIT_S", 0.5),
             # Never this PC's game or client: RestartMissedGameTests turn it on with fakes
             patch.object(overlay_manager, "RESTART_MISSED_GAME", False),
-            # Never this PC's own LTK Manager log
-            patch.object(overlay_manager.LtkLogTail, "log_dir", staticmethod(lambda: self.ltk_logs)),
-            # Nor its LTF logs
-            patch.object(overlay_manager, "ltk_logs_dir", lambda: self.root / "logs" / "ltk"),
-            patch.object(overlay_manager, "launcher_log_paths",
+        ):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        self.isolate_from_this_pc()
+
+    def isolate_from_this_pc(self):
+        """Never this PC's saved mods, LTK Manager log, LTF logs, registry or
+        Rose's diagnostics file: the test's folders instead."""
+        self.host.saved_mods_root = self.root / "saved-mods"
+        for patcher in (
+            patch.object(ltk_data.LtkLogTail, "log_dir", staticmethod(lambda: self.ltk_logs)),
+            patch.object(ltf_session, "ltk_logs_dir", lambda: self.root / "logs" / "ltk"),
+            patch("utils.system.windows_account.check_ltk_settings", return_value=False),
+            patch.object(ltf_session, "launcher_log_paths",
                          lambda: (self.root / "logs" / "ltk" / "ltk_launcher.log",
                                   self.root / "Public" / "ltk_launcher.log",
                                   self.root / "Temp" / "ltk_launcher.log")),
         ):
             patcher.start()
             self.addCleanup(patcher.stop)
-
-        self.report_issue = overlay_manager.report_issue
 
     @property
     def bridge(self):
@@ -256,8 +314,8 @@ class LtfSessionTestCase(unittest.TestCase):
     def launched(self, pid=4242):
         """Patches for an LTK Manager Rose starts through the launcher."""
         return (
-            patch.object(overlay_manager, "find_bridge", return_value=None),
-            patch.object(overlay_manager.subprocess, "run",
+            patch.object(ltf_session, "find_bridge", return_value=None),
+            patch.object(ltf_session.subprocess, "run",
                          return_value=MagicMock(returncode=0, stdout=f"LTK_MANAGER_PID={pid}\n")),
         )
 
@@ -309,12 +367,35 @@ class InjectionSessionTests(LtfSessionTestCase):
             imported.append((Path(path).name, Path(path).read_bytes(), name))
             return install(bridge_self, path, name)
 
-        with patch.object(FakeBridge, "import_fantome", import_fantome),                 patch.object(overlay_manager, "write_fantome_zip", side_effect=AssertionError("packed again")):
+        with patch.object(FakeBridge, "import_fantome", import_fantome),                 patch.object(ltf_session, "write_fantome_zip", side_effect=AssertionError("packed again")):
             result = self.overlay.mk_run_overlay([mod], stop_callback=lambda: True)
 
         self.assertEqual(result, 0)
         # Named so LTK Manager reads it as a .fantome, the archive's own bytes
         self.assertEqual(imported, [(f"{mod}.fantome", stored, "Eternal Aspect Leona")])
+        self.assertEqual(self.reported_codes(), [])
+
+    def test_a_modpkg_goes_to_ltk_manager_as_it_is_named_as_one(self):
+        """LTK Manager reads the format by its suffix: Rose unpacked the package
+        into a cache, then packed that into a .fantome at every game"""
+        from utils.tests.test_modpkg import SKIN0, Chunk, build_package
+
+        package = self.mods / "VO Japanese"  # linked in without an extension
+        package.write_bytes(build_package([Chunk(SKIN0, b"skin" * 100)]))
+        stored = package.read_bytes()
+        imported = []
+        install = FakeBridge.import_fantome
+
+        def import_fantome(bridge_self, path, name=None):
+            imported.append((Path(path).name, Path(path).read_bytes(), name))
+            return install(bridge_self, path, name)
+
+        with patch.object(FakeBridge, "import_fantome", import_fantome), \
+                patch.object(ltf_session, "write_fantome_zip", side_effect=AssertionError("packed")):
+            result = self.overlay.mk_run_overlay(["VO Japanese"], stop_callback=lambda: True)
+
+        self.assertEqual(result, 0)
+        self.assertEqual(imported, [("VO Japanese.modpkg", stored, "Old Aatrox")])
         self.assertEqual(self.reported_codes(), [])
 
     def test_an_archive_and_a_folder_install_side_by_side(self):
@@ -358,7 +439,7 @@ class InjectionSessionTests(LtfSessionTestCase):
             raise BridgeCommandError(f"import failed: not found: {path}")
 
         with patch.object(FakeBridge, "import_fantome", unreadable), \
-                patch.object(overlay_manager, "BYTES_IMPORT_LIMIT", 1):
+                patch.object(ltf_session, "BYTES_IMPORT_LIMIT", 1):
             result = self.overlay.mk_run_overlay([mod], stop_callback=lambda: True)
 
         self.assertEqual(result, 1)
@@ -515,7 +596,7 @@ class InjectionSessionTests(LtfSessionTestCase):
         mod = self.make_mod()
         no_bridge, run = self.launched()
         with no_bridge, run as launcher, \
-                patch.object(OverlayManager, "_ltk_manager_running", return_value=True):
+                patch.object(LtfHost, "_ltk_manager_running", return_value=True):
             result = self.overlay.mk_run_overlay([mod], stop_callback=lambda: True)
 
         self.assertEqual(result, 1)
@@ -524,8 +605,8 @@ class InjectionSessionTests(LtfSessionTestCase):
 
     def test_the_launcher_refusing_an_open_ltk_manager_is_reported(self):
         mod = self.make_mod()
-        with patch.object(overlay_manager, "find_bridge", return_value=None), \
-                patch.object(overlay_manager.subprocess, "run", return_value=MagicMock(returncode=5, stdout="")):
+        with patch.object(ltf_session, "find_bridge", return_value=None), \
+                patch.object(ltf_session.subprocess, "run", return_value=MagicMock(returncode=5, stdout="")):
             result = self.overlay.mk_run_overlay([mod], stop_callback=lambda: True)
 
         self.assertEqual(result, 1)
@@ -534,7 +615,7 @@ class InjectionSessionTests(LtfSessionTestCase):
     def test_the_launchers_own_log_of_a_start_goes_into_roses_log(self):
         """#478: why the launcher could not make explorer.exe LTK Manager's
         parent was only in ltk_launcher.log, which the user could not find"""
-        rose_log, public_log, temp_log = overlay_manager.launcher_log_paths()
+        rose_log, public_log, temp_log = ltf_session.launcher_log_paths()
         rose_log.parent.mkdir(parents=True)
         rose_log.write_text("[launch] an earlier start, parent pid = 1 (explorer.exe)\r\n", encoding="utf-8")
 
@@ -546,8 +627,8 @@ class InjectionSessionTests(LtfSessionTestCase):
             return MagicMock(returncode=0, stdout="LTK_MANAGER_PID=4242\n")
 
         mod = self.make_mod()
-        with patch.object(overlay_manager, "find_bridge", return_value=None), \
-                patch.object(overlay_manager.subprocess, "run", side_effect=launch), \
+        with patch.object(ltf_session, "find_bridge", return_value=None), \
+                patch.object(ltf_session.subprocess, "run", side_effect=launch), \
                 self.assertLogs(overlay_manager.log.name, level="DEBUG") as logs:
             self.overlay.mk_run_overlay([mod], stop_callback=lambda: True)
 
@@ -555,7 +636,7 @@ class InjectionSessionTests(LtfSessionTestCase):
         self.assertEqual(len(launcher_lines), 2)  # this start's lines only, without its banner
         self.assertIn("WARNING", launcher_lines[0])
         self.assertIn("starting it as a child", launcher_lines[0])
-        self.assertEqual(self.overlay._launcher_parent, "not explorer.exe")
+        self.assertEqual(self.host.logged_manager_parent, "not explorer.exe")
         self.assertFalse(public_log.exists())
         self.assertFalse(temp_log.exists())
 
@@ -612,9 +693,9 @@ class InjectionSessionTests(LtfSessionTestCase):
         self.assertIn("import", self.bridge.command_names())
 
     def test_a_large_launcher_log_is_kept_as_old(self):
-        rose_log = overlay_manager.launcher_log_paths()[0]
+        rose_log = ltf_session.launcher_log_paths()[0]
         rose_log.parent.mkdir(parents=True)
-        rose_log.write_bytes(b"x" * (overlay_manager.LAUNCHER_LOG_MAX_BYTES + 1))
+        rose_log.write_bytes(b"x" * (ltf_session.LAUNCHER_LOG_ROTATE_BYTES + 1))
 
         mod = self.make_mod()
         no_bridge, run = self.launched()
@@ -623,12 +704,12 @@ class InjectionSessionTests(LtfSessionTestCase):
 
         self.assertFalse(rose_log.exists())
         self.assertEqual((rose_log.parent / "ltk_launcher.old.log").stat().st_size,
-                         overlay_manager.LAUNCHER_LOG_MAX_BYTES + 1)
+                         ltf_session.LAUNCHER_LOG_ROTATE_BYTES + 1)
 
     def test_a_failed_launcher_reports_start_failure(self):
         mod = self.make_mod()
-        with patch.object(overlay_manager, "find_bridge", return_value=None), \
-                patch.object(overlay_manager.subprocess, "run", return_value=MagicMock(returncode=3, stdout="")):
+        with patch.object(ltf_session, "find_bridge", return_value=None), \
+                patch.object(ltf_session.subprocess, "run", return_value=MagicMock(returncode=3, stdout="")):
             result = self.overlay.mk_run_overlay([mod], stop_callback=lambda: True)
 
         self.assertEqual(result, 1)
@@ -672,7 +753,7 @@ class InjectionSessionTests(LtfSessionTestCase):
             self.process_manager.stop_injection_by_user()
             return 46321, {"pid": 777}
 
-        with patch.object(overlay_manager, "find_bridge", connect_then_stop):
+        with patch.object(ltf_session, "find_bridge", connect_then_stop):
             result = self.overlay.mk_run_overlay([mod], stop_callback=lambda: True)
 
         self.assertEqual(result, 0)
@@ -750,7 +831,7 @@ class LibraryOwnershipTests(LtfSessionTestCase):
         def connect(expected_pid=None):
             return 46321, {"pid": 777}
 
-        with patch.object(overlay_manager, "find_bridge", connect):
+        with patch.object(ltf_session, "find_bridge", connect):
             original_init = FakeBridge.__init__
 
             def failing_init(bridge_self, port=None, pid=None):
@@ -834,6 +915,520 @@ class StaleCleanupTests(LtfSessionTestCase):
 
         self.assertNotIn(("uninstall", "gone-id"), self.bridge.calls)
         self.assertEqual(self.state()["installed"], {})
+
+
+class KeptModsTests(LtfSessionTestCase):
+    """The user's saved category mods stay in LTK Manager, turned off, between games (#486)"""
+
+    def setUp(self):
+        super().setUp()
+        self.saved = self.root / "saved" / "voiceover"
+        self.host.saved_mods_root = self.saved.parent
+        self.archive_by_link_name: dict = {}
+
+    def saved_mod(self, name="VO Korean", display="VO Korean", wad=b"voiceover", folder=False):
+        """A saved mod, put into the injection's mods folder as Rose puts one:
+        its archive hard linked, or a folder never converted to one junctioned."""
+        if folder:
+            from utils.core.junction import create_junction
+            self.make_mod(name, display, where=self.saved, wad=wad)
+            self.assertTrue(create_junction(self.saved / name, self.mods / name))
+            return name
+        self.write_archive(self.saved / f"{name}.fantome", name, display, wad)
+        return self.link(name, self.saved / f"{name}.fantome")
+
+    def write_archive(self, archive, name, display, wad):
+        """Store a mod's .fantome as Rose does (replaced, never rewritten in place)."""
+        from injection.mods.fantome import write_fantome_zip
+        build = self.root / "build" / uuid.uuid4().hex
+        self.make_mod(name, display, where=build, wad=wad)
+        archive.parent.mkdir(parents=True, exist_ok=True)
+        temporary = archive.with_name(archive.name + ".tmp")
+        write_fantome_zip(build / name, temporary)
+        temporary.replace(archive)
+
+    def link(self, name, archive):
+        """Hard link *archive* into the injection's mods folder as *name*."""
+        from utils.core.junction import link_file
+        self.assertTrue(link_file(archive, self.mods / name))
+        self.archive_by_link_name[name] = archive
+        return name
+
+    def next_game(self, skin=None):
+        """LTK Manager's library as the last game left it, and the mods put
+        into the injection's mods folder again (it is wiped once imported)."""
+        from utils.core.junction import link_file
+        FakeBridge.initial_library = [dict(entry) for entry in self.bridge.library_entries]
+        for name, archive in self.archive_by_link_name.items():
+            if archive.exists() and not (self.mods / name).exists():
+                link_file(archive, self.mods / name)
+        if skin is not None and not (self.mods / skin).exists():
+            self.make_mod(skin)
+
+    def test_a_saved_mod_stays_in_ltk_manager_turned_off_and_a_skin_is_removed(self):
+        voiceover, skin = self.saved_mod(), self.make_mod()
+
+        self.assertEqual(self.overlay.mk_run_overlay([voiceover, skin], stop_callback=lambda: True), 0)
+
+        left = self.bridge.library_entries
+        self.assertEqual([entry["displayName"] for entry in left], ["VO Korean"])
+        self.assertFalse(left[0]["enabled"])
+        kept = self.state()["kept"]
+        self.assertEqual(list(kept), [left[0]["id"]])
+        self.assertEqual(kept[left[0]["id"]]["folder"], voiceover)
+        self.assertEqual(self.state()["installed"], {})
+
+    def test_a_saved_custom_skin_is_removed_after_the_game_as_rose_s_skins_are(self):
+        custom = self.root / "saved" / "skins" / "777000" / "Custom Yone.fantome"
+        self.write_archive(custom, "Custom Yone", "Custom Yone", b"custom skin")
+        skin = self.link("Custom Yone", custom)
+        voiceover = self.saved_mod()
+
+        self.overlay.mk_run_overlay([voiceover, skin], stop_callback=lambda: True)
+
+        self.assertEqual([entry["displayName"] for entry in self.bridge.library_entries], ["VO Korean"])
+        self.assertEqual([record["folder"] for record in self.state()["kept"].values()], [voiceover])
+        self.assertTrue(custom.exists())
+
+    def test_a_saved_folder_never_converted_to_an_archive_is_kept_too(self):
+        voiceover = self.saved_mod(folder=True)
+
+        self.overlay.mk_run_overlay([voiceover], stop_callback=lambda: True)
+
+        self.assertEqual(len(self.state()["kept"]), 1)
+        self.assertFalse(self.bridge.library_entries[0]["enabled"])
+
+    def test_a_rose_skin_linked_from_its_own_library_is_removed_after_the_game(self):
+        library = self.root / "skins" / "777" / "777000"
+        self.write_archive(library / "777000.fantome", "777000", "Heavenly T1 Yone", b"skin")
+        skin = self.link("777000", library / "777000.fantome")
+        voiceover = self.saved_mod()
+
+        self.overlay.mk_run_overlay([voiceover, skin], stop_callback=lambda: True)
+
+        self.assertEqual([entry["displayName"] for entry in self.bridge.library_entries], ["VO Korean"])
+        self.assertEqual([record["folder"] for record in self.state()["kept"].values()], [voiceover])
+
+    def test_the_next_game_turns_the_kept_mod_back_on_instead_of_installing_it(self):
+        voiceover, skin = self.saved_mod(), self.make_mod()
+        self.overlay.mk_run_overlay([voiceover, skin], stop_callback=lambda: True)
+        kept_id = next(iter(self.state()["kept"]))
+        self.next_game(skin)
+
+        self.assertEqual(self.overlay.mk_run_overlay([voiceover, skin], stop_callback=lambda: True), 0)
+
+        imported = [call[2] for call in self.bridge.calls if call[0] == "import"]
+        self.assertEqual(imported, ["Eternal Aspect Leona"], "the skin alone")
+        self.assertIn(("toggle", kept_id, True), self.bridge.calls)
+        self.assertLess(self.bridge.calls.index(("toggle", kept_id, True)),
+                        self.bridge.calls.index(("start_patcher",)))
+        self.assertNotIn(("uninstall", kept_id), self.bridge.calls)
+        self.assertEqual(list(self.state()["kept"]), [kept_id], "kept again after the game")
+        self.assertEqual(self.state()["disabled"], [], "never taken for one of the user's mods")
+
+    def test_a_kept_mod_not_selected_stays_off_and_is_not_turned_on_after(self):
+        voiceover, skin = self.saved_mod(), self.make_mod()
+        self.overlay.mk_run_overlay([voiceover, skin], stop_callback=lambda: True)
+        kept_id = next(iter(self.state()["kept"]))
+        self.next_game(skin)
+        turned_on_in_ltk_manager(FakeBridge.initial_library)
+
+        self.overlay.mk_run_overlay([skin], stop_callback=lambda: True)
+
+        self.assertIn(("toggle", kept_id, False), self.bridge.calls)
+        self.assertNotIn(("toggle", kept_id, True), self.bridge.calls)
+        self.assertEqual(self.state()["disabled"], [])
+        self.assertEqual(list(self.state()["kept"]), [kept_id])
+
+    def test_a_kept_mod_removed_from_ltk_manager_is_installed_anew(self):
+        voiceover = self.saved_mod()
+        self.overlay.mk_run_overlay([voiceover], stop_callback=lambda: True)
+        gone_id = next(iter(self.state()["kept"]))
+        self.next_game()
+        user_removed_all_in_ltk_manager()
+
+        self.assertEqual(self.overlay.mk_run_overlay([voiceover], stop_callback=lambda: True), 0)
+
+        self.assertEqual([call[2] for call in self.bridge.calls if call[0] == "import"], ["VO Korean"])
+        kept = self.state()["kept"]
+        self.assertNotIn(gone_id, kept)
+        self.assertEqual(list(kept), [self.bridge.library_entries[0]["id"]])
+
+    def test_a_changed_saved_mod_replaces_its_kept_copy(self):
+        voiceover = self.saved_mod()
+        self.overlay.mk_run_overlay([voiceover], stop_callback=lambda: True)
+        old_id = next(iter(self.state()["kept"]))
+        self.write_archive(self.saved / f"{voiceover}.fantome", voiceover, "VO Korean", b"a newer voiceover")
+        self.next_game()
+
+        self.overlay.mk_run_overlay([voiceover], stop_callback=lambda: True)
+
+        self.assertIn(("uninstall", old_id), self.bridge.calls)
+        self.assertEqual(len(self.bridge.library_entries), 1)
+        self.assertEqual(list(self.state()["kept"]), [self.bridge.library_entries[0]["id"]])
+
+    def test_an_older_copy_that_cannot_be_removed_stays_recorded(self):
+        voiceover = self.saved_mod()
+        self.overlay.mk_run_overlay([voiceover], stop_callback=lambda: True)
+        old_id = next(iter(self.state()["kept"]))
+        self.write_archive(self.saved / f"{voiceover}.fantome", voiceover, "VO Korean", b"a newer voiceover")
+        self.next_game()
+        uninstall = FakeBridge.uninstall
+
+        def refuse_old(bridge_self, target):
+            if target == old_id:
+                raise BridgeCommandError("uninstall failed: CDP busy")
+            return uninstall(bridge_self, target)
+
+        with patch.object(FakeBridge, "uninstall", refuse_old):
+            self.overlay.mk_run_overlay([voiceover], stop_callback=lambda: True)
+
+        self.assertIn(old_id, self.state()["kept"], "retried at the next park")
+        self.assertEqual(len(self.state()["kept"]), 2)
+
+    def test_a_kept_mod_whose_saved_mod_was_deleted_is_removed_at_start(self):
+        voiceover = self.saved_mod()
+        self.overlay.mk_run_overlay([voiceover], stop_callback=lambda: True)
+        kept_id = next(iter(self.state()["kept"]))
+        self.next_game()
+        from utils.core.junction import safe_remove_entry
+        safe_remove_entry(self.mods / voiceover)
+        (self.saved / f"{voiceover}.fantome").unlink()
+
+        self.overlay.start_patcher_early()
+
+        self.assertIn(("uninstall", kept_id), self.bridge.calls)
+        self.assertEqual(self.state()["kept"], {})
+
+    def test_a_crash_leaves_the_kept_mod_turned_on_and_the_next_session_turns_it_off(self):
+        FakeBridge.initial_library = [{"id": "kept-id", "name": "VO", "enabled": True}]
+        source = self.saved / "VO"
+        source.mkdir(parents=True)
+        self.state_path.write_text(json.dumps({"kept": {"kept-id": {
+            "folder": "VO", "fingerprint": "abc", "source": str(source)}}}), encoding="utf-8")
+
+        self.overlay.start_patcher_early()
+
+        self.assertIn(("toggle", "kept-id", False), self.bridge.calls)
+        self.assertNotIn(("uninstall", "kept-id"), self.bridge.calls)
+        self.assertEqual(list(self.state()["kept"]), ["kept-id"])
+
+    def test_the_countdown_does_not_pack_a_kept_folder(self):
+        voiceover, skin = self.saved_mod(folder=True), self.make_mod()
+        self.overlay.mk_run_overlay([voiceover, skin], stop_callback=lambda: True)
+        self.next_game(skin)
+
+        archives = self.overlay.pack_mods(self.mods, [voiceover, skin])
+
+        self.assertEqual(list(archives), [skin])
+
+
+class SavedLtkModTests(LtfSessionTestCase):
+    """A saved mod LTK Manager holds is switched on for the game and off
+    after: never imported for it, never removed"""
+
+    VO_ID = "5e9b2219-f49f-4cf1-bc7e-774fb43e1349"
+    GONE_ID = "d6f841c7-140b-4ac2-a11c-b37e18eb8006"
+    OLD_ID = "799b6c82-8324-4394-a0cf-ddebcd16eba7"
+
+    def setUp(self):
+        super().setUp()
+        voiceover = self.host.saved_mods_root / "voiceover"
+        voiceover.mkdir(parents=True)
+        (voiceover / "rose_category_mods.json").write_text(json.dumps({"version": 1, "category": "voiceover", "mods": {
+            "VO Korean": {"name": "VO Korean", "path": "VO Korean", "ltkId": self.VO_ID},
+        }}), encoding="utf-8")
+        FakeBridge.initial_library = [self.entry(self.VO_ID, "VO Korean")]
+        self.stage_dir = self.root / "injection" / "stage"
+
+    @staticmethod
+    def entry(mod_id, name, enabled=False):
+        return {"id": mod_id, "name": name, "displayName": name, "enabled": enabled}
+
+    def enabled(self, mod_id):
+        return next(entry["enabled"] for entry in self.bridge.library_entries if entry["id"] == mod_id)
+
+    def toggles(self, mod_id):
+        return [call[2] for call in self.bridge.calls if call[0] == "toggle" and call[1] == mod_id]
+
+    def test_it_is_switched_on_for_the_game_and_off_after(self):
+        skin = self.make_mod()
+        during = {}
+
+        def stop():
+            during.setdefault("on", self.enabled(self.VO_ID))
+            during.setdefault("switched", list(self.state()["switched"]))
+            return True
+
+        self.assertEqual(self.overlay.mk_run_overlay([ltk_ref(self.VO_ID), skin], stop_callback=stop), 0)
+
+        self.assertTrue(during["on"])
+        self.assertEqual(during["switched"], [self.VO_ID], "a crash then leaves the record")
+        self.assertFalse(self.enabled(self.VO_ID))
+        self.assertEqual([call[2] for call in self.bridge.calls if call[0] == "import"], ["Eternal Aspect Leona"])
+        self.assertNotIn(("uninstall", self.VO_ID), self.bridge.calls)
+        self.assertEqual([entry["id"] for entry in self.bridge.library_entries], [self.VO_ID])
+        self.assertEqual(self.state()["switched"], {})
+        self.assertEqual(self.state()["disabled"], [])
+
+    def test_one_that_failed_to_switch_on_is_switched_on_by_the_next_install(self):
+        toggle = FakeBridge.toggle
+        refusals = [BridgeCommandError("toggle failed: CDP busy")]
+
+        def refuse_once(bridge_self, target, enabled=True):
+            if enabled and refusals:
+                bridge_self.calls.append(("toggle", target, enabled))
+                raise refusals.pop()
+            return toggle(bridge_self, target, enabled)
+
+        with patch.object(FakeBridge, "toggle", refuse_once):
+            self.overlay.start_patcher_early()
+            self.overlay.open_staging()
+            staged = self.overlay.stage_mods(self.stage_dir, [ltk_ref(self.VO_ID)])
+            during = {}
+
+            def stop():
+                during.setdefault("on", self.enabled(self.VO_ID))
+                return True
+
+            self.assertEqual(self.overlay.mk_run_overlay([ltk_ref(self.VO_ID)], stop_callback=stop), 0)
+
+        self.assertFalse(staged)
+        self.assertTrue(during["on"], "the injection switched it on again")
+        self.assertEqual(self.toggles(self.VO_ID), [True, True, False])
+
+    def test_one_ltk_manager_switched_on_despite_a_failed_reply_is_switched_off_when_the_session_ends(self):
+        toggle = FakeBridge.toggle
+        lost_replies = [BridgeCommandError("toggle failed: CDP timed out")]
+
+        def apply_then_fail_once(bridge_self, target, enabled=True):
+            result = toggle(bridge_self, target, enabled)
+            if enabled and lost_replies:
+                raise lost_replies.pop()
+            return result
+
+        with patch.object(FakeBridge, "toggle", apply_then_fail_once):
+            self.overlay.start_patcher_early()
+            self.overlay.open_staging()
+            staged = self.overlay.stage_mods(self.stage_dir, [ltk_ref(self.VO_ID)])
+            self.overlay.discard_early_patcher()
+
+        self.assertFalse(staged)
+        self.assertEqual(self.toggles(self.VO_ID), [True, False])
+        self.assertFalse(self.enabled(self.VO_ID), "on only for a game")
+        self.assertEqual(self.state()["switched"], {})
+
+    def test_one_whose_switch_on_failed_and_then_left_ltk_manager_fails_the_injection(self):
+        toggle = FakeBridge.toggle
+        refusals = [BridgeCommandError("toggle failed: CDP busy")]
+
+        def refuse_once(bridge_self, target, enabled=True):
+            if enabled and refusals:
+                raise refusals.pop()
+            return toggle(bridge_self, target, enabled)
+
+        with patch.object(FakeBridge, "toggle", refuse_once):
+            self.overlay.start_patcher_early()
+            self.overlay.open_staging()
+            self.overlay.stage_mods(self.stage_dir, [ltk_ref(self.VO_ID)])
+            self.bridge.library_entries = []
+
+            result = self.overlay.mk_run_overlay([ltk_ref(self.VO_ID)], stop_callback=lambda: True)
+
+        self.assertEqual(result, 1, "nothing was injected")
+        self.assertNotIn("start_patcher", self.bridge.command_names()[-3:])
+
+    def test_saved_mods_alone_are_an_injection(self):
+        self.assertEqual(self.overlay.mk_run_overlay([ltk_ref(self.VO_ID)], stop_callback=lambda: True), 0)
+
+        self.assertEqual(self.toggles(self.VO_ID), [True, False])
+        self.assertIn("start_patcher", self.bridge.command_names())
+        self.assertNotIn("import", self.bridge.command_names())
+
+    def test_one_no_longer_in_the_library_is_left_out_and_the_rest_injects(self):
+        during = {}
+
+        def stop():
+            during.setdefault("on", self.enabled(self.VO_ID))
+            return True
+
+        result = self.overlay.mk_run_overlay([ltk_ref(self.GONE_ID), ltk_ref(self.VO_ID), self.make_mod()],
+                                             stop_callback=stop)
+
+        self.assertEqual(result, 0)
+        self.assertTrue(during["on"])
+        self.assertEqual(self.toggles(self.GONE_ID), [])
+        self.assertIn("import", self.bridge.command_names())
+
+    def test_nothing_left_to_inject_fails(self):
+        self.assertEqual(self.overlay.mk_run_overlay([ltk_ref(self.GONE_ID)], stop_callback=lambda: True), 1)
+
+        self.assertIn("LTF_IMPORT_FAILED", self.reported_codes())
+        self.assertNotIn("start_patcher", self.bridge.command_names())
+
+    def test_the_injection_keeps_a_staged_one_without_restarting_the_patcher(self):
+        self.overlay.open_staging()
+        self.assertTrue(self.overlay.stage_mods(self.stage_dir, [ltk_ref(self.VO_ID)]))
+        staged = len(self.bridge.calls)
+        during = []
+
+        def stop():
+            during.extend(call[0] for call in self.bridge.calls[staged:])
+            return True
+
+        self.assertEqual(self.overlay.mk_run_overlay([ltk_ref(self.VO_ID)], stop_callback=stop), 0)
+
+        self.assertFalse({"stop_patcher", "start_patcher", "toggle"} & set(during))
+        self.assertEqual(self.toggles(self.VO_ID), [True, False])
+
+    def test_one_a_new_pick_drops_is_switched_off(self):
+        self.overlay.open_staging()
+        skin = self.make_mod(where=self.stage_dir)
+        self.assertTrue(self.overlay.stage_mods(self.stage_dir, [skin, ltk_ref(self.VO_ID)]))
+        self.assertTrue(self.enabled(self.VO_ID))
+
+        self.assertTrue(self.overlay.stage_mods(self.stage_dir, [skin]))
+
+        self.assertFalse(self.enabled(self.VO_ID))
+        self.assertEqual(self.state()["switched"], {})
+        self.assertNotIn(("uninstall", self.VO_ID), self.bridge.calls)
+
+    def test_a_crash_leaves_it_on_and_the_next_session_switches_it_off(self):
+        FakeBridge.initial_library = [self.entry(self.VO_ID, "VO Korean", enabled=True)]
+        self.state_path.write_text(json.dumps({"switched": {self.VO_ID: "VO Korean"}}), encoding="utf-8")
+
+        self.overlay.start_patcher_early()
+
+        self.assertEqual(self.toggles(self.VO_ID), [False])
+        self.assertEqual(self.state()["switched"], {})
+
+    def test_one_found_on_is_switched_off_when_a_session_starts(self):
+        FakeBridge.initial_library = [self.entry(self.VO_ID, "VO Korean", enabled=True)]
+
+        self.overlay.start_patcher_early()
+
+        self.assertEqual(self.toggles(self.VO_ID), [False])
+        self.assertFalse(self.state_path.exists(), "not the user's, to turn back on")
+
+    def test_one_turned_on_before_the_injection_is_not_taken_for_the_users(self):
+        self.overlay.start_patcher_early()
+        turned_on_in_ltk_manager(self.bridge.library_entries)
+
+        self.assertEqual(self.overlay.mk_run_overlay([self.make_mod()], stop_callback=lambda: True), 0)
+
+        self.assertEqual(self.toggles(self.VO_ID), [False])
+        self.assertEqual(self.state()["disabled"], [])
+
+    def test_an_entry_left_installed_is_kept_once_a_manifest_names_it(self):
+        """A move into LTK Manager that stopped between the manifest write and keep()"""
+        FakeBridge.initial_library = [self.entry(self.VO_ID, "VO Korean", enabled=True)]
+        self.state_path.write_text(json.dumps({"installed": {self.VO_ID: "VO Korean"}}), encoding="utf-8")
+
+        self.overlay.start_patcher_early()
+
+        self.assertNotIn(("uninstall", self.VO_ID), self.bridge.calls)
+        self.assertFalse(self.enabled(self.VO_ID))
+        self.assertEqual(self.state()["installed"], {})
+
+    def test_a_kept_copy_a_manifest_took_over_is_not_removed(self):
+        self.state_path.write_text(json.dumps({"kept": {self.VO_ID: {
+            "folder": "VO Korean", "fingerprint": "abc", "source": str(self.root / "deleted.fantome")}}}),
+            encoding="utf-8")
+
+        self.overlay.start_patcher_early()
+
+        self.assertNotIn(("uninstall", self.VO_ID), self.bridge.calls)
+        self.assertEqual(self.state()["kept"], {})
+
+    def maps_removals(self, *ids):
+        """A maps manifest whose deleted mods' entries are still to remove"""
+        maps = self.host.saved_mods_root / "maps"
+        maps.mkdir()
+        (maps / "rose_category_mods.json").write_text(json.dumps(
+            {"version": 1, "category": "maps", "mods": {}, "pendingRemovals": list(ids)}), encoding="utf-8")
+        return maps / "rose_category_mods.json"
+
+    def test_the_entries_of_saved_mods_deleted_in_rose_are_removed_when_a_session_starts(self):
+        FakeBridge.initial_library.append(self.entry(self.OLD_ID, "Old map"))
+        saved_mods = self.host.saved_mods_root
+        maps = self.maps_removals(self.OLD_ID, self.GONE_ID)
+        self.assertTrue(manifest.remove_saved_mod(saved_mods, manifest.find_saved_mod(saved_mods, "voiceover/VO Korean")))
+
+        self.overlay.start_patcher_early()
+
+        self.assertEqual([call for call in self.bridge.calls if call[0] == "uninstall"],
+                         [("uninstall", self.OLD_ID), ("uninstall", self.VO_ID)])
+        self.assertEqual(self.bridge.library_entries, [])
+        self.assertNotIn("pendingRemovals", json.loads(maps.read_text(encoding="utf-8")))
+        self.assertEqual(manifest.ltk_removals(saved_mods), [])
+
+    def test_a_deletion_whose_manifest_write_failed_removes_nothing(self):
+        """The saved mod is still there, and LTK Manager holds its only copy"""
+        saved_mods = self.host.saved_mods_root
+        voiceover = manifest.find_saved_mod(saved_mods, "voiceover/VO Korean")
+        with patch.object(manifest, "_write_manifest", side_effect=OSError("disk full")), \
+                self.assertRaises(OSError):
+            manifest.remove_saved_mod(saved_mods, voiceover)
+
+        self.overlay.start_patcher_early()
+
+        self.assertNotIn(("uninstall", self.VO_ID), self.bridge.calls)
+        self.assertEqual([entry["id"] for entry in self.bridge.library_entries], [self.VO_ID])
+        self.assertIsNotNone(manifest.find_saved_mod(saved_mods, "voiceover/VO Korean"))
+
+    def test_an_entry_another_manifest_still_names_is_never_removed(self):
+        self.maps_removals(self.VO_ID)
+
+        self.overlay.start_patcher_early()
+
+        self.assertNotIn(("uninstall", self.VO_ID), self.bridge.calls)
+        self.assertEqual([entry["id"] for entry in self.bridge.library_entries], [self.VO_ID])
+
+    def test_a_discard_while_staging_reads_the_library_leaves_it_off(self):
+        """The discard's cleanup ran before the switch-on: nothing would switch it off"""
+        self.overlay.open_staging()
+        self.overlay.start_patcher_early()
+        reading, resume = threading.Event(), threading.Event()
+        read = FakeBridge.library
+
+        def paused_read(bridge_self):
+            entries = read(bridge_self)
+            if threading.current_thread().name == "Stager":
+                reading.set()
+                resume.wait(2)
+            return entries
+
+        staged = []
+        stager = threading.Thread(
+            target=lambda: staged.append(self.overlay.stage_mods(self.stage_dir, [ltk_ref(self.VO_ID)])),
+            name="Stager",
+        )
+        with patch.object(FakeBridge, "library", paused_read):
+            stager.start()
+            self.assertTrue(reading.wait(2))
+            self.overlay.discard_early_patcher()
+            resume.set()
+            stager.join(2)
+
+        self.assertEqual(staged, [False])
+        self.assertNotIn(True, self.toggles(self.VO_ID))
+        self.assertFalse(self.enabled(self.VO_ID))
+
+    def test_one_the_state_file_cannot_record_is_left_off_and_the_record_kept(self):
+        """The state file holds the user's mods to turn back on: a write on a
+        full disk must not empty it, nor switch on a mod a crash would leave on"""
+        FakeBridge.initial_library.append(self.entry("user-map", "Map", enabled=True))
+        self.overlay.open_staging()
+        skin = self.make_mod(where=self.stage_dir)
+        self.assertTrue(self.overlay.stage_mods(self.stage_dir, [skin]))
+        recorded = self.state()
+        self.assertEqual(recorded["disabled"], ["user-map"])
+
+        with patch("io.open", full_disk_open):
+            self.overlay.stage_mods(self.stage_dir, [skin, ltk_ref(self.VO_ID)])
+
+        self.assertNotIn(True, self.toggles(self.VO_ID))
+        self.assertEqual(self.state(), recorded)
 
 
 class EarlySessionTests(LtfSessionTestCase):
@@ -963,7 +1558,7 @@ class OverlayOnlyTests(LtfSessionTestCase):
 class PatcherStatusParsingTests(LtfSessionTestCase):
     def _session(self):
         self.overlay.start_patcher_early()
-        return self.overlay._new_session(self.bridge, False)
+        return self.overlay._new_session(LtfSession(self.bridge, False))
 
     def test_a_running_patcher_records_its_phase(self):
         session = self._session()
@@ -1096,7 +1691,7 @@ class PatcherStatusParsingTests(LtfSessionTestCase):
         """#478: LTK Manager's log showed parent ltk_launcher.exe; the reason
         the launcher fell back was only in ltk_launcher.log"""
         session = self._session()
-        self.overlay._launcher_parent = "not explorer.exe"
+        self.host.logged_manager_parent = "not explorer.exe"
         FakeBridge.patcher_statuses = [status(session={"log": (
             "2026-11-07T20:56:40.028528Z  INFO ltk_manager_runtime::patcher::injector: [ltk-dll pid=19048 "
             "tid=14596 ERROR] ltk_patcher_dll::verify: host verification failed, refusing overlay: "
@@ -1111,7 +1706,7 @@ class PatcherStatusParsingTests(LtfSessionTestCase):
 
     def test_a_refusal_with_a_manager_under_explorer_names_no_parent(self):
         session = self._session()
-        self.overlay._launcher_parent = "explorer.exe"
+        self.host.logged_manager_parent = "explorer.exe"
         FakeBridge.patcher_statuses = [status(session={"log": "ERROR] ltk_patcher_dll::verify: host verification "
                                                               "failed, refusing overlay: [VRF00000008] (1, x)"})]
 
@@ -1221,7 +1816,7 @@ class PatcherStatusParsingTests(LtfSessionTestCase):
         self.overlay.open_staging()
         no_bridge, run = self.launched()  # a freshly started LTK Manager
         with no_bridge, run, patch.object(FakeBridge, "library", library), \
-                patch.object(overlay_manager, "CDP_READY_TIMEOUT_S", 5.0):
+                patch.object(ltf_session, "CDP_READY_TIMEOUT_S", 5.0):
             self.overlay.start_patcher_early()
             self.assertTrue(self.overlay.stage_mods(self.mods, [mod]))
 
@@ -1245,7 +1840,7 @@ class PatcherStatusParsingTests(LtfSessionTestCase):
         self.overlay.open_staging()
         no_bridge, run = self.launched()
         with no_bridge, run, patch.object(FakeBridge, "library", library), \
-                patch.object(overlay_manager, "CDP_READY_TIMEOUT_S", 5.0):
+                patch.object(ltf_session, "CDP_READY_TIMEOUT_S", 5.0):
             self.overlay.start_patcher_early()
             self.assertTrue(self.overlay.stage_mods(self.mods, [mod]))
 
@@ -1269,9 +1864,9 @@ class PatcherStatusParsingTests(LtfSessionTestCase):
                          {"characterInking": {"enabled": True, "scope": "chosen"}},
                          {"characterInking": {"enabled": False, "scope": "all"}}):
             with self.subTest(builtins=builtins):
-                self.assertEqual(overlay_manager.heavy_builtin_mods({"builtinMods": builtins}), [])
-        self.assertEqual(overlay_manager.heavy_builtin_mods({}), [])
-        self.assertEqual(overlay_manager.heavy_builtin_mods("not a dict"), [])
+                self.assertEqual(ltf_session.heavy_builtin_mods({"builtinMods": builtins}), [])
+        self.assertEqual(ltf_session.heavy_builtin_mods({}), [])
+        self.assertEqual(ltf_session.heavy_builtin_mods("not a dict"), [])
 
     def test_unreadable_ltk_settings_report_nothing(self):
         (self.ltk_logs.parent / "settings.json").write_text("{not json", encoding="utf-8")
@@ -1291,112 +1886,6 @@ class PatcherStatusParsingTests(LtfSessionTestCase):
             self.assertEqual(self.overlay.mk_run_overlay([mod], stop_callback=lambda: True), 1)
 
         self.assertEqual(self.reported_causes(), ["cdp"])
-
-
-class ModCheckTests(LtfSessionTestCase):
-    """LTK Manager checks a mod the user adds, and repairs what it can"""
-
-    SKINHACK = {
-        "rule": "bin/skinhack", "title": "Another skin's model",
-        "description": "This base skin uses the mesh of another skin.",
-        "severity": "error", "count": 1, "fixable": 0,
-    }
-
-    def setUp(self):
-        super().setUp()
-        FakeBridge.mod_storage = self.root / "ltk-mods"
-        self.folder = self.mods / self.make_mod()
-
-    def test_a_healthy_mod_is_left_as_it_is_and_removed_from_ltk_manager(self):
-        FakeBridge.health_answers = [{"health": "healthy", "fixable": 0, "counts": {}}]
-
-        result = self.overlay.check_mod(self.folder, "Eternal Aspect Leona")
-
-        self.assertEqual(result, {"health": "healthy", "repaired": 0, "problems": []})
-        self.assertEqual((self.folder / "WAD" / "Aatrox.wad.client").read_bytes(), b"wad")
-        self.assertIn("uninstall", self.bridge.command_names())
-        self.assertNotIn("repair_mod", self.bridge.command_names())
-        self.assertEqual(self.state()["installed"], {})
-
-    def test_a_repairable_mod_is_repaired_and_rose_keeps_the_repaired_files(self):
-        FakeBridge.health_answers = [
-            {"health": "repairable", "fixable": 2, "counts": {"errors": 2}},
-            {"health": "healthy", "fixable": 0, "counts": {}},
-        ]
-        FakeBridge.repair_files = {"META/info.json": '{"Name": "Eternal Aspect Leona"}',
-                                   "WAD/Aatrox.wad.client": b"fixed"}
-
-        result = self.overlay.check_mod(self.folder, "Eternal Aspect Leona")
-
-        self.assertEqual(result, {"health": "repairable", "repaired": 2, "problems": []})
-        self.assertEqual((self.folder / "WAD" / "Aatrox.wad.client").read_bytes(), b"fixed")
-        self.assertEqual([p.name for p in self.mods.iterdir()], [self.folder.name])  # nothing left behind
-        self.assertIn("uninstall", self.bridge.command_names())
-
-    def test_a_stored_archive_is_checked_as_it_is_and_replaced_by_its_repair(self):
-        FakeBridge.health_answers = [
-            {"health": "repairable", "fixable": 2, "counts": {"errors": 2}},
-            {"health": "healthy", "fixable": 0, "counts": {}},
-        ]
-        FakeBridge.repair_files = {"META/info.json": '{"Name": "Eternal Aspect Leona"}',
-                                   "WAD/Aatrox.wad.client": b"fixed"}
-        stored = self.root / "mods" / "skins" / "89000" / "Leona.fantome"
-        stored.parent.mkdir(parents=True)
-        with zipfile.ZipFile(stored, "w") as packed:
-            packed.writestr("META/info.json", '{"Name": "Eternal Aspect Leona"}')
-            packed.writestr("WAD/Aatrox.wad.client", b"wad")
-        stored.with_suffix(".png").write_bytes(b"preview")
-
-        with patch.object(overlay_manager, "write_fantome_zip", side_effect=AssertionError("packed again")):
-            result = self.overlay.check_mod(stored, "Eternal Aspect Leona")
-
-        self.assertEqual(result, {"health": "repairable", "repaired": 2, "problems": []})
-        imported = [Path(call[1]).name for call in self.bridge.calls if call[0] == "import"]
-        self.assertEqual(imported, ["Leona.fantome"])
-        with ModFiles(stored) as files:
-            self.assertEqual(files.read("WAD/Aatrox.wad.client"), b"fixed")
-        self.assertEqual(sorted(p.name for p in stored.parent.iterdir()), ["Leona.fantome", "Leona.png"])
-
-    def test_a_fix_one_pass_leaves_for_the_next_is_applied(self):
-        """The Nasus mod: its type fixes rewrote skin0.bin, so the same pass
-        skipped its skinhack fix ("skin0.bin changed since the check"); LTK
-        Manager's second repair applied it and the mod passed in game"""
-        FakeBridge.health_answers = [
-            {"health": "repairable", "fixable": 2, "counts": {"fatals": 2}},
-            {"health": "repairable", "fixable": 1, "counts": {"errors": 1},
-             "rules": [dict(self.SKINHACK, fixable=1)]},
-            {"health": "healthy", "fixable": 0, "counts": {}},
-        ]
-        FakeBridge.repair_files = {"META/info.json": "{}", "WAD/Aatrox.wad.client": b"fixed"}
-
-        result = self.overlay.check_mod(self.folder, "Eternal Aspect Leona")
-
-        self.assertEqual(self.bridge.command_names().count("repair_mod"), 2)
-        self.assertEqual(result, {"health": "repairable", "repaired": 4, "problems": []})
-
-    def test_a_mod_the_game_will_reject_is_reported(self):
-        """#440, #454: LTK Manager turns off a skin that uses another skin's model"""
-        FakeBridge.health_answers = [{"health": "unrepairable", "fixable": 0, "counts": {"errors": 1},
-                                      "rules": [self.SKINHACK, dict(self.SKINHACK, rule="x/warning",
-                                                                     severity="warning")]}]
-
-        result = self.overlay.check_mod(self.folder, "Eternal Aspect Leona")
-
-        self.assertEqual(result["problems"], [{"rule": "bin/skinhack", "title": "Another skin's model",
-                                               "description": "This base skin uses the mesh of another skin."}])
-        self.assertNotIn("repair_mod", self.bridge.command_names())
-
-    def test_nothing_is_checked_while_a_game_uses_ltk_manager(self):
-        self.process_manager.set_session_stopper(lambda: None)
-
-        self.assertIsNone(self.overlay.check_mod(self.folder, "Eternal Aspect Leona"))
-        self.assertEqual(FakeBridge.created, [])
-
-    def test_nothing_is_checked_while_champion_select_stages(self):
-        self.overlay._staging_open = True
-
-        self.assertIsNone(self.overlay.check_mod(self.folder, "Eternal Aspect Leona"))
-        self.assertEqual(FakeBridge.created, [])
 
 
 class RestartMissedGameTests(LtfSessionTestCase):
@@ -1437,7 +1926,7 @@ class RestartMissedGameTests(LtfSessionTestCase):
 
     def _session(self):
         self.overlay.start_patcher_early()
-        return self.overlay._new_session(self.bridge, False)
+        return self.overlay._new_session(LtfSession(self.bridge, False))
 
     def test_a_late_join_restarts_the_game_instead_of_losing_it(self):
         session = self._session()
@@ -1700,6 +2189,55 @@ class RestartMissedGameTests(LtfSessionTestCase):
         self.assertEqual(self.killed, [self.game])  # created before the scan: restarted
         self.assertEqual(len(self.reconnects), 1)
 
+    def lobby_cleanup_then_countdown(self):
+        """The lobby's cleanup marks a stop even with no session running (03:53:38),
+        then a countdown begins"""
+        self.process_manager.stop_overlay_process()
+        self.assertTrue(self.process_manager.stopped_by_rose)
+        self.overlay.open_staging()
+
+    def test_a_stop_before_the_countdown_does_not_end_its_watcher(self):
+        """The game ran unfrozen: the staged patcher's watcher quit on the lobby's stop"""
+        self.game = self.running = self._game()
+        session = self._session()
+        self.lobby_cleanup_then_countdown()
+
+        self._watch(session)
+
+        self._until(lambda: session.get("held_game") is self.game)
+        self.game.suspend.assert_called_once()
+
+    def test_a_stop_during_the_countdown_still_ends_the_watcher(self):
+        session = self._session()
+        self.lobby_cleanup_then_countdown()
+        thread = self._watch(session)
+
+        self.process_manager.stop_overlay_process()
+        thread.join(1)
+
+        self.assertFalse(thread.is_alive())
+
+    def test_a_restart_for_another_pick_after_a_lobby_cleanup_waits_for_the_last_build(self):
+        """The staged patcher's restart gave up at once ("already running"), the
+        injection then waited 4.5s with no watcher, and the game started in between"""
+        session = self._session()
+        self.lobby_cleanup_then_countdown()
+        starts = []
+
+        def start_patcher(bridge_self):
+            starts.append(1)
+            if len(starts) == 1:
+                raise overlay_manager.BridgeCommandError(
+                    "start_patcher failed: PATCHER ALREADY_RUNNING: The patcher is already running")
+            return {"ok": True, "response": {"ok": True, "value": None}}
+
+        FakeBridge.patcher_statuses = [status(running=True, phase="building"), status(running=False, phase="idle")]
+        with patch.object(FakeBridge, "start_patcher", start_patcher), \
+                patch.object(overlay_manager, "PATCHER_READY_POLL_S", 0.001):
+            self.assertTrue(self.overlay._start_patcher(session, report=False))
+
+        self.assertEqual(len(starts), 2)
+
     def test_the_watcher_resumes_the_game_at_the_auto_resume_timeout(self):
         self.window = 0.05
         self.game = self.running = self._game()
@@ -1796,14 +2334,16 @@ class FailureCauseTests(unittest.TestCase):
                    "start the patcher)")
         self.assertEqual(ltk_failure_cause(league), "league_admin")
         self.assertEqual(ltk_failure_cause(manager), "manager_admin")
-        # LTK's own log line for it, without the kind
-        self.assertEqual(ltk_failure_cause("Start patcher failed: League is set to run as administrator"), "league_admin")
-        self.assertIn("Run this program as an administrator", OverlayManager._ltk_failure_hint(league))
-        self.assertIn("User Account Control", OverlayManager._ltk_failure_hint(manager))
-        # The CDP reason names administrator rights too, but stays a CDP failure
-        self.assertEqual(ltk_failure_cause(
-            overlay_manager.CDP_UNREACHABLE_REASON + "; Windows runs every program as administrator on this account"
-        ), "cdp")
+        with self.subTest("LTK's own log line for it, without the kind"):
+            self.assertEqual(
+                ltk_failure_cause("Start patcher failed: League is set to run as administrator"), "league_admin"
+            )
+        self.assertIn("Run this program as an administrator", ltk_failure_hint(league))
+        self.assertIn("User Account Control", ltk_failure_hint(manager))
+        with self.subTest("the CDP reason names administrator rights too, but stays a CDP failure"):
+            self.assertEqual(ltk_failure_cause(
+                ltf_report.CDP_UNREACHABLE_REASON + "; Windows runs every program as administrator on this account"
+            ), "cdp")
 
     def test_ltk_managers_missing_patcher_is_not_blamed_on_roses_files(self):
         """#431: LTK Manager's own ltk_patcher_host.exe was gone (an antivirus),
@@ -1811,7 +2351,7 @@ class FailureCauseTests(unittest.TestCase):
         reason = ("could not start the LTK patcher (start_patcher failed: UNKNOWN: ltk_patcher_host.exe not "
                   "found. Tried:\n - C:\\Program Files\\LTK Manager\\ltk_patcher_host.exe)")
         self.assertEqual(ltk_failure_cause(reason), "host_missing")
-        self.assertIn("Reinstall LTK Manager", OverlayManager._ltk_failure_hint(reason))
+        self.assertIn("Reinstall LTK Manager", ltk_failure_hint(reason))
 
     def test_commands_ltk_manager_does_not_declare_mean_it_is_outdated(self):
         """#473: Tauri refuses a command the app does not declare; the reason
@@ -1822,7 +2362,7 @@ class FailureCauseTests(unittest.TestCase):
         self.assertEqual(ltk_failure_cause(
             "could not start the LTK patcher (Command plugin:patcher|start_patcher not allowed by ACL)"
         ), "outdated")
-        hint = OverlayManager._ltk_failure_hint(reason)
+        hint = ltk_failure_hint(reason)
         self.assertIn("Update LTK Manager", hint)
         self.assertNotIn("disk space", hint)
 
@@ -1840,7 +2380,7 @@ class FailureCauseTests(unittest.TestCase):
         ), "incident")
         for cause in ("disabled", "corrupt", "incident"):
             self.assertIn("incident" if cause != "disabled" else "custom skin",
-                          OverlayManager._ltk_failure_hint(
+                          ltk_failure_hint(
                               {"disabled": "LTK Manager disabled the overlay (x)",
                                "corrupt": "recorded an incident after the game: x (CorruptArchive; y)",
                                "incident": "LTK Manager recorded an incident after the game: x (Crash; y)"}[cause]))
@@ -1850,14 +2390,14 @@ class FailureCauseTests(unittest.TestCase):
         reason = ("the LTK patcher stopped before it was ready (LTK Manager: Failed to spawn host "
                   "'ltk_patcher_host.exe': The requested operation requires elevation. (os error 740))")
         self.assertEqual(ltk_failure_cause(reason), "ltk_admin")
-        self.assertIn("ltk_patcher_host.exe", OverlayManager._ltk_failure_hint(reason))
+        self.assertIn("ltk_patcher_host.exe", ltk_failure_hint(reason))
 
     def test_a_patcher_ltks_delivery_service_refused(self):
         """#482: LTK Manager could not download its patcher (429 rate_limited)"""
         reason = ("the LTK patcher stopped before it was ready (LTK Manager: No patcher DLL is available "
                   "error=the delivery service refused the request with status 429 rate_limited)")
         self.assertEqual(ltk_failure_cause(reason), "delivery")
-        self.assertIn("delivery service", OverlayManager._ltk_failure_hint(reason))
+        self.assertIn("delivery service", ltk_failure_hint(reason))
 
     def test_a_patcher_download_blocked_on_the_users_side(self):
         """#487: LTK Manager's request never reached its delivery service"""
@@ -1865,21 +2405,21 @@ class FailureCauseTests(unittest.TestCase):
                   "error=the delivery request failed: error sending request for url "
                   "(https://patcher.leaguetoolkit.dev/v1/challenge?install=x))")
         self.assertEqual(ltk_failure_cause(reason), "delivery_unreachable")
-        hint = OverlayManager._ltk_failure_hint(reason)
+        hint = ltk_failure_hint(reason)
         self.assertIn("firewall", hint)
         self.assertNotIn("refused", hint)
 
     def test_a_refused_rose_package_is_sent_to_leagueskins(self):
         """#454: the refused WAD came from an official skin's chroma, and the
         hint said to use the official one"""
-        hint = OverlayManager._ltk_failure_hint("LTK Manager disabled the overlay (wad x: base-skin check)")
+        hint = ltk_failure_hint("LTK Manager disabled the overlay (wad x: base-skin check)")
         self.assertIn("LeagueSkins", hint)
         self.assertNotIn("or the official one", hint)
 
     def test_a_dll_that_never_got_into_the_game(self):
         reason = "LTK Manager's patcher never got into the game (DLL never attached after 60s)"
         self.assertEqual(ltk_failure_cause(reason), "not_attached")
-        hint = OverlayManager._ltk_failure_hint(reason)
+        hint = ltk_failure_hint(reason)
         self.assertIn("run as administrator", hint)
         self.assertIn("antivirus", hint)
 
@@ -1889,7 +2429,7 @@ class FailureCauseTests(unittest.TestCase):
         self.assertEqual(ltk_failure_cause("import failed for My Skin (bad archive)"), "import")
 
     def test_an_open_ltk_manager_and_a_late_join(self):
-        self.assertEqual(ltk_failure_cause(overlay_manager.ALREADY_OPEN_REASON), "running")
+        self.assertEqual(ltk_failure_cause(ltf_session.ALREADY_OPEN_REASON), "running")
         self.assertEqual(
             ltk_failure_cause("the game started before the LTK patcher was scanning (joined too late)"), "late"
         )

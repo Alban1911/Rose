@@ -365,11 +365,27 @@ begin
 end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+var
+  ResultCode: Integer;
 begin
   if CurUninstallStep = usUninstall then
   begin
     _CleanupStartupRegistry();
     _CleanupLegacyUninstallEntry();
+    { Only Rose's data names the mods Rose added to LTK Manager's library:
+      remove them while Rose is still here to do it. Kept data keeps them.
+      Not in [UninstallRun], whose Check: is evaluated at install time. }
+    if not _KeepUserData then
+    begin
+      Exec(ExpandConstant('{app}\{#MyAppExeName}'), '--remove-ltk-mods', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+      if (ResultCode <> 0) and not UninstallSilent then
+        MsgBox(
+          '{#MyAppName} could not finish cleaning up LTK Manager.'#13#10 +
+          'Some of your LTK Manager mods may still be turned off: turn them back on in LTK Manager.',
+          mbInformation,
+          MB_OK
+        );
+    end;
   end;
 
   if CurUninstallStep = usPostUninstall then

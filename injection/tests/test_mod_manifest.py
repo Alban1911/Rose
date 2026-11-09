@@ -5,7 +5,7 @@ import zipfile
 from pathlib import Path
 from unittest.mock import patch
 
-from injection.mods import storage
+from injection.mods import manifest
 from injection.mods.storage import ModStorageService
 
 
@@ -23,7 +23,7 @@ class UnreadableManifestTests(unittest.TestCase):
         self.archive = self.root / 'Summoner Rift.fantome'
         with zipfile.ZipFile(self.archive, 'w') as zf:
             zf.writestr('WAD/Map11.wad.client', b'data')
-        storage._reported_manifests.clear()
+        manifest._unreadable_manifests_logged.clear()
 
     def test_importing_does_not_overwrite_an_unreadable_manifest(self):
         corrupt = '{"version": 1, "mods": {"Old Map": {"name": "Old Map"'
@@ -44,7 +44,7 @@ class UnreadableManifestTests(unittest.TestCase):
         self.manifest.write_text('not json', encoding='utf-8')
         with self.assertLogs(level='WARNING') as logs:
             for _ in range(3):
-                self.assertIsNone(ModStorageService._load_manifest(self.manifest))
+                self.assertIsNone(manifest.read_manifest(self.manifest))
         self.assertEqual(len(logs.output), 1)
 
 
@@ -82,7 +82,7 @@ class SkinManifestWriteTests(unittest.TestCase):
         existing = self.champion_dir / 'old'
         existing.mkdir()
         (existing / 'asset').write_bytes(b'keep')
-        with patch.object(self.service, 'set_champion_target_ids', side_effect=PermissionError('locked')):
+        with patch.object(manifest, 'add_saved_mod', side_effect=PermissionError('locked')):
             with self.assertRaises(PermissionError):
                 self.service.import_mod_file(1, self.archive, [1001])
         self.assertEqual(sorted(p.name for p in self.champion_dir.iterdir()), ['old', self.service.TARGET_METADATA])
@@ -95,7 +95,7 @@ class SkinManifestWriteTests(unittest.TestCase):
         self.assertEqual(len(json.loads(self.manifest.read_text(encoding='utf-8'))['mods']), 1)
 
     def test_import_with_unreadable_manifest_preserves_old_mods_and_removes_new_folder(self):
-        with patch.object(self.service, '_load_manifest', return_value=None):
+        with patch.object(manifest, 'read_manifest', return_value=None):
             with self.assertRaises(ValueError):
                 self.service.import_mod_file(1, self.archive, [1001])
         self.assertEqual(list(self.champion_dir.iterdir()), [self.manifest])

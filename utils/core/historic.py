@@ -173,7 +173,8 @@ def clear_historic_entry(champion_id: int) -> None:
 
 def rename_mod_paths(renamed: Dict[str, str]) -> int:
     """Point the saved custom mods at their new paths ({old relative path:
-    new}, compared as Windows compares paths). Returns how many changed."""
+    new}, compared as Windows compares paths). Returns how many changed.
+    Raises when the file cannot be written: it then holds what it held."""
     wanted = {old.replace("\\", "/").casefold(): new for old, new in renamed.items()}
     if not wanted:
         return 0
@@ -187,11 +188,7 @@ def rename_mod_paths(renamed: Dict[str, str]) -> int:
                 m[key] = f"path:{new}"
                 changed += 1
         if changed:
-            try:
-                _write_json(_historic_file_path(), m)
-            except Exception as e:
-                log.warning(f"[HISTORIC] Could not save the renamed custom mods: {e}")
-                return 0
+            _write_json(_historic_file_path(), m)
     return changed
 
 

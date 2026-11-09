@@ -2,12 +2,26 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from state import SharedState
 from threads.handlers.injection_trigger import InjectionTrigger
+from injection.mods.mod_source import LtkEntry, RoseFile
 from injection.mods.storage import ModStorageService
 from utils.core import mod_historic
+
+LTK_ID = "5e9b2219-f49f-4cf1-bc7e-774fb43e1349"
+
+
+class SynchronousThread:
+    """threading.Thread running its target at start(): the test sees what it did."""
+
+    def __init__(self, target, **_):
+        self.target = target
+
+    def start(self):
+        self.target()
 
 
 class CategoryModHistoricTests(unittest.TestCase):
@@ -22,14 +36,12 @@ class CategoryModHistoricTests(unittest.TestCase):
         self.manager.injector.overlay_manager.mk_run_overlay.return_value = 0
         self.trigger = InjectionTrigger(MagicMock(), self.state, self.manager)
         self.trigger._force_base_skin = MagicMock()
-        self.storage = MagicMock()
-        self.storage.mods_root = self.root / 'library'
+        self.storage = ModStorageService(self.root / 'library')
         self.source = self.storage.mods_root / 'vfx' / 'Saved VFX'
         self.source.mkdir(parents=True)
-        self.storage.CATEGORY_VFX = 'vfx'
-        self.storage.list_mods_for_category.side_effect = lambda category: [
-            {'id': 'vfx/Saved VFX', 'path': 'vfx/Saved VFX', 'name': 'Saved VFX'},
-        ] if category == 'vfx' else []
+        (self.source.parent / self.storage.CATEGORY_METADATA).write_text(json.dumps({
+            'mods': {'Saved VFX': {'name': 'Saved VFX', 'path': 'Saved VFX'}},
+        }), encoding='utf-8')
         for target, kwargs in (
             ('injection.mods.storage.ModStorageService', {'return_value': self.storage}),
             ('utils.core.historic.get_historic_skin_for_champion', {'return_value': None}),
@@ -37,7 +49,6 @@ class CategoryModHistoricTests(unittest.TestCase):
             ('utils.core.mod_historic.write_historic_mod', {}),
             ('utils.core.historic.write_historic_entry', {}),
             ('utils.core.historic.write_historic_target', {}),
-            ('threads.handlers.injection_trigger.get_injection_dir', {'return_value': self.root / 'injection'}),
         ):
             patcher = patch(target, **kwargs)
             patcher.start()
@@ -47,7 +58,7 @@ class CategoryModHistoricTests(unittest.TestCase):
         dest.mkdir(parents=True, exist_ok=True)
 
     def test_saved_category_mod_reaches_overlay_without_opening_selector(self):
-        with patch('threads.handlers.injection_trigger.link_or_extract', side_effect=self.link):
+        with patch('injection.mods.mod_source.link_or_extract', side_effect=self.link):
             self.trigger.trigger_injection('skin_1000', ticker_id=1)
         self.assertTrue(self.state.selected_other_mods, 'saved category selection was not restored')
         self.assertEqual(self.state.selected_other_mods[0]['relative_path'], 'vfx/Saved VFX')
@@ -59,7 +70,7 @@ class CategoryModHistoricTests(unittest.TestCase):
         """Before #379 each category write also listed its paths under "others"."""
         legacy = {'vfx': ['vfx/Saved VFX'], 'others': ['vfx/Saved VFX']}
         with patch('utils.core.mod_historic.load_mod_historic', return_value=legacy), \
-                patch('threads.handlers.injection_trigger.link_or_extract', side_effect=self.link):
+                patch('injection.mods.mod_source.link_or_extract', side_effect=self.link):
             self.trigger.trigger_injection('skin_1000', ticker_id=1)
         self.assertEqual([m['relative_path'] for m in self.state.selected_other_mods], ['vfx/Saved VFX'])
         names = self.manager.injector.overlay_manager.mk_run_overlay.call_args.args[0]
@@ -74,14 +85,28 @@ class CategoryModHistoricTests(unittest.TestCase):
         current = self.storage.mods_root / 'vfx' / 'Current VFX'
         current.mkdir()
         self.state.selected_other_mods = [{
-            'mod_name': 'Current VFX', 'mod_folder_name': 'Current VFX',
-            'mod_path': str(current), 'relative_path': 'vfx/Current VFX',
+            'mod_name': 'Current VFX', 'relative_path': 'vfx/Current VFX', 'source': RoseFile.at(current),
         }]
-        with patch('threads.handlers.injection_trigger.link_or_extract', side_effect=self.link):
+        with patch('injection.mods.mod_source.link_or_extract', side_effect=self.link):
             self.trigger.trigger_injection('skin_1000', ticker_id=1)
         names = self.manager.injector.overlay_manager.mk_run_overlay.call_args.args[0]
         self.assertIn('Current VFX', names)
         self.assertNotIn('Saved VFX', names)
+
+    def test_a_picked_mod_ltk_manager_lost_since_is_dropped_not_injected(self):
+        """The pick keeps the entry its mod had when it was picked: a sync marked it missing since"""
+        (self.storage.mods_root / 'maps' / self.storage.CATEGORY_METADATA).write_text(json.dumps({
+            'mods': {'Rift': {'name': 'Rift', 'path': 'Rift', 'ltkId': LTK_ID, 'missing': True}},
+        }), encoding='utf-8')
+        self.state.selected_map_mod = {
+            'mod_name': 'Rift', 'relative_path': 'maps/Rift.fantome', 'source': LtkEntry(LTK_ID),
+        }
+
+        with patch('utils.core.mod_historic.load_mod_historic', return_value={}):
+            self.trigger.trigger_injection('skin_1000', ticker_id=1)
+
+        self.manager.injector.overlay_manager.mk_run_overlay.assert_not_called()
+        self.assertIsNone(self.state.selected_map_mod)
 
 
 class CategoryHistoricRoundtripTests(unittest.TestCase):
@@ -101,8 +126,7 @@ class CategoryHistoricRoundtripTests(unittest.TestCase):
             ('utils.core.mod_historic._mod_historic_file_path', {'return_value': self.history}),
             ('injection.mods.storage.ModStorageService', {'return_value': self.storage}),
             ('utils.core.historic.get_historic_skin_for_champion', {'return_value': None}),
-            ('threads.handlers.injection_trigger.get_injection_dir', {'return_value': self.root / 'injection'}),
-            ('threads.handlers.injection_trigger.link_or_extract', {'side_effect': self.link}),
+            ('injection.mods.mod_source.link_or_extract', {'side_effect': self.link}),
         ):
             patcher = patch(target, **kwargs)
             patcher.start()
@@ -155,6 +179,36 @@ class CategoryHistoricRoundtripTests(unittest.TestCase):
         self.assertEqual(json.loads(self.history.read_text()), {})
         self.assertEqual(self.restore(), [])
         self.manager.injector.overlay_manager.mk_run_overlay.assert_not_called()
+
+    def test_a_saved_mod_still_named_by_the_zip_rose_kept_is_selected(self):
+        """A selection the migration could not rename names the .zip Rose kept of the mod"""
+        maps = self.storage.mods_root / 'maps'
+        (maps / self.storage.CATEGORY_METADATA).write_text(json.dumps({
+            'mods': {'Rift': {'name': 'Rift', 'path': 'Rift', 'ltkId': LTK_ID}},
+        }), encoding='utf-8')
+        (maps / 'Rift.zip').write_bytes(b'PK\x05\x06' + bytes(18))
+
+        selected = self.trigger._find_saved_mod(self.storage, 'maps', 'maps/Rift.zip')
+
+        self.assertEqual((selected['source'], selected['relative_path']), (LtkEntry(LTK_ID), 'maps/Rift.fantome'))
+        self.assertIsNone(self.trigger._find_saved_mod(self.storage, 'fonts', 'maps/Rift.zip'))
+
+    def test_the_cleanup_after_a_game_keeps_a_saved_mod_ltk_manager_holds(self):
+        """Its archive is no longer in Rose: a file check took it for deleted"""
+        (self.storage.mods_root / 'maps' / self.storage.CATEGORY_METADATA).write_text(json.dumps({
+            'mods': {'Rift': {'name': 'Rift', 'path': 'Rift', 'ltkId': LTK_ID}},
+        }), encoding='utf-8')
+        mod_historic.write_historic_mod('map', 'maps/Rift.fantome')
+        mod_historic.write_historic_mod('font', 'fonts/Deleted.fantome')
+        self.trigger._force_base_skin = MagicMock()
+
+        with patch('threads.handlers.injection_trigger.threading.Thread', SynchronousThread), \
+                patch('utils.core.historic.write_historic_entry'), \
+                patch.dict('sys.modules', {'ui.core.user_interface': SimpleNamespace(get_user_interface=MagicMock())}):
+            self.trigger._inject_unowned_skin('skin_1001', 'Leona')
+
+        self.manager.inject_skin_immediately.assert_called_once()
+        self.assertEqual(json.loads(self.history.read_text()), {'map': 'maps/Rift.fantome'})
 
     def test_successful_save_does_not_duplicate_an_existing_category(self):
         valid = self.register('vfx', 'Saved VFX')

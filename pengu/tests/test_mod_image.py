@@ -9,10 +9,15 @@ from unittest.mock import MagicMock, patch
 
 from PIL import Image
 
+from injection.mods.mod_source import RoseFile
+from injection.mods.storage import ModStorageService, SkinModEntry
 from pengu.communication.message_handler import (
     MessageHandler,
     _mod_thumbnail_details,
 )
+
+OLD_PNG = b"\x89PNG\r\n\x1a\nold"
+NEW_PNG = b"\x89PNG\r\n\x1a\nnew"
 
 
 class ChampionModImageHandlerTests(unittest.TestCase):
@@ -80,27 +85,11 @@ class ChampionModImageHandlerTests(unittest.TestCase):
             handler.mod_storage = SimpleNamespace(mods_root=root)
             handler.port = 50000
             entries = [
-                SimpleNamespace(
-                    path=mod_folder,
-                    mod_name="folder",
-                    display_name=None,
-                    skin_id=1001,
-                    target_skin_ids={1001},
-                    description="",
-                    updated_at=0,
-                ),
-                SimpleNamespace(
-                    path=archive,
-                    mod_name="archive",
-                    display_name=None,
-                    skin_id=1001,
-                    target_skin_ids={1001},
-                    description="",
-                    updated_at=0,
-                ),
+                SkinModEntry(1, 1000, name, path, 0, "", (1001,), source=RoseFile.at(path))
+                for name, path in (("folder", mod_folder), ("archive", archive))
             ]
 
-            payload = handler._serialize_manage_champion_mods(entries)
+            payload = [handler._champion_mod_payload(entry) for entry in entries]
 
         self.assertTrue(payload[0]["imageEditable"])
         self.assertTrue(payload[1]["imageEditable"])
@@ -116,16 +105,68 @@ class ModThumbnailCacheTests(unittest.TestCase):
             image_path = meta / "image.png"
             image_path.write_bytes(b"old")
             os.utime(image_path, ns=(1_000_000_000, 1_000_000_000))
-            first_relative, first_url = _mod_thumbnail_details(mod_folder, mods_root, 50000)
+            image_files = (image_path, meta / "image.webp")
+            first_relative, first_url = _mod_thumbnail_details(image_files, mods_root, 50000)
 
             image_path.write_bytes(b"new image")
             os.utime(image_path, ns=(2_000_000_000, 2_000_000_000))
-            second_relative, second_url = _mod_thumbnail_details(mod_folder, mods_root, 50000)
+            second_relative, second_url = _mod_thumbnail_details(image_files, mods_root, 50000)
 
         self.assertEqual(first_relative, "skins/1000/Example/META/image.png")
         self.assertEqual(second_relative, first_relative)
         self.assertNotEqual(first_url, second_url)
         self.assertIn("?v=", second_url)
+
+
+
+class SavedModImageTests(unittest.TestCase):
+    """A saved mod's preview image is shown from where it is set (SavedMod.image_paths)"""
+
+    def setUp(self):
+        temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        self.storage = ModStorageService(Path(temp_dir.name) / "mods")
+        self.champion = self.storage.get_champion_dir(1)
+        self.champion.mkdir(parents=True)
+        self.handler = MessageHandler.__new__(MessageHandler)
+        self.handler.mod_storage = self.storage
+        self.handler.port = 50000
+
+    def save(self, **entry):
+        (self.champion / ModStorageService.TARGET_METADATA).write_text(json.dumps({"version": 1, "mods": {
+            "Example": {"name": "Example", "targets": [1001], **entry},
+        }}), encoding="utf-8")
+
+    def folder_copy(self):
+        meta = self.champion / "Example" / "META"
+        meta.mkdir(parents=True)
+        (meta / "image.png").write_bytes(OLD_PNG)
+        return meta / "image.png"
+
+    def thumbnail(self):
+        (entry,) = self.storage.list_mods_for_champion(1)
+        return self.handler._champion_mod_payload(entry)["thumbnailRelativePath"]
+
+    def test_a_skin_archive_shows_the_new_image_beside_it(self):
+        self.save()
+        (self.champion / "Example.fantome").write_bytes(b"PK\x05\x06" + bytes(18))
+        (self.champion / "Example.png").write_bytes(OLD_PNG)
+
+        written = self.storage.set_champion_mod_image(1, "skins/1000/Example.fantome", NEW_PNG)
+
+        self.assertEqual(written, self.champion / "Example.png")
+        self.assertEqual(written.read_bytes(), NEW_PNG)
+        self.assertEqual(self.thumbnail(), "skins/1000/Example.png")
+
+    def test_a_skin_stored_as_a_folder_keeps_its_image_in_its_meta(self):
+        self.save()
+        meta_image = self.folder_copy()
+
+        written = self.storage.set_champion_mod_image(1, "skins/1000/Example", NEW_PNG)
+
+        self.assertEqual(written, meta_image)
+        self.assertEqual(meta_image.read_bytes(), NEW_PNG)
+        self.assertEqual(self.thumbnail(), "skins/1000/Example/META/image.png")
 
 
 if __name__ == "__main__":

@@ -4211,6 +4211,14 @@
     nameEl.style.whiteSpace = "nowrap";
     infoWrapper.appendChild(nameEl);
 
+    if (mod.missing) {
+      nameEl.style.opacity = "0.6";
+      const missingEl = document.createElement("div");
+      missingEl.textContent = t("Missing - add it again");
+      missingEl.style.cssText = "color:#a09b8c;font-size:11px;font-style:italic;flex:0 0 auto;";
+      infoWrapper.appendChild(missingEl);
+    }
+
     row.appendChild(infoWrapper);
 
     const actions = document.createElement("div");
@@ -4686,7 +4694,7 @@
       const key = mod.name;
       renderModRow(
         listContainer,
-        { name: mod.name, displayName: mod.displayName, selected: selection.has(key) },
+        { name: mod.name, displayName: mod.displayName, missing: mod.missing, selected: selection.has(key) },
         (deleteButton) => {
           deleteButton.disabled = true;
           deleteButton.textContent = t("Deleting...");
@@ -5048,24 +5056,8 @@
     const card = overlay.querySelector(".rose-mod-import-card");
     const lines = [
       ...errors.map((item) => ({ className: "is-error", text: importErrorText(item, several) })),
-      // What LTK Manager's check repaired in a mod it kept (check_mod in overlay_manager.py)
-      ...imported
-        .filter((item) => item && item.health && item.health.repaired > 0)
-        .map((item) => ({
-          className: "is-repaired",
-          text: several
-            ? t("LTK Manager repaired {name}.", { name: item.modName || item.fileName || "" })
-            : t("LTK Manager repaired this mod."),
-        })),
-      // A skin Rose wrote again so LTK Manager does not take it for a skinhack (_fix_base_skin in message_handler.py)
-      ...imported
-        .filter((item) => item && item.baseSkin)
-        .map((item) => ({
-          className: "is-repaired",
-          text: several
-            ? t("Rose adjusted {name} so LTK Manager won't treat it as a skinhack.", { name: item.modName || item.fileName || "" })
-            : t("Rose adjusted this mod so LTK Manager won't treat it as a skinhack."),
-        })),
+      ...ltkCheckRepairedLines(imported, several),
+      ...baseSkinAdjustedLines(imported, several),
     ];
     if (lines.length) {
       overlay.classList.add("has-notes");
@@ -5091,6 +5083,29 @@
       return;
     }
     modImportTimer = setTimeout(hideModImportLoading, lines.length ? MOD_IMPORT_DONE_MS * 2 : MOD_IMPORT_DONE_MS);
+  }
+
+  function ltkCheckRepairedLines(imported, several) {
+    return imported
+      .filter((item) => item && item.health && item.health.repaired > 0)
+      .map((item) => ({
+        className: "is-repaired",
+        text: several
+          ? t("LTK Manager repaired {name}.", { name: item.modName || item.fileName || "" })
+          : t("LTK Manager repaired this mod."),
+      }));
+  }
+
+  // A skin Rose wrote again so LTK Manager does not take it for a skinhack (_fix_base_skin in message_handler.py)
+  function baseSkinAdjustedLines(imported, several) {
+    return imported
+      .filter((item) => item && item.baseSkin)
+      .map((item) => ({
+        className: "is-repaired",
+        text: several
+          ? t("Rose adjusted {name} so LTK Manager won't treat it as a skinhack.", { name: item.modName || item.fileName || "" })
+          : t("Rose adjusted this mod so LTK Manager won't treat it as a skinhack."),
+      }));
   }
 
   // A failed import's line: LTK Manager's refusals (_rejected_import in message_handler.py) in the

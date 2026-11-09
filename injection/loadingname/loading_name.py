@@ -1,47 +1,22 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
-Loading screen name
-Builds a mod that makes the loading screen print the injected skin's name instead of the champion's.
-
-The loading screen is drawn by the game, which asks its text table for
-"game_character_skin_displayname_<Champion>_<n>" when the server says the player is on skin n, and for the champion's
-own name when it says 0. An injected skin always runs as skin 0, so the screen prints the champion's name.
-
-The skin's name is already in the player's game, translated, for every skin: this copies the table the game has
-installed, writes the skin's text over the champion's, and leaves the copy in the mods directory as one more mod. The
-language and the patch are therefore always the player's own, and nothing has to be downloaded or shipped.
-
-The mod is a loose file, RAW/DATA/Menu/en_US/lol.stringtable (the folder is en_US in every language: the language is
-in the name of the game's wad, not in the path inside it). The mod folder goes into the .fantome as it is, so the
-table is read under that path from the language the client runs the game in.
-
-The skin and the other mods it reads are folders or archives (injection.mods.mod_files): Rose installs a stored
-archive as it is, without unpacking it.
-
-The champion's text is also what the chat ("Player (Champion): ...") and the name over the champion's head print, and
-those should keep the champion's name. They read the key the champion's own record names
-("Characters/<Champion>/CharacterRecords/Root", field name), while the loading screen builds its key from the champion's
-internal name. So the mod also carries the champion's record pointing at a key of its own, of the same length, that
-holds the champion's name: RAW/data/characters/<champion>/<champion>.bin.
-"""
 
 import json
 import re
 import struct
 import zipfile
-from pathlib import Path, PurePosixPath
-from typing import List, Optional, Sequence, Tuple
+from pathlib import Path
+from typing import List, Optional, Sequence, Tuple, Union
 
 from utils.core.logging import get_logger
 
+from ..mods.mod_facts import TABLE_HASH, ModFacts, ships_language_table_of
 from ..mods.mod_files import ModFiles
 
 log = get_logger()
 
 MOD_FOLDER = "ROSE-LoadingName"
 TABLE_PATH = Path("RAW") / "DATA" / "Menu" / "en_US" / "lol.stringtable"
-TABLE_HASH = 0x062D6ED714BFF7DF  # xxh64("data/menu/en_us/lol.stringtable"), fixed for every language
 RST_MASK = (1 << 38) - 1
 # The champion's record points here instead, for the chat and the name over its head. "rose" is as long as "game",
 # so the record's text keeps its length and the file keeps its layout.
@@ -169,33 +144,6 @@ def _champion_record(game_dir: Path, mod: ModFiles, alias: str, character: Optio
     return _read_entry(installed, path_hash) if installed.is_file() else None
 
 
-def _table_hashes(wad_name: str) -> set:
-    """The path hashes the language table can have in a wad: the en_US path every language uses, and the wad's own
-    language's (Global.ko_KR.wad.client -> data/menu/ko_kr/lol.stringtable)."""
-    hashes = {TABLE_HASH}
-    parts = wad_name.lower().split(".")
-    if len(parts) >= 4 and parts[0] == "global":
-        hashes.add(_xxh64(f"data/menu/{parts[1]}/lol.stringtable".encode("utf-8")))
-    return hashes
-
-
-def _wad_holds(mod: ModFiles, wad: str, hashes: set) -> Optional[bool]:
-    """Whether the mod's packed wad (its relative path) has an entry for one of these path hashes, or None when it
-    can't be read."""
-    try:
-        with mod.open(wad) as handle:
-            header = handle.read(272)
-            if len(header) < 272 or header[:2] != b"RW" or header[2] != 3:
-                return None
-            count = struct.unpack_from("<I", header, 268)[0]
-            toc = handle.read(count * 32)
-    except (OSError, zipfile.BadZipFile):
-        return None
-    if len(toc) < count * 32:
-        return None
-    return any(struct.unpack_from("<Q", toc, i * 32)[0] in hashes for i in range(count))
-
-
 def ships_language_table(mod_path: Path) -> bool:
     """Whether a mod (folder or archive) carries its own lol.stringtable (a whole Global.<language>.wad.client, as
     some font mods are).
@@ -206,30 +154,10 @@ def ships_language_table(mod_path: Path) -> bool:
     """
     try:
         with ModFiles(Path(mod_path)) as mod:
-            return _ships_language_table(mod)
-    except (OSError, zipfile.BadZipFile) as e:
+            return ships_language_table_of(mod)
+    except (OSError, ValueError, zipfile.BadZipFile) as e:  # ValueError: a .modpkg it cannot read
         log.debug(f"[LOADNAME] could not read {Path(mod_path).name}: {e}")
         return False
-
-
-def _ships_language_table(mod: ModFiles) -> bool:
-    if any(PurePosixPath(path).name.lower() == "lol.stringtable" for path in mod.files_under("RAW")):
-        return True
-    for name in mod.children("WAD"):
-        lowered = name.lower()
-        if not (lowered.startswith("global") and lowered.endswith(".wad.client")):
-            continue
-        hashes = _table_hashes(name)
-        wad = f"WAD/{name}"
-        if mod.is_dir(wad):
-            names = {f"{h:016x}" for h in hashes}
-            for path in mod.files_under(wad):
-                file_name = PurePosixPath(path).name.lower()
-                if file_name == "lol.stringtable" or file_name.split(".")[0] in names:
-                    return True
-        elif _wad_holds(mod, wad, hashes) is not False:
-            return True  # holds it, or a packed language wad that can't be read: most likely a whole copy
-    return False
 
 
 def _with_own_record_key(record: bytes, alias: str) -> Optional[bytes]:
@@ -486,14 +414,43 @@ def _uses_string_overrides(game_dir: Path) -> Optional[bool]:
     return True if locale == "en_us" else None
 
 
+def _carried_wad(mod: ModFiles, alias: str) -> Optional[bytes]:
+    """The champion's wad the skin carries, read once for all its forms: in
+    an archive it may have to be inflated."""
+    carried = f"WAD/{alias}.wad.client"
+    return mod.read(carried) if mod.is_file(carried) else None
+
+
+def _keep_champion_name_in_chat(game_dir: Path, skin: Path, alias: str, target: Path) -> int:
+    """Write the champion's records, its forms' too (FORM_RECORDS), pointed
+    at a key of the mod's own: the chat and the name over the head keep the
+    champion's name. Returns how many were written."""
+    with ModFiles(Path(skin)) as mod:
+        carried_wad = _carried_wad(mod, alias)
+        records = [
+            (character, _champion_record(game_dir, mod, alias, character, carried_wad))
+            for character in (alias.lower(),) + FORM_RECORDS.get(alias.lower(), ())
+        ]
+    repointed = 0
+    for character, record in records:
+        own_record = _with_own_record_key(record, alias) if record else None
+        if not own_record:
+            continue
+        record_file = target / "RAW" / _record_path(character)
+        record_file.parent.mkdir(parents=True, exist_ok=True)
+        record_file.write_bytes(own_record)
+        repointed += 1
+    return repointed
+
+
 def build(game_dir: Path, mods_dir: Path, mod_folder: Path, skin_id: int,
-          other_mods: Sequence[Path] = ()) -> Optional[str]:
+          other_mods: Sequence[Union[Path, ModFacts]] = ()) -> Optional[str]:
     """Writes the mod and returns its folder name, or None when there is nothing to show.
 
     skin_id is the client's id (champion id * 1000 + skin number); chromas pass their base skin's id. *mod_folder* is
-    the skin, a folder or an archive; *other_mods* are the other mods installed with it, folders or archives: when one
-    carries its own language table, the mod's own table
-    would compete with it, and nothing is built (see ships_language_table).
+    the skin, a folder or an archive; *other_mods* are the other mods installed with it, folders or archives, or the
+    facts of one LTK Manager holds: when one carries its own language table, the mod's own table would compete with
+    it, and nothing is built (see ships_language_table).
 
     The texts reach the game as string overrides in META/info.json on an en_US client, as the mod's own table
     otherwise (see _uses_string_overrides). The champion's record is only pointed at a key of the mod's own when
@@ -514,8 +471,12 @@ def build(game_dir: Path, mods_dir: Path, mod_folder: Path, skin_id: int,
             return None
         if not overrides:
             for other in other_mods:
-                if ships_language_table(other):
-                    log.info(f"[LOADNAME] {Path(other).name} carries its own text table: the loading screen keeps "
+                if isinstance(other, ModFacts):
+                    ships, which = other.ships_language_table, "a mod LTK Manager holds"
+                else:
+                    ships, which = ships_language_table(other), Path(other).name
+                if ships:
+                    log.info(f"[LOADNAME] {which} carries its own text table: the loading screen keeps "
                              "the champion's name")
                     return None
 
@@ -538,25 +499,7 @@ def build(game_dir: Path, mods_dir: Path, mod_folder: Path, skin_id: int,
                 (target / "META").mkdir(parents=True, exist_ok=True)
                 texts = {f"{RECORD_KEY}{alias}": name}
 
-                # the chat and the name over the head keep the champion's name (see the module's note), in its forms
-                # too (FORM_RECORDS)
-                repointed = 0
-                with ModFiles(Path(mod_folder)) as mod:
-                    carried = f"WAD/{alias}.wad.client"
-                    # read once for all the forms: in an archive it may have to be inflated
-                    carried_wad = mod.read(carried) if mod.is_file(carried) else None
-                    records = [
-                        (character, _champion_record(game_dir, mod, alias, character, carried_wad))
-                        for character in (alias.lower(),) + FORM_RECORDS.get(alias.lower(), ())
-                    ]
-                for character, record in records:
-                    own_record = _with_own_record_key(record, alias) if record else None
-                    if not own_record:
-                        continue
-                    record_file = target / "RAW" / _record_path(character)
-                    record_file.parent.mkdir(parents=True, exist_ok=True)
-                    record_file.write_bytes(own_record)
-                    repointed += 1
+                repointed = _keep_champion_name_in_chat(game_dir, mod_folder, alias, target)
                 if repointed:
                     texts[f"{RECORD_KEY_OWN}{alias}"] = champion_name
                 else:

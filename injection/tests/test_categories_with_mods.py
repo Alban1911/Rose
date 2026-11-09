@@ -1,3 +1,4 @@
+import json
 import tempfile
 import unittest
 import zipfile
@@ -41,6 +42,18 @@ class CategoriesWithModsTests(unittest.TestCase):
         self.service.get_champion_dir(81).mkdir(parents=True)
 
         self.assertEqual(self.service.categories_with_mods(), [])
+
+    def test_a_category_mod_ltk_manager_holds_counts_with_no_file_in_rose(self):
+        ezreal = self.service.get_champion_dir(81)
+        ezreal.mkdir(parents=True)
+        for manifest, mod in (
+            (ezreal / ModStorageService.TARGET_METADATA, {'name': 'Arcane Ezreal', 'targets': [81020]}),
+            (self.service.mods_root / 'vfx' / ModStorageService.CATEGORY_METADATA, {'name': 'Sparkles', 'path': 'Sparkles'}),
+        ):
+            mod['ltkId'] = '5e9b2219-f49f-4cf1-bc7e-774fb43e1349'
+            manifest.write_text(json.dumps({'version': 1, 'mods': {mod['name']: mod}}), encoding='utf-8')
+
+        self.assertEqual(self.service.categories_with_mods(), ['vfx'], 'a custom skin is its file')
 
 
 if __name__ == '__main__':

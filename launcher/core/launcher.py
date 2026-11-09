@@ -1,14 +1,3 @@
-"""
-Native Win32 startup dialog used to prepare Rose before launching.
-
-This replaces the former PyQt-based launcher with a lightweight Steam-style
-progress window that:
-    1. Checks for application updates and applies them if needed.
-    2. Verifies local skin data and downloads missing content.
-
-Once all checks succeed, the dialog closes automatically and the main
-application continues bootstrapping.
-"""
 
 from __future__ import annotations
 
@@ -31,6 +20,7 @@ from ..ui.update_dialog import UpdateDialog
 from ..update.update_sequence import UpdateSequence
 from ..sequences.hash_check_sequence import HashCheckSequence
 from ..sequences.skin_sync_sequence import SkinSyncSequence
+from ..sequences.mod_migration_sequence import ModMigrationSequence
 
 log = get_logger()
 updater_log = get_named_logger("updater", prefix="log_updater")
@@ -221,6 +211,8 @@ def _run_launcher_dialog(dev_mode: bool, test_download_fail: bool) -> None:
                 
                 skin_sequence = SkinSyncSequence()
                 skin_sequence.perform_skin_sync(dialog, test_fail=test_download_fail)
+
+                ModMigrationSequence().perform(dialog)
 
                 dialog.set_detail("All checks complete.")
                 dialog.set_status("Launching Rose…")

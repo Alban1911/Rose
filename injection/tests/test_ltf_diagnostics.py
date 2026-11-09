@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import patch
 
-from injection.overlay.overlay_manager import LTF_LOGS_HINT
+from injection.overlay.ltf_report import LTF_LOGS_HINT
 from pengu.communication import message_handler
 
 
