@@ -20,10 +20,9 @@ from __future__ import annotations
 
 import json
 import re
-import shutil
 import zipfile
 from pathlib import Path
-from typing import List, Optional
+from typing import Optional
 
 from utils.core.logging import get_logger
 
@@ -46,7 +45,6 @@ _COMPRESS_LEVEL = 1
 # are already compressed, so deflating saved 4% for 12x the time (a 3 GB
 # voiceover pack took minutes to pack, every game: #425)
 _PACKED_WAD = re.compile(r"^(?:WAD|WAD_[A-Za-z0-9_-]+)/[^/]+\.wad(?:\.client|\.mobile)?$", re.IGNORECASE)
-_COPY_CHUNK_BYTES = 8 * 1024 * 1024
 
 
 def is_packed_wad(relative: str) -> bool:
@@ -125,41 +123,6 @@ def write_fantome_zip(mod_folder: Path, dest: Path, metadata: bool = True, name:
                 json.dumps(fantome_metadata(mod_folder, name), ensure_ascii=False, indent=2),
             )
     log.debug(f"[FANTOME] Packed {mod_folder.name} -> {dest.name}")
-    return dest
-
-
-def deflated_packed_wads(archive: Path) -> List[str]:
-    """The packed WADs *archive* holds deflated, which a .fantome holds
-    stored (is_packed_wad). Raises zipfile.BadZipFile, OSError."""
-    with zipfile.ZipFile(archive) as packed:
-        return [info.filename for info in packed.infolist()
-                if is_packed_wad(info.filename) and info.compress_type != zipfile.ZIP_STORED]
-
-
-def store_packed_wads(source: Path, dest: Path) -> Path:
-    """Write at *dest* the mod archive *source* as write_fantome_zip packs a
-    folder (a packed WAD stored, any other file deflated), in one pass: each
-    file is read from *source* and written into *dest*, with no folder in
-    between (a voiceover pack is gigabytes). A name the archive holds twice
-    is written once, the last, as extracting it keeps. *source* is checked
-    first (safe_extract.check_mod_archive). Raises zipfile.BadZipFile (a
-    file whose bytes do not match its CRC), OSError."""
-    with zipfile.ZipFile(source) as packed:
-        entries = {info.filename.casefold(): info for info in packed.infolist() if not info.is_dir()}
-        with zipfile.ZipFile(dest, "w", _COMPRESSION, compresslevel=_COMPRESS_LEVEL) as archive:
-            for info in sorted(entries.values(), key=lambda entry: entry.filename):
-                relative = info.filename
-                large = info.file_size * 1.05 > zipfile.ZIP64_LIMIT
-                if is_packed_wad(relative):
-                    target = zipfile.ZipInfo(relative, date_time=info.date_time)
-                    target.compress_type = zipfile.ZIP_STORED
-                    target.file_size = info.file_size
-                    writer = archive.open(target, "w", force_zip64=large)
-                else:
-                    writer = archive.open(relative, "w", force_zip64=large)
-                with packed.open(info) as reader, writer:
-                    shutil.copyfileobj(reader, writer, _COPY_CHUNK_BYTES)
-    log.debug(f"[FANTOME] Stored the packed WADs of {source.name} -> {dest.name}")
     return dest
 
 

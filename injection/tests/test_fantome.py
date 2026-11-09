@@ -1,66 +1,15 @@
 import json
 import tempfile
 import unittest
-import warnings
 import zipfile
 from pathlib import Path
 
 from injection.mods.fantome import (
-    deflated_packed_wads,
     fantome_display_name,
     fantome_metadata,
     read_info,
-    store_packed_wads,
     write_fantome_zip,
 )
-
-
-class StorePackedWadsTests(unittest.TestCase):
-    """An archive whose packed WADs are deflated is rewritten in one pass,
-    with no folder in between: a voiceover pack is gigabytes"""
-
-    FILES = {
-        "META/info.json": json.dumps({"Name": "VO Japanese"}),
-        "WAD/Ahri.ja_JP.wad.client": b"voice" * 1000,
-        "WAD_chroma/Ahri.wad": b"chroma" * 1000,
-        "WAD/Map11.wad.client/data/loose.bin": b"loose" * 1000,
-    }
-
-    def setUp(self):
-        temp_dir = tempfile.TemporaryDirectory()
-        self.addCleanup(temp_dir.cleanup)
-        self.root = Path(temp_dir.name)
-        self.source = self.root / "VO.fantome"
-        with zipfile.ZipFile(self.source, "w", zipfile.ZIP_DEFLATED) as archive:
-            for name, data in self.FILES.items():
-                archive.writestr(name, data)
-
-    def test_the_packed_wads_are_stored_and_every_file_kept(self):
-        self.assertEqual(sorted(deflated_packed_wads(self.source)), ["WAD/Ahri.ja_JP.wad.client", "WAD_chroma/Ahri.wad"])
-
-        store_packed_wads(self.source, self.root / "out.fantome")
-
-        with zipfile.ZipFile(self.root / "out.fantome") as archive:
-            methods = {info.filename: info.compress_type for info in archive.infolist()}
-            contents = {name: archive.read(name) for name in archive.namelist()}
-        self.assertEqual(contents, {name: data.encode() if isinstance(data, str) else data
-                                    for name, data in self.FILES.items()})
-        self.assertEqual(methods["WAD/Ahri.ja_JP.wad.client"], zipfile.ZIP_STORED)
-        self.assertEqual(methods["WAD_chroma/Ahri.wad"], zipfile.ZIP_STORED)
-        self.assertEqual(methods["WAD/Map11.wad.client/data/loose.bin"], zipfile.ZIP_DEFLATED)
-        self.assertEqual(deflated_packed_wads(self.root / "out.fantome"), [])
-
-    def test_a_name_held_twice_is_written_once_the_last(self):
-        with zipfile.ZipFile(self.source, "a", zipfile.ZIP_DEFLATED) as archive, \
-                warnings.catch_warnings():
-            warnings.simplefilter("ignore")  # zipfile warns of the duplicate name
-            archive.writestr("WAD/Ahri.ja_JP.wad.client", b"newer")
-
-        store_packed_wads(self.source, self.root / "out.fantome")
-
-        with zipfile.ZipFile(self.root / "out.fantome") as archive:
-            self.assertEqual(archive.namelist().count("WAD/Ahri.ja_JP.wad.client"), 1)
-            self.assertEqual(archive.read("WAD/Ahri.ja_JP.wad.client"), b"newer")
 
 
 class FantomeZipTests(unittest.TestCase):

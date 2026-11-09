@@ -160,23 +160,6 @@ class StorageTests(TempCase):
             # Named after the mod, as its folder named it, not after where it was unpacked
             self.assertEqual(json.loads(files.read("metadata.json")), {"name": "Rift"})
 
-    def test_deflated_packed_wads_are_stored_once_at_import(self):
-        # LTK Manager rewrites an archive whose packed WADs are deflated at every install
-        source = self.root / "VO.fantome"
-        with zipfile.ZipFile(source, "w", zipfile.ZIP_DEFLATED) as archive:
-            for name, data in VOICEOVER.items():
-                archive.writestr(name, data)
-
-        stored, *_ = self.service.import_category_mod_file("voiceover", source)
-
-        with zipfile.ZipFile(stored) as archive:
-            infos = {info.filename: info for info in archive.infolist()}
-        self.assertEqual(infos["WAD/Ahri.ko_KR.wad.client"].compress_type, zipfile.ZIP_STORED)
-        self.assertNotIn("metadata.json", infos)  # nothing added: the same mod for a friend's copy
-        with ModFiles(stored) as files, ModFiles(source) as original:
-            for name in VOICEOVER:
-                self.assertEqual(files.read(name), original.read(name))
-
     def deflated(self, name="VO.fantome"):
         """A voiceover pack whose packed WADs are deflated, as mods are shared"""
         source = self.root / "Downloads" / name
@@ -186,14 +169,23 @@ class StorageTests(TempCase):
                 archive.writestr(entry, data)
         return source
 
-    def test_a_mod_ltk_manager_takes_as_it_is_added_is_kept_as_picked(self):
-        """LTK Manager copies it into its library and stores its packed WADs as it imports it, once"""
+    def test_a_fantome_with_deflated_wads_is_stored_as_it_came(self):
+        """LTK Manager stores its packed WADs uncompressed as it imports it: Rose rewrote it (25 s for 3 GB)"""
+        source = self.deflated()
+
+        stored, *_ = self.service.import_category_mod_file("voiceover", source)
+
+        self.assertEqual(stored.read_bytes(), source.read_bytes())
+        self.assertFalse(os.path.samefile(stored, source), "a copy of its own")
+
+    def test_a_mod_ltk_manager_takes_as_it_is_added_is_linked_as_picked(self):
+        """LTK Manager copies it into its library: Rose copying it first wrote it twice"""
         source = self.deflated()
         before = source.read_bytes()
 
         stored, name, _ = self.service.import_category_mod_file("voiceover", source, as_picked=True)
 
-        self.assertTrue(os.path.samefile(stored, source), "linked, neither copied nor rewritten")
+        self.assertTrue(os.path.samefile(stored, source), "linked, not copied")
         mod = self.service.saved_mod(f"voiceover/{name}.fantome")
         self.assertTrue(mod.pending)
         self.assertEqual(mod.facts, compute_mod_facts(source)[0])
@@ -201,7 +193,7 @@ class StorageTests(TempCase):
         self.assertTrue(self.service.drop_stored_copy(mod.identity))
         self.assertEqual(source.read_bytes(), before, "the file the user picked is theirs")
 
-    def test_a_mod_left_in_rose_becomes_its_own_copy_with_its_wads_stored(self):
+    def test_a_linked_mod_left_in_rose_is_copied_into_it(self):
         source = self.deflated()
         before = source.read_bytes()
         stored, name, _ = self.service.import_category_mod_file("voiceover", source, as_picked=True)
@@ -209,32 +201,17 @@ class StorageTests(TempCase):
         self.service.keep_own_copy(f"voiceover/{name}.fantome")
 
         self.assertFalse(os.path.samefile(stored, source))
+        self.assertEqual(stored.read_bytes(), before)
         self.assertEqual(source.read_bytes(), before)
-        with zipfile.ZipFile(stored) as archive:
-            self.assertEqual(archive.getinfo("WAD/Ahri.ko_KR.wad.client").compress_type, zipfile.ZIP_STORED)
-        with ModFiles(stored) as files, ModFiles(source) as original:
-            for entry in VOICEOVER:
-                self.assertEqual(files.read(entry), original.read(entry))
         self.assertEqual(self.service.saved_mod(f"voiceover/{name}.fantome").rose_copy, stored)
-
-    def test_a_linked_mod_whose_wads_are_stored_is_copied_once_left_in_rose(self):
-        source = make_archive(self.root / "Downloads" / "Rift.fantome", VOICEOVER)
-        stored, name, _ = self.service.import_category_mod_file("maps", source, as_picked=True)
-
-        self.service.keep_own_copy(f"maps/{name}.fantome")
-
-        self.assertFalse(os.path.samefile(stored, source))
-        self.assertEqual(stored.read_bytes(), source.read_bytes())
 
     def test_a_copy_rose_owns_already_is_left_as_it_is(self):
         stored, name, _ = self.service.import_category_mod_file("voiceover", self.deflated())
         written = stored.stat().st_mtime_ns
 
-        with patch("injection.mods.storage.store_packed_wads") as rewrite, \
-                patch("injection.mods.storage.shutil.copyfile") as copy:
+        with patch("injection.mods.storage.shutil.copyfile") as copy:
             self.service.keep_own_copy(f"voiceover/{name}.fantome")
 
-        rewrite.assert_not_called()
         copy.assert_not_called()
         self.assertEqual(stored.stat().st_mtime_ns, written)
 

@@ -2860,10 +2860,10 @@ class MessageHandler:
         return overlay is not None and getattr(overlay, "game_dir", None) is not None and not self._ltk_wanted_by_game()
 
     def _keep_mods_left_in_rose(self, imported: list[dict]) -> None:
-        """Store each added category mod LTK Manager did not take (it was
-        busy, missing, or could not check it) as Rose keeps one
-        (ModStorageService.keep_own_copy): it stays in Rose, imported for
-        each game."""
+        """Copy into Rose each category mod added as it was picked that LTK
+        Manager did not take (it was busy, missing, or could not check it):
+        it stays in Rose, imported for each game, and its file is still the
+        one the user picked (ModStorageService.keep_own_copy)."""
         for item in imported:
             if item.get("savedAlready"):
                 continue
@@ -2872,7 +2872,7 @@ class MessageHandler:
                 if saved is not None and saved.pending:
                     self.mod_storage.keep_own_copy(item["relativePath"])
             except Exception as e:  # noqa: BLE001 - the mod is added; it works as it is
-                log.warning(f"[MODS] Could not store {item.get('modName')} as Rose keeps a mod: {e}")
+                log.warning(f"[MODS] Could not copy {item.get('modName')} into Rose: {e}")
 
     def _ltk_wanted_by_game(self) -> bool:
         """Whether LTK Manager is, or is about to be, the game's: the client
@@ -3065,7 +3065,8 @@ class MessageHandler:
                 imported, errors,
                 lambda item: self.mod_storage.delete_category_mod(category, item["modName"]),
             )
-            self._keep_mods_left_in_rose(imported)
+            if as_picked:
+                self._keep_mods_left_in_rose(imported)
             response_payload = {
                 "type": "folder-opened-response",
                 "success": bool(imported) and not errors,
