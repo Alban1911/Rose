@@ -83,6 +83,15 @@ class LtkUnavailable(RuntimeError):
     without Rose's bridge, could not start, bridge gone)."""
 
 
+class _CheckStopped(Exception):
+    """A game wants LTK Manager: a check gives way before its next step."""
+
+
+def _give_way(stop: Optional[Callable[[], bool]]) -> None:
+    if stop is not None and stop():
+        raise _CheckStopped()
+
+
 class LtkLibrary:
     """LTK Manager's library through Rose's bridge, for the saved mods.
 
@@ -130,7 +139,8 @@ class LtkLibrary:
             host.library_change_lock.release()
 
     def check_mod(self, mod: Path, display_name: str,
-                  on_kept: Optional[Callable[..., bool]] = None) -> Optional[dict]:
+                  on_kept: Optional[Callable[..., bool]] = None,
+                  stop: Optional[Callable[[], bool]] = None) -> Optional[dict]:
         """Have LTK Manager check a mod the user adds and repair what it can:
         import it, check it, and with *on_kept* keep it there, turned off,
         unless the game would still reject it.
@@ -154,10 +164,16 @@ class LtkLibrary:
         repair is written back into *mod*, and its entry is removed as the
         session ends, as a game's mods are.
 
-        None when it did not run: no game folder yet, no file at *mod*, an
-        injection's session holds LTK Manager (champion select, a game), LTK
-        Manager is missing or failed; the mod then stays in Rose as it was
-        added. Otherwise {"health": LTK's word before any repair, "repaired":
+        *stop()* says a game wants LTK Manager now (the client queues, a
+        match was found): the check gives way before its next step (the
+        import, LTK Manager's verdict, each repair), as the session holds the
+        locks the countdown's staging and the patcher's early start need.
+        Its entry is removed as the session ends.
+
+        None when it did not run or gave way: no game folder yet, no file at
+        *mod*, an injection's session holds LTK Manager (champion select, a
+        game), *stop()*, LTK Manager is missing or failed; the mod then stays
+        in Rose as it was added. Otherwise {"health": LTK's word before any repair, "repaired":
         fixes applied (written back into *mod* when it stays Rose's),
         "problems": [{"rule", "title", "description"}] that make the game
         reject the mod, and "ltkId" once the entry is kept}.
@@ -165,14 +181,19 @@ class LtkLibrary:
         if self.game_dir is None or not Path(mod).exists():
             return None
         try:
+            _give_way(stop)
             with self.session() as session:
+                _give_way(stop)
                 ltk_id = str(session.import_archive(Path(mod), display_name).get("id"))
-                result = session.check_and_repair(ltk_id, display_name)
+                result = session.check_and_repair(ltk_id, display_name, stop)
                 if on_kept is None:
                     if result["repaired"] and not session.take_repaired_archive(ltk_id, Path(mod)):
                         result["repaired"] = 0
                     return result
                 return self._keep_checked(session, ltk_id, display_name, on_kept, result)
+        except _CheckStopped:
+            log.info(f"[MODCHECK] Stopped checking {display_name}: a game wants LTK Manager. "
+                     "It stays in Rose as it was added")
         except LtkBusy:
             log.debug(f"[MODCHECK] LTK Manager is in use for a game - not checking {display_name}")
         except LtkUnavailable as e:
@@ -275,16 +296,19 @@ class LibrarySession:
     def uninstall(self, ltk_id: str) -> None:
         self._host.uninstall(self._session, ltk_id)
 
-    def check_and_repair(self, ltk_id: str, display_name: str) -> dict:
+    def check_and_repair(self, ltk_id: str, display_name: str,
+                         stop: Optional[Callable[[], bool]] = None) -> dict:
         """LTK Manager's verdict on an entry, after it repaired what it can.
 
         LTK Manager repairs its own copy (take_repaired_archive brings it into
         Rose's). Returns {"health": LTK's word before any repair,
         "repaired": fixes applied, "problems": [{"rule", "title",
-        "description"}] that still make the game reject the mod}.
+        "description"}] that still make the game reject the mod}. Raises
+        _CheckStopped before the verdict or a repair once *stop()* (LtkLibrary.check_mod).
         """
         ltk_id = str(ltk_id)
         bridge = self.bridge
+        _give_way(stop)
         verdict = _answer_value(bridge.check_mod_health(ltk_id))
         result = {"health": str(verdict.get("health") or ""), "repaired": 0, "problems": []}
         log.info(f"[MODCHECK] LTK Manager's verdict on {display_name}: {result['health'] or 'unknown'}"
@@ -292,6 +316,7 @@ class LibrarySession:
         for _ in range(MAX_REPAIR_PASSES):
             if verdict.get("health") != "repairable" or int(verdict.get("fixable") or 0) <= 0:
                 break
+            _give_way(stop)
             report = _answer_value(bridge.repair_mod(ltk_id))
             applied = int(report.get("applied") or 0)
             if report.get("failed"):

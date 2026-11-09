@@ -2813,8 +2813,11 @@ class MessageHandler:
                 self.websocket_server.broadcast(message), self.websocket_server.loop
             )
     
-    # Client phases where LTK Manager belongs to the game's injection
-    _MOD_CHECK_BUSY_PHASES = frozenset({"ChampSelect", "FINALIZATION", "GameStart", "InProgress", "Reconnect"})
+    # Client phases where LTK Manager belongs to the game's injection, or is about to: a queue
+    # or a match found leads to champion select, whose countdown stages the game's mods
+    _MOD_CHECK_BUSY_PHASES = frozenset({
+        "Matchmaking", "ReadyCheck", "ChampSelect", "FINALIZATION", "GameStart", "InProgress", "Reconnect",
+    })
     # Client phases where the base-skin fix of an added skin waits until the client is idle
     # (injection.baseskin.library): it rewrites the whole mod, which neither the countdown's
     # staging nor a running game should share the disk with
@@ -2848,6 +2851,14 @@ class MessageHandler:
             for note in result.findings.notes:
                 log.debug(f"[BASESKIN] {name}: {note}")
 
+    def _ltk_wanted_by_game(self) -> bool:
+        """Whether LTK Manager is, or is about to be, the game's: the client
+        queues, found a match, is in champion select or a game, or an
+        injection runs."""
+        phase = getattr(getattr(self, "shared_state", None), "phase", None)
+        injection_manager = getattr(self, "injection_manager", None)
+        return phase in self._MOD_CHECK_BUSY_PHASES or bool(getattr(injection_manager, "_injection_in_progress", False))
+
     def _check_imported_mods(self, imported: list[dict], errors: list[dict], remove, skins: bool = False) -> list[dict]:
         """Make each just-imported custom skin (*skins*: not a map, font...
         mod) match the base skin (_fix_base_skin), have LTK Manager check and
@@ -2861,8 +2872,9 @@ class MessageHandler:
         problem it cannot repair) is not added: *remove* deletes it again, and
         it joins *errors* with the reason. A checked mod gets the verdict as
         "health"; one saved already (the same mod added again) is not checked.
-        LTK Manager's check is skipped during champion select and games, where
-        it is the game's: the mod stays in Rose as it was added; from the
+        LTK Manager's check is skipped while a game wants it (_ltk_wanted_by_game:
+        a queue, champion select, a game), and one running gives way when the
+        client gets there: the mod stays in Rose as it was added. From the
         countdown on, the base-skin fix waits for the client to be idle."""
         injection_manager = getattr(self, "injection_manager", None)
         injector = getattr(injection_manager, "injector", None)
@@ -2879,14 +2891,15 @@ class MessageHandler:
                 self._fix_base_skin(imported, game_dir)
         if overlay is None or not imported:
             return imported
-        if phase in self._MOD_CHECK_BUSY_PHASES or injecting:
-            log.info("[MODCHECK] Not checking the added mods with LTK Manager during champion select or a game")
+        if self._ltk_wanted_by_game():
+            log.info("[MODCHECK] Not checking the added mods with LTK Manager while a game wants it "
+                     "(a queue, champion select, a game)")
             return imported
         self._send_response(json.dumps({"type": "mod-import-checking", "fileCount": len(imported)}))
         library = LtkLibrary(overlay.host, overlay.game_dir)
         kept = []
         for item in imported:
-            if item.get("savedAlready"):
+            if item.get("savedAlready") or self._ltk_wanted_by_game():
                 kept.append(item)
                 continue
             saved = self.mod_storage.saved_mod(item["relativePath"])
@@ -2894,10 +2907,11 @@ class MessageHandler:
             try:
                 if saved and saved.pending:
                     result = library.check_mod(mod_path, name, partial(self.mod_storage.attach_ltk_entry,
-                                                                       item["relativePath"]))
+                                                                       item["relativePath"]),
+                                               stop=self._ltk_wanted_by_game)
                 else:
                     with stored_skin_rewrite():
-                        result = library.check_mod(mod_path, name)
+                        result = library.check_mod(mod_path, name, stop=self._ltk_wanted_by_game)
                         if result and result.get("repaired") and not result.get("problems"):
                             self.mod_storage.refresh_mod_hashes(mod_path)
             except Exception as e:  # noqa: BLE001 - a check must never fail the import

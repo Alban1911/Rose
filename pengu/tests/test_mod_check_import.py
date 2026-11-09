@@ -1,5 +1,5 @@
 """Adding mods makes custom skins match the base skin, then has LTK Manager
-check them (outside champion select and games): a category's mod moves into
+check them (outside a queue, champion select and games): a category's mod moves into
 its library, a custom skin stays Rose's; a mod LTK Manager will turn off in
 game is not added."""
 
@@ -75,7 +75,7 @@ class ModCheckOnImportTests(ModCheckCase):
 
     def ltk_keeps_it(self, verdict, stamp=(10, 20)):
         """LTK Manager keeps the mod: the check records its entry, then answers"""
-        def check(mod, display_name, on_kept):
+        def check(mod, display_name, on_kept, stop=None):
             self.assertTrue(on_kept(LTK_ID, stamp=list(stamp) if stamp else None))
             self.assertTrue(Path(mod).exists(), "still Rose's while it is recorded")
             return dict(verdict, ltkId=LTK_ID)
@@ -161,8 +161,9 @@ class ModCheckOnImportTests(ModCheckCase):
         self.assertEqual(response["imported"][0]["relativePath"], self.relative_path)
         self.assertEqual(self.saved().ltk_id, LTK_ID)
 
-    def test_nothing_is_checked_in_champion_select_or_while_injecting(self):
-        for phase, injecting in (("ChampSelect", False), ("InProgress", False), ("Lobby", True)):
+    def test_nothing_is_checked_in_a_queue_champion_select_or_while_injecting(self):
+        for phase, injecting in (("Matchmaking", False), ("ReadyCheck", False), ("ChampSelect", False),
+                                 ("InProgress", False), ("Lobby", True)):
             instance = self.handler(phase, injecting)
 
             kept = instance._check_imported_mods(self.imported, [], MagicMock())
@@ -171,6 +172,41 @@ class ModCheckOnImportTests(ModCheckCase):
             self.assertEqual(len(kept), 1)
             self.assertEqual(instance.sent, [])
         self.assertTrue(self.saved().pending)
+
+    def test_a_check_gives_way_when_the_client_queues(self):
+        """A check started in the lobby held LTK Manager into champion select (#486)"""
+        instance = self.handler("Lobby")
+        stops = []
+
+        def check(mod, display_name, on_kept, stop=None):
+            stops.append(stop())
+            instance.shared_state.phase = "Matchmaking"
+            stops.append(stop())
+            return None
+        self.library.check_mod.side_effect = check
+
+        kept = instance._check_imported_mods(self.imported, [], MagicMock())
+
+        self.assertEqual(stops, [False, True])
+        self.assertEqual(len(kept), 1)
+        self.assertTrue(self.saved().pending)
+
+    def test_the_mods_left_once_the_client_queues_are_not_checked(self):
+        second = make_archive(Path(self.source).with_name("vo-japanese.fantome"), "Ahri.ja_JP.wad.client", b"voice")
+        stored, name, _ = self.storage.import_category_mod_file("voiceover", second)
+        self.imported.append({"fileName": second.name, "path": str(stored),
+                              "relativePath": stored.relative_to(self.storage.mods_root).as_posix(), "modName": name})
+        instance = self.handler("Lobby")
+
+        def check(mod, display_name, on_kept, stop=None):
+            instance.shared_state.phase = "ReadyCheck"
+            return None
+        self.library.check_mod.side_effect = check
+
+        kept = instance._check_imported_mods(self.imported, [], MagicMock())
+
+        self.assertEqual(self.library.check_mod.call_count, 1)
+        self.assertEqual(len(kept), 2)
 
 
 class SkinCheckOnImportTests(ModCheckCase):
@@ -185,7 +221,8 @@ class SkinCheckOnImportTests(ModCheckCase):
 
         path, _display_name = self.library.check_mod.call_args.args
         self.assertEqual(Path(path), self.skin)
-        self.assertEqual(self.library.check_mod.call_args.kwargs, {}, "no on_kept: LTK Manager's repair comes back")
+        self.assertEqual(set(self.library.check_mod.call_args.kwargs), {"stop"},
+                         "no on_kept: LTK Manager's repair comes back")
         self.assertEqual(kept[0]["health"], verdict)
         skin = self.saved(self.skin_path)
         self.assertEqual((skin.ltk_id, skin.rose_copy, skin.pending), (None, self.skin, False))
@@ -194,7 +231,7 @@ class SkinCheckOnImportTests(ModCheckCase):
 
     def test_the_manifest_follows_the_repair_written_into_a_custom_skin(self):
         """LTK Manager's repair rewrote Rose's file: the manifest finds it by its new hashes"""
-        def repair_into_roses_file(mod, display_name, on_kept=None):
+        def repair_into_roses_file(mod, display_name, on_kept=None, stop=None):
             with zipfile.ZipFile(mod, "w") as archive:
                 archive.writestr("WAD/Ezreal.wad.client", b"repaired skin")
             return {"health": "repairable", "repaired": 1, "problems": []}
@@ -214,7 +251,7 @@ class SkinCheckOnImportTests(ModCheckCase):
         it would meet on the open file, which Windows refuses: the check waits"""
         checked = threading.Event()
 
-        def check(mod, display_name, on_kept=None):
+        def check(mod, display_name, on_kept=None, stop=None):
             checked.set()
             return {"health": "repairable", "repaired": 1, "problems": []}
         self.library.check_mod.side_effect = check

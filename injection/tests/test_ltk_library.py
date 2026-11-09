@@ -485,6 +485,38 @@ class ModCheckTests(LtfSessionTestCase):
         self.assertIsNone(self.check())
         self.assertEqual(FakeBridge.created, [])
 
+    def after(self, command):
+        """A stop() that says a game wants LTK Manager once the bridge ran *command*"""
+        return lambda: bool(FakeBridge.created) and command in FakeBridge.created[-1].command_names()
+
+    def test_a_check_gives_way_after_the_import_once_a_game_wants_ltk_manager(self):
+        """The client queued while a voiceover pack was imported: the countdown's staging needs the locks"""
+        result = self.library.check_mod(self.stored, "Eternal Aspect Leona", self.record, stop=self.after("import"))
+
+        self.assertIsNone(result)
+        self.assertNotIn("check_mod_health", self.bridge.command_names())
+        self.assertEqual((self.recorded, self.bridge.library_entries), ([], []), "removed with the session")
+        self.assertEqual(self.state()["installed"], {})
+        self.assertTrue(self.host.launcher_lock.acquire(blocking=False))
+        self.host.launcher_lock.release()
+        self.assertTrue(self.host.library_change_lock.acquire(blocking=False))
+        self.host.library_change_lock.release()
+        self.assertEqual(self.stored.read_bytes(), self.before)
+
+    def test_a_check_gives_way_before_a_repair(self):
+        FakeBridge.health_answers = [self.REPAIRABLE, self.HEALTHY]
+
+        result = self.library.check_mod(self.stored, "Eternal Aspect Leona", self.record,
+                                        stop=self.after("check_mod_health"))
+
+        self.assertIsNone(result)
+        self.assertNotIn("repair_mod", self.bridge.command_names())
+        self.assertEqual(self.bridge.library_entries, [])
+
+    def test_nothing_is_checked_while_a_game_wants_ltk_manager(self):
+        self.assertIsNone(self.library.check_mod(self.stored, "Eternal Aspect Leona", self.record, stop=lambda: True))
+        self.assertEqual(FakeBridge.created, [])
+
     def test_nothing_is_checked_for_a_mod_ltk_manager_holds_already(self):
         """The same mod added again: the saved one, whose file is gone"""
         self.stored.unlink()
