@@ -6,13 +6,14 @@ Identifies custom skin mods by content so party members can use their own
 copy of a friend's mod. Mod files never leave the PC; only hashes are shared.
 """
 
+import os
 import threading
 import zipfile
 from pathlib import Path
 from typing import Dict, Optional, Tuple
 
 from injection.mods.mod_facts import _archive_content_hash, _folder_content_hash, _hash_stream
-from injection.mods.manifest import SOURCE_HASHES, find_saved_mod, stored_skin
+from injection.mods.manifest import SKINS, SOURCE_HASH, SOURCE_HASHES, find_saved_mod, iter_saved_mods, stored_skin
 from utils.core.logging import get_logger
 from utils.core.paths import get_user_data_dir
 from utils.core.safe_extract import MOD_ARCHIVE_SUFFIXES
@@ -24,6 +25,8 @@ _METADATA_FILES = {"rose_mod_targets.json"}
 
 # path -> ((mtime_ns, size), content_hash, legacy_hash)
 _hash_cache: Dict[str, Tuple[Tuple[int, ...], Optional[str], Optional[str]]] = {}
+# The whole-file hash party mode shares is this long (hex digits of a sha256)
+_LEGACY_HASH_LENGTH = 16
 _cache_lock = threading.Lock()
 
 
@@ -34,7 +37,7 @@ def get_mods_root() -> Path:
 def _legacy_archive_hash(archive_path: Path) -> str:
     """Whole-file hash sent by older Rose versions for archive mods."""
     with archive_path.open("rb") as stream:
-        return _hash_stream(stream).hex()[:16]
+        return _hash_stream(stream).hex()[:_LEGACY_HASH_LENGTH]
 
 
 def mod_hashes(mod_path: Path) -> Tuple[Optional[str], Optional[str]]:
@@ -89,10 +92,24 @@ def _recorded_hashes(mod_path: Path) -> Tuple[Optional[str], Optional[str]]:
     return hashes.get("content") or None, hashes.get("legacy") or None
 
 
+def _picked_file_hash(skin) -> Optional[str]:
+    """The whole-file hash party mode shares for a saved skin this Rose
+    added: that of the file the user picked (its sourceHash), which no
+    rewrite changes. None for one an older Rose added."""
+    source = skin.metadata.get(SOURCE_HASH) if skin is not None else None
+    return source[:_LEGACY_HASH_LENGTH] if isinstance(source, str) and source else None
+
+
 def shared_hashes(mod_path: Path) -> Tuple[Optional[str], Optional[str]]:
-    """The (content, legacy) hashes to share for a custom mod: those of the mod
-    as it was added, which a friend's copy has whatever Rose since rewrote in
-    either (its version, the game's patch), else mod_hashes."""
+    """The (content, legacy) hashes to share for a custom mod: for a skin
+    this Rose added, the hash of the file picked alone (_picked_file_hash:
+    a friend's exact copy has it, an older Rose matches it as the legacy
+    one); for one an older Rose added, the hashes of the mod as it was
+    added, which a friend's copy has whatever Rose since rewrote in either
+    (its version, the game's patch), else mod_hashes."""
+    picked = _picked_file_hash(stored_skin(mod_path))
+    if picked is not None:
+        return None, picked
     content_hash, legacy_hash = _recorded_hashes(mod_path)
     if content_hash:
         return content_hash, legacy_hash
@@ -152,7 +169,19 @@ def find_local_mod(
 
     mods_root = get_mods_root()
     try:
+        # A skin this Rose added is matched by the hash of the file picked, read
+        # from its manifest: no mod is read. Those an older Rose added are hashed.
+        picked = {
+            os.path.normcase(str(skin.rose_copy)): _picked_file_hash(skin)
+            for skin in iter_saved_mods(mods_root, SKINS, champion_id=int(champion_id))
+            if skin.rose_copy is not None and _picked_file_hash(skin) is not None
+        }
         for entry in _champion_mod_entries(int(champion_id)):
+            known = picked.get(os.path.normcase(str(entry)))
+            if known is not None:
+                if legacy_hash and legacy_hash == known:
+                    return entry.relative_to(mods_root).as_posix()
+                continue
             entry_content, entry_legacy = mod_hashes(entry)
             source_content, source_legacy = _recorded_hashes(entry)
             if (content_hash and content_hash in (entry_content, source_content)) or (

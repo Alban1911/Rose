@@ -223,6 +223,27 @@ class CustomModsTests(unittest.TestCase):
 
         self.assertEqual((state["custom_mod_content_hash"], state["custom_mod_hash"]), custom_mods.mod_hashes(archive))
 
+    def test_our_pick_of_a_skin_this_rose_added_shares_the_hash_of_the_file_picked(self):
+        """A friend's exact copy has it, whatever Rose rewrote since: nothing is read"""
+        self._make_archive(self.mods_root / "skins" / "103000" / "Ahri.fantome")
+        picked = "ab" * 32
+        self.save_mod("Ahri", sourceHash=picked)
+
+        with patch.object(custom_mods, "mod_hashes", side_effect=AssertionError("hashed")):
+            state = self.our_pick("skins/103000/Ahri.fantome")
+
+        self.assertEqual((state["is_custom"], state["custom_mod_hash"]), (True, picked[:16]))
+        self.assertNotIn("custom_mod_content_hash", state)
+
+    def test_a_friends_skin_matches_one_this_rose_added_by_the_file_picked_without_reading_it(self):
+        self._make_archive(self.mods_root / "skins" / "103000" / "Ahri.fantome")
+        picked = "ab" * 32
+        self.save_mod("Ahri", sourceHash=picked)
+
+        with patch.object(custom_mods, "mod_hashes", side_effect=AssertionError("hashed")):
+            self.assertEqual(custom_mods.find_local_mod(103, legacy_hash=picked[:16]), "skins/103000/Ahri.fantome")
+            self.assertIsNone(custom_mods.find_local_mod(103, content_hash="c0ffee", legacy_hash="0" * 16))
+
 
 class SkinCollectorSelectionTests(unittest.TestCase):
     def pick(self, **state):

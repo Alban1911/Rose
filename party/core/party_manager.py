@@ -609,11 +609,13 @@ class PartyManager:
 
         if selection.custom_mod_path:
             content_hash, legacy_hash = saved_mod_hashes(selection.custom_mod_path)
-            if content_hash:
+            if content_hash or legacy_hash:
                 skin_state["is_custom"] = True
-                skin_state["custom_mod_content_hash"] = content_hash
+                if content_hash:
+                    skin_state["custom_mod_content_hash"] = content_hash
                 if legacy_hash:
-                    # Older Rose versions match archive mods by whole-file hash
+                    # The hash of the file picked: a friend's exact copy has it
+                    # (older Rose versions match archive mods by it too)
                     skin_state["custom_mod_hash"] = legacy_hash
 
         return skin_state

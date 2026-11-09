@@ -5,6 +5,7 @@ The audio cases are those of RoseBin's audio.rs, which builds the packages Rose
 ships: the two must keep producing the same bins.
 """
 
+import hashlib
 import os
 import shutil
 import struct
@@ -26,7 +27,7 @@ from injection.baseskin.propbin import (
     EMBED, HASH, LIST, POINTER, STRING, Bin, Embed, Entry, Field, Value, build, entry_types, fnv1a_lower,
 )
 from injection.baseskin.wad import BytesSource, FileSource, GameWad, ModWad, WadError, path_hash
-from injection.mods.mod_facts import compute_mod_facts
+from injection.mods.mod_facts import archive_index_hash
 from injection.mods.storage import ModStorageService
 from party.discovery import custom_mods
 
@@ -877,7 +878,7 @@ class StoredSkinsTests(_GameAndMod):
         library._retried.clear()
         self.addCleanup(library._retried.clear)
         self.stored, _, _ = self.storage.import_mod_file(266, self.archive, [266033])
-        self.added_hashes = custom_mods.mod_hashes(self.stored)
+        self.picked_hash = hashlib.sha256(self.archive.read_bytes()).hexdigest()
 
     def run_pass(self, stop=lambda: False):
         return library.fix_stored_skins(self.storage, self.game, stop)
@@ -918,26 +919,29 @@ class StoredSkinsTests(_GameAndMod):
         fix.assert_called_once()
 
     def test_the_manifest_follows_the_rewritten_skin(self):
-        """A renamed mod is found by its hashes, so they must be the mod's as it is now"""
+        """A renamed skin is found by its archive's index, so it must be the skin's as it is now"""
         self.run_pass()
-        _facts, folder_hash, wad_hashes = compute_mod_facts(self.stored)
         entry = ModStorageService.manifest_entry(self.stored)
-        self.assertEqual((entry["folderHash"], entry["wadHashes"]), (folder_hash, wad_hashes))
+        self.assertEqual(entry["indexHash"], archive_index_hash(self.stored))
+        self.assertNotIn("folderHash", entry)
+        self.assertNotIn("wadHashes", entry)
         renamed = self.stored.rename(self.stored.with_name("renamed.fantome"))
         self.assertEqual(self.storage.saved_mod(renamed.relative_to(self.storage.mods_root).as_posix()).target_skin_ids,
                          (266033,))
 
-    def test_party_mode_shares_the_skin_as_it_was_added(self):
-        """A friend's copy, fixed by another Rose or not at all, is the same mod"""
-        content, legacy = self.added_hashes
-        self.assertEqual(ModStorageService.manifest_entry(self.stored)["sourceHashes"],
-                         {"content": content, "legacy": legacy})
+    def test_party_mode_shares_the_file_as_it_was_picked(self):
+        """A friend's copy, fixed by another Rose or not at all, is the same file as it was picked"""
+        shared = self.picked_hash[:16]
+        entry = ModStorageService.manifest_entry(self.stored)
+        self.assertEqual(entry["sourceHash"], self.picked_hash)
+        self.assertNotIn("sourceHashes", entry, "nothing hashed but the file picked")
         self.run_pass()
-        self.assertNotEqual(custom_mods.mod_hashes(self.stored)[0], content)
-        self.assertEqual(custom_mods.shared_hashes(self.stored), (content, legacy))
-        with patch.object(custom_mods, "get_mods_root", return_value=self.storage.mods_root):
-            self.assertEqual(custom_mods.find_local_mod(266, content_hash=content), "skins/266000/custom.fantome")
-            self.assertEqual(custom_mods.find_local_mod(266, legacy_hash=legacy), "skins/266000/custom.fantome")
+        self.assertNotEqual(hashlib.sha256(self.stored.read_bytes()).hexdigest(), self.picked_hash, "rewritten")
+        self.assertEqual(custom_mods.shared_hashes(self.stored), (None, shared))
+        with patch.object(custom_mods, "get_mods_root", return_value=self.storage.mods_root), \
+                patch.object(custom_mods, "mod_hashes", side_effect=AssertionError("hashed")):
+            self.assertEqual(custom_mods.find_local_mod(266, legacy_hash=shared), "skins/266000/custom.fantome")
+            self.assertIsNone(custom_mods.find_local_mod(266, legacy_hash="0" * 16))
 
     def test_a_renamed_skin_stays_listed_once_the_fix_rewrote_it(self):
         """Matched to its entry by its content, which the rewrite changes: the
@@ -967,8 +971,8 @@ class StoredSkinsTests(_GameAndMod):
 
     def test_new_targets_keep_what_party_mode_shares(self):
         self.storage.set_champion_target_ids(266, [266001], mod_name="custom")
-        self.assertEqual(ModStorageService.manifest_entry(self.stored)["sourceHashes"]["content"],
-                         self.added_hashes[0])
+        self.assertEqual(ModStorageService.manifest_entry(self.stored)["sourceHash"], self.picked_hash)
+        self.assertEqual(custom_mods.shared_hashes(self.stored), (None, self.picked_hash[:16]))
 
     def test_the_pass_starts_when_the_client_is_idle_and_stops_when_it_is_not(self):
         manager = SimpleNamespace(injector=SimpleNamespace(game_dir=self.game), _injection_in_progress=False)

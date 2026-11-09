@@ -1,6 +1,7 @@
 """Rose keeps mods as the archives LTK Manager installs: nothing is unpacked
 to be packed again (a voiceover pack took a minute, every game)."""
 
+import hashlib
 import json
 import os
 import tempfile
@@ -13,7 +14,7 @@ from injection.mods import conversion
 from injection.mods.fantome import fantome_display_name, read_info, write_fantome_zip
 from injection.mods.fingerprint import mod_fingerprint
 from injection.mods.manifest import ltk_removals
-from injection.mods.mod_facts import ModFacts, compute_mod_facts
+from injection.mods.mod_facts import ModFacts, archive_index_hash, compute_mod_facts
 from injection.mods.mod_files import ModFiles, is_mod_archive
 from injection.mods.mod_manager import ModManager
 from injection.mods.mod_source import LtkEntry, RoseFile
@@ -287,21 +288,25 @@ class AddTests(TempCase):
         add_entries(self.maps_manifest, {"Rift": {"name": "Rift", "path": "Rift", "ltkId": LOST_ID, "missing": True,
                                                   "displayName": "My Rift", **extra}})
 
-    def test_the_facts_and_the_date_are_written_as_the_mod_is_added(self):
+    def test_what_rose_needs_and_the_date_are_written_as_the_mod_is_added(self):
+        """A category's mod its facts; a custom skin its targets, the hash of the
+        file picked (party mode) and its archive's index (a renamed skin)"""
         source = make_archive(self.root / "VO Korean.fantome", VOICEOVER)
-        facts, full_hash, wad_hashes = compute_mod_facts(source)
 
         stored, name, _ = self.service.import_category_mod_file("voiceover", source)
         skin, skin_name, _ = self.service.import_mod_file(81, source, [81020])
 
         entry = self.entries(stored.parent / ModStorageService.CATEGORY_METADATA)[name]
-        self.assertEqual(ModFacts.from_manifest(entry), facts)
+        self.assertEqual(ModFacts.from_manifest(entry), compute_mod_facts(source)[0])
         self.assertEqual(entry["updatedAt"], stored.stat().st_mtime)
-        skin_entry = self.entries(self.skins_manifest)[full_hash]
-        self.assertEqual(ModFacts.from_manifest(skin_entry), facts)
-        self.assertEqual((skin_entry["name"], skin_entry["folderHash"], skin_entry["wadHashes"], skin_entry["targets"]),
-                         (skin_name, full_hash, wad_hashes, [81020]))
-        self.assertEqual(skin_entry["updatedAt"], skin.stat().st_mtime)
+        skin_entry = self.entries(self.skins_manifest)[skin_name]
+        self.assertEqual(skin_entry, {
+            "name": skin_name,
+            "targets": [81020],
+            "sourceHash": hashlib.sha256(source.read_bytes()).hexdigest(),
+            "indexHash": archive_index_hash(skin),
+            "updatedAt": skin.stat().st_mtime,
+        })
 
     def test_a_name_ltk_manager_holds_is_not_taken_again(self):
         add_entries(self.maps_manifest, {"Rift": {"name": "Rift", "path": "Rift", "ltkId": MOVED_ID}})
@@ -360,22 +365,44 @@ class AddTests(TempCase):
         self.assertEqual((lost.ltk_id, lost.missing, lost.display_name), (LOST_ID, True, "My Rift"))
         self.assertEqual(ltk_removals(self.service.mods_root), [])
 
-    def test_the_same_skin_added_again_is_the_one_saved_already(self):
-        """Its targets join the saved mod's: no second copy"""
+    def test_a_skin_is_added_without_hashing_its_content(self):
+        """The file picked is hashed once (party mode); a renamed skin is found by its archive's index"""
+        source = make_archive(self.root / "Ezreal.fantome", VOICEOVER)
+
+        with patch("injection.mods.mod_facts._hash_stream", side_effect=AssertionError("content hashed")):
+            stored, name, _ = self.service.import_mod_file(81, source, [81020])
+            renamed = stored.rename(stored.with_name("Renamed Ezreal.fantome"))
+            listed = self.service.saved_mod(renamed.relative_to(self.service.mods_root).as_posix())
+
+        self.assertEqual((listed.key, listed.target_skin_ids), (name, (81020,)))
+
+    def test_a_renamed_skin_an_older_rose_added_is_still_found_by_its_content(self):
+        source = make_archive(self.root / "Ezreal.fantome", VOICEOVER)
+        renamed = make_archive(self.ezreal / "Renamed Ezreal.fantome", VOICEOVER)
+        add_entries(self.skins_manifest, {"old-key": {"name": "Ezreal", "targets": [81020],
+                                                      "folderHash": compute_mod_facts(source)[1]}},
+                    championId=81, targets=[])
+
+        listed = self.service.saved_mod(renamed.relative_to(self.service.mods_root).as_posix())
+
+        self.assertEqual((listed.key, listed.target_skin_ids), ("old-key", (81020,)))
+
+    def test_the_same_skin_added_again_is_another_skin(self):
+        """The user's problem: the saved one keeps its targets"""
         source = make_archive(self.root / "Ezreal.fantome", VOICEOVER)
         first, name, _ = self.service.import_mod_file(81, source, [81020])
 
-        again = self.service.import_mod_file(81, make_archive(self.root / "Ezreal copy.fantome", VOICEOVER), [81021])
+        again = self.service.import_mod_file(81, source, [81021])
 
-        self.assertEqual(again, (first, name, True))
-        [entry] = self.entries(self.skins_manifest).values()
-        self.assertEqual(entry["targets"], [81020, 81021])
-        self.assertEqual(sorted(p.name for p in self.ezreal.iterdir()),
-                         sorted([self.skins_manifest.name, "Ezreal.fantome", "Ezreal.png"]))
+        self.assertEqual((again.name, again.nothing_added), ("Ezreal (2)", False))
+        mods = self.entries(self.skins_manifest)
+        self.assertEqual({key: entry["targets"] for key, entry in mods.items()},
+                         {"Ezreal": [81020], "Ezreal (2)": [81021]})
 
     def test_a_category_mod_is_registered_without_hashing_its_content(self):
         """Hashing a voiceover pack took seconds; only a custom skin's hashes are ever read"""
-        with patch("injection.mods.storage.compute_mod_facts", side_effect=AssertionError("hashed")):
+        with patch("injection.mods.mod_facts._hash_stream", side_effect=AssertionError("hashed")), \
+                patch("injection.mods.storage.hashlib.file_digest", side_effect=AssertionError("hashed")):
             stored, name, _ = self.add_map()
 
         entry = self.entries(self.maps_manifest)[name]
@@ -520,7 +547,7 @@ class ManifestListingTests(TempCase):
         self.assertEqual(self.service.set_category_mod_display_name("voiceover", "VO Korean", "Korean"), "Korean")
 
         skin = self.manifest_mods()[self.skin_hash()]
-        self.assertEqual((skin["displayName"], skin["folderHash"]), ("Shiny", self.skin_hash()))
+        self.assertEqual((skin["displayName"], skin["indexHash"]), ("Shiny", archive_index_hash(self.skin)))
         self.assertEqual(self.champion_mods()[self.skin_name].display_name, "Shiny")
         voice = json.loads((self.voiceover / ModStorageService.CATEGORY_METADATA).read_text(encoding="utf-8"))
         self.assertEqual((voice["mods"]["VO Korean"]["displayName"], voice["mods"]["VO Korean"]["ltkId"]),
@@ -534,8 +561,8 @@ class ManifestListingTests(TempCase):
         self.service.set_champion_target_ids(81, [81022, 81021], mod_name=self.skin_name)
 
         skin = self.manifest_mods()[self.skin_hash()]
-        self.assertEqual((skin["targets"], skin["folderHash"], skin["displayName"]),
-                         ([81021, 81022], self.skin_hash(), "Arcane!"))
+        self.assertEqual((skin["targets"], skin["indexHash"], skin["displayName"]),
+                         ([81021, 81022], archive_index_hash(self.skin), "Arcane!"))
         self.assertEqual(self.champion_mods()[self.skin_name].target_skin_ids, (81021, 81022))
 
 

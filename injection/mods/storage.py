@@ -42,7 +42,7 @@ from .fantome import write_fantome_zip
 from .ltk_ref import is_ltk_id
 from .manifest import MANIFEST_WRITERS_LOCK
 from .manifest import SavedMod, normalize_target_ids
-from .mod_facts import ModFacts, compute_mod_facts, read_mod_facts
+from .mod_facts import ModFacts, archive_index_hash, read_mod_facts
 from .mod_files import ModFiles
 from .mod_source import ModSource
 
@@ -238,13 +238,12 @@ class ModStorageService:
         and Rose keeps no copy to read it from again. Nothing it wrote stays
         when a step fails. *as_picked*: _write_stored_archive.
 
-        A custom skin (*skin*) has its content hashed (compute_mod_facts),
-        and so has the file picked: a skin renamed on disk is found by them,
-        and the same skin added again (the same file, or the same content:
-        LTK Manager's or still Rose's) is not added twice: *targets* join its
-        own, and it is returned, nothing_added. A category's mod only has its
-        facts read (read_mod_facts), a moment where hashing a voiceover pack
-        took seconds, and the same mod added again is another mod, "Name (2)"."""
+        A custom skin (*skin*) gets the user's *targets*, the sha256 of the
+        file picked (what party mode shares, and matches a friend's copy by)
+        and its archive's index (archive_index_hash: what a renamed skin is
+        found by), never a hash of its content, which read it whole. A
+        category's mod gets its facts (read_mod_facts). The same mod added
+        again is another mod, "Name (2)"."""
         source = Path(source_path).expanduser()
         if not source.is_file():
             raise FileNotFoundError(f"Mod file not found: {source}")
@@ -264,30 +263,20 @@ class ModStorageService:
         if keeps_package:
             target = target.with_suffix(MODPKG_SUFFIX)
         temporary = parent_dir / f"{self.IMPORT_TEMP_PREFIX}{uuid.uuid4().hex}.tmp"
-        existing = None
+        facts = index_hash = None
         try:
             self._write_stored_archive(source, temporary, mod_name, as_picked, keep_package=keeps_package)
             if skin:
-                facts, full_hash, wad_hashes = compute_mod_facts(temporary)
-                existing = saved_manifest.same_content(self.mods_root, parent_dir, full_hash, picked_file_hash)
+                index_hash = archive_index_hash(temporary)
             else:
-                facts, full_hash, wad_hashes = read_mod_facts(temporary), None, {}
-            if existing is None:
-                temporary.replace(target)
+                facts = read_mod_facts(temporary)
+            temporary.replace(target)
         finally:
             safe_remove_entry(temporary)
-        if existing is not None:
-            merged = sorted({*existing.target_skin_ids, *targets})
-            if targets and tuple(merged) != existing.target_skin_ids:
-                if not saved_manifest.update_saved_mod(self.mods_root, existing.identity, targets=merged):
-                    raise ValueError("The mod is saved already, but its targets could not be updated")
-                self._champion_listing_cache.clear()
-            log.info(f"[MODS] {source.name} is saved already, as {existing.name}")
-            return AddedMod(existing.path(self.mods_root), existing.name, nothing_added=True)
         image = self._write_image_sidecar(target)
         try:
-            saved_manifest.add_saved_mod(self.mods_root, target, facts, full_hash, wad_hashes, targets,
-                                         source_hash=picked_file_hash)
+            saved_manifest.add_saved_mod(self.mods_root, target, facts, targets,
+                                         source_hash=picked_file_hash, index_hash=index_hash)
         except Exception:
             for written in (target, image):
                 if written is not None:
@@ -718,19 +707,16 @@ class ModStorageService:
         skin_ids: object,
     ) -> AddedMod:
         """Add one user-selected mod archive to its champion's folder,
-        targeting *skin_ids* (_add_archive), with the hashes party mode
-        shares for it as it came (remember_source_hashes): the base-skin fix
-        and LTK Manager's repair may rewrite it next."""
+        targeting *skin_ids* (_add_archive): the base-skin fix and LTK
+        Manager's repair may rewrite it next, and party mode keeps sharing
+        the hash of the file as it was picked."""
         champion_id_int = self._to_int(champion_id)
         if champion_id_int is None or champion_id_int <= 0:
             raise ValueError(f"Invalid champion ID: {champion_id}")
         targets = normalize_target_ids(skin_ids)
         if not targets:
             raise ValueError("At least one target skin ID is required")
-        added = self._add_archive(source_path, self.get_champion_dir(champion_id_int), targets)
-        if not added.nothing_added:
-            self.remember_source_hashes(added.identity_path)
-        return added
+        return self._add_archive(source_path, self.get_champion_dir(champion_id_int), targets)
 
     @staticmethod
     def manifest_entry(mod_path: Path) -> Optional[Mapping[str, object]]:
@@ -742,7 +728,9 @@ class ModStorageService:
         """Keep in a stored custom skin's manifest entry the hashes party mode
         shares for it (party.discovery.custom_mods.mod_hashes), as it is now:
         called before Rose first rewrites the mod, so a friend's copy of the
-        mod as it came still matches. Kept once recorded.
+        mod as it came still matches. Kept once recorded, and never needed for
+        a skin this Rose added: party mode shares the hash of the file picked
+        (sourceHash), which no rewrite changes.
 
         The skin is the one the listing shows for the file: a renamed file is
         matched to its entry by its content, which the rewrite changes, and a
@@ -754,7 +742,8 @@ class ModStorageService:
             listed = self.saved_mod(mod_path)
             if listed is None or listed.kind != self.CATEGORY_SKINS:
                 return None
-            if isinstance(listed.metadata.get(self.SOURCE_HASHES), dict):
+            if isinstance(listed.metadata.get(self.SOURCE_HASHES), dict) or listed.metadata.get(
+                    saved_manifest.SOURCE_HASH):
                 return listed
             from party.discovery.custom_mods import mod_hashes
 
@@ -770,19 +759,20 @@ class ModStorageService:
             return None
 
     def refresh_mod_hashes(self, mod_path: Path, listed: Optional[SavedMod] = None) -> None:
-        """Re-record a stored custom skin's content hashes (folderHash,
-        wadHashes) in its manifest entry after Rose rewrote it: a renamed mod
-        is found by them, and the same mod added again by its folderHash.
-        *listed* is the skin as remember_source_hashes found it before the
-        rewrite, its entry the one written (a renamed file no longer matches
-        it by content); without it, the entry under the file's name."""
+        """Re-record a stored custom skin's archive index (indexHash) in its
+        manifest entry after Rose rewrote it: a renamed skin is found by it.
+        The content hashes an older Rose kept (folderHash, wadHashes) no
+        longer match, and go. *listed* is the skin as remember_source_hashes
+        found it before the rewrite, its entry the one written (a renamed
+        file no longer matches it by its index); without it, the entry under
+        the file's name."""
         mod_path = Path(mod_path)
         try:
             listed = listed or saved_manifest.stored_skin(mod_path)
             if listed is None:
                 return
-            _facts, full_hash, wad_hashes = compute_mod_facts(mod_path)
-            saved_manifest.update_listed_mod(listed, folderHash=full_hash, wadHashes=wad_hashes)
+            saved_manifest.update_listed_mod(listed, folderHash=None, wadHashes=None,
+                                             **{saved_manifest.INDEX_HASH: archive_index_hash(mod_path)})
             self._champion_listing_cache.clear()
         except (OSError, ValueError, zipfile.BadZipFile) as exc:
             log.warning(f"[MODS] Could not update the hashes of {mod_path.name}: {exc}")

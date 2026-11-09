@@ -15,10 +15,12 @@ time of the mod checked, those of the champion WADs it was checked against, and
 whether every step could run (a mod a step failed on is tried again at the
 next start of Rose).
 
-Rewriting a stored mod changes its content hashes: before the first rewrite,
-the hashes party mode shares are kept (ModStorageService.remember_source_hashes),
-so a friend's copy of the same mod still matches; after it, the manifest's are
-updated (ModStorageService.refresh_mod_hashes).
+Rewriting a stored mod changes its file: party mode shares the hash of the
+file as it was picked (its sourceHash; for a skin an older Rose added, the
+hashes ModStorageService.remember_source_hashes keeps before the first
+rewrite), so a friend's copy of the same mod still matches; after it, the
+manifest's archive index is updated (ModStorageService.refresh_mod_hashes),
+which a renamed skin is found by.
 """
 
 from __future__ import annotations

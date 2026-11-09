@@ -3,6 +3,7 @@ check them (outside a queue, champion select and games): a category's mod moves 
 its library, a custom skin stays Rose's; a mod LTK Manager will turn off in
 game is not added."""
 
+import hashlib
 import json
 import os
 import sys
@@ -16,7 +17,7 @@ from unittest.mock import MagicMock, patch
 
 from injection.baseskin import library as base_skin_library
 from injection.mods.manifest import ltk_removals
-from injection.mods.mod_facts import compute_mod_facts
+from injection.mods.mod_facts import archive_index_hash
 from injection.mods.storage import ModStorageService
 from pengu.communication import message_handler
 
@@ -285,21 +286,22 @@ class SkinCheckOnImportTests(ModCheckCase):
         self.assertTrue(self.skin.exists())
 
     def test_the_manifest_follows_the_repair_written_into_a_custom_skin(self):
-        """LTK Manager's repair rewrote Rose's file: the manifest finds it by its new hashes"""
+        """LTK Manager's repair rewrote Rose's file: the manifest finds it by its new index"""
         def repair_into_roses_file(mod, display_name, on_kept=None, stop=None):
             with zipfile.ZipFile(mod, "w") as archive:
                 archive.writestr("WAD/Ezreal.wad.client", b"repaired skin")
             return {"health": "repairable", "repaired": 1, "problems": []}
         self.library.check_mod.side_effect = repair_into_roses_file
-        added_hash = compute_mod_facts(self.skin)[1]
+        added_index = archive_index_hash(self.skin)
+        picked = hashlib.sha256(self.skin_source.read_bytes()).hexdigest()
 
         self.handler()._check_imported_mods(self.skin_imported, [], MagicMock())
 
-        repaired_hash = compute_mod_facts(self.skin)[1]
-        self.assertNotEqual(repaired_hash, added_hash, "the repair was written into Rose's file")
-        self.assertEqual(self.saved(self.skin_path).metadata["folderHash"], repaired_hash)
-        self.assertIsNotNone(self.storage.saved_mod(self.skin_path).metadata.get("sourceHashes"),
-                             "what party mode shares, as the skin was added")
+        repaired_index = archive_index_hash(self.skin)
+        self.assertNotEqual(repaired_index, added_index, "the repair was written into Rose's file")
+        metadata = self.saved(self.skin_path).metadata
+        self.assertEqual(metadata["indexHash"], repaired_index)
+        self.assertEqual(metadata["sourceHash"], picked, "what party mode shares, as the skin was picked")
 
     def test_a_custom_skin_is_checked_only_once_the_base_skin_fix_lets_go_of_it(self):
         """The idle pass rewriting the skin and LTK Manager's repair written into
@@ -338,17 +340,20 @@ class SkinCheckOnImportTests(ModCheckCase):
         self.assertEqual(errors[0]["fileName"], "gojo-ezreal-v1.0.0.fantome")
         self.assertIn("skinhack", errors[0]["error"])
 
-    def test_the_same_skin_added_again_is_not_checked_again(self):
+    def test_the_same_skin_added_again_is_another_skin_checked_as_any(self):
+        self.library.check_mod.return_value = None
         instance = self.handler()
 
         with patch.object(message_handler, "_choose_mod_files", return_value=[self.skin_source]):
             instance._handle_add_custom_mods_skin_selected({"action": "create", "championId": 81, "skinIds": [81021]})
 
-        self.library.check_mod.assert_not_called()
         response = instance.sent[-1]
         self.assertTrue(response["success"])
-        self.assertEqual(response["imported"][0]["relativePath"], self.skin_path)
-        self.assertEqual(self.saved(self.skin_path).target_skin_ids, (81020, 81021))
+        again = response["imported"][0]["relativePath"]
+        self.assertNotEqual(again, self.skin_path)
+        self.assertEqual(Path(self.library.check_mod.call_args.args[0]), self.storage.mods_root / again)
+        self.assertEqual(self.saved(self.skin_path).target_skin_ids, (81020,))
+        self.assertEqual(self.saved(again).target_skin_ids, (81021,))
 
 
 def imported_mod():

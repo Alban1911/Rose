@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import threading
+import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from types import MappingProxyType
@@ -16,7 +17,7 @@ from utils.core.modpkg import MODPKG_SUFFIX
 from utils.core.safe_extract import MOD_ARCHIVE_SUFFIXES
 
 from .ltk_ref import is_ltk_id
-from .mod_facts import ModFacts, compute_mod_facts
+from .mod_facts import ModFacts, archive_index_hash, compute_mod_facts
 from .mod_source import LtkEntry, ModSource, RoseFile
 
 log = get_logger()
@@ -34,6 +35,11 @@ CATEGORY_METADATA = "rose_category_mods.json"
 ARCHIVE_SUFFIX = ".fantome"
 PENDING_REMOVALS = "pendingRemovals"
 SOURCE_HASHES = "sourceHashes"
+# A custom skin's: the sha256 of the file the user picked (party mode shares
+# it, and matches a friend's copy by it), and its archive's index
+# (mod_facts.archive_index_hash: a renamed skin is found by it)
+SOURCE_HASH = "sourceHash"
+INDEX_HASH = "indexHash"
 
 _METADATA_NAMES = {TARGET_METADATA, LEGACY_TARGET_METADATA, CATEGORY_METADATA}
 
@@ -332,9 +338,23 @@ def _unstored_modpkg(candidate: Path) -> bool:
 
 
 def _content_match(candidate: Path, entries: List[_Entry]) -> Optional[_Entry]:
-    """The entry a renamed stored mod was registered as, by its content (the
-    hash the manifest keeps): only files no entry names need it."""
+    """The entry a renamed stored skin was registered as, by its archive's
+    index (indexHash, read in a moment), or for an entry an older Rose wrote,
+    by its content (the hashes it kept, which reads the whole mod): only files
+    no entry names need it."""
     if _unstored_modpkg(candidate):
+        return None
+    try:
+        index_hash = archive_index_hash(candidate)
+    except (OSError, zipfile.BadZipFile) as e:
+        log.debug(f"[MODS] Could not read {candidate.name}'s index to match it to its manifest entry: {e}")
+        index_hash = None
+    if index_hash is not None:
+        match = next((entry for entry in entries if entry.metadata.get(INDEX_HASH) == index_hash), None)
+        if match is not None:
+            return match
+    entries = [entry for entry in entries if INDEX_HASH not in entry.metadata]
+    if not entries:
         return None
     try:
         _facts, full_hash, wad_hashes = compute_mod_facts(candidate)
@@ -590,26 +610,6 @@ def leftover_copies(mods_root: Path) -> List[SavedMod]:
     return [mod for mod in ltk_library_mods(mods_root) if mod.ltk_id and mod.rose_copy is not None]
 
 
-def same_content(mods_root: Path, directory: Path, full_hash: str,
-                 source_hash: Optional[str] = None) -> Optional[SavedMod]:
-    """The saved mod of *directory* added from the file *source_hash* names
-    (its sourceHash), or whose content is that of *full_hash*
-    (compute_mod_facts; its folderHash), LTK Manager's or still Rose's: the
-    same mod, added again. One LTK Manager lost does not count: it is to be
-    added again."""
-    relative = _relative_identity(Path(mods_root), directory)
-    folder = _directory_of(Path(mods_root), relative.split("/")) if relative else None
-    if folder is None:
-        return None
-    return next((
-        mod for mod in _directory_mods(folder, match_content=False)
-        if mod.available and (
-            full_hash in (mod.key, mod.metadata.get("folderHash"))
-            or (source_hash is not None and mod.metadata.get("sourceHash") == source_hash)
-        )
-    ), None)
-
-
 def _ltk_ids_in(payload: Optional[dict]) -> set[str]:
     raw = payload.get("mods") if isinstance(payload, dict) else None
     return {
@@ -815,45 +815,41 @@ def forget_ltk_removals(mods_root: Path, ids: Iterable[str]) -> None:
             log.debug(f"[MODS] {directory.manifest}: {e}")
 
 
-def add_saved_mod(mods_root: Path, archive: Path, facts: ModFacts, full_hash: Optional[str],
-                  wad_hashes: Mapping[str, str], targets: Iterable[int] = (), *,
-                  source_hash: Optional[str] = None) -> None:
-    """Register the archive of a mod just added to its folder with what was
-    read from it once: its facts, its date (the listing keeps it once the
-    archive is in LTK Manager), and for a custom skin its content hash and
-    its WADs' hashes (compute_mod_facts: what a renamed skin and the same
-    skin added again are known by, _content_match and same_content), that
-    of the file the user picked (*source_hash*: Rose names the mod in an
-    archive it packs, so the same file added again under another name packs
-    another content) and its targets. A category's mod has no hashes (None).
+def add_saved_mod(mods_root: Path, archive: Path, facts: Optional[ModFacts], targets: Iterable[int] = (), *,
+                  source_hash: Optional[str] = None, index_hash: Optional[str] = None) -> None:
+    """Register the archive of a mod just added to its folder, keyed by its
+    name, with its date (the listing keeps it once the archive is in LTK
+    Manager) and what Rose needs to know about it, read once: a category's
+    mod its facts (read_mod_facts); a custom skin its targets, the sha256 of
+    the file the user picked (*source_hash*: what party mode shares and
+    matches a friend's copy by) and its archive's index (*index_hash*: what
+    a renamed skin is found by, _content_match).
 
-    A champion's mod is keyed by its content hash, or by its name while an
-    entry whose file is gone holds that key. An entry left under its name by a
-    mod whose file is gone is dropped. Raises UnreadableManifest, or
-    ValueError when *archive* is not in a saved mods folder."""
+    An entry left under its name by a mod whose file is gone is dropped.
+    Raises UnreadableManifest, or ValueError when *archive* is not in a saved
+    mods folder."""
     mods_root = Path(mods_root)
     identity = _relative_identity(mods_root, archive)
     directory = _directory_of(mods_root, identity.split("/")[:-1]) if identity else None
     if directory is None:
         raise ValueError(f"{archive} is not in a saved mods folder")
     name = Path(identity).stem
-    entry: dict = {"name": name, **facts.to_manifest()}
-    if full_hash is not None:
-        entry["folderHash"] = full_hash
+    entry: dict = {"name": name, **(facts.to_manifest() if facts is not None else {})}
     updated_at = _mtime(mods_root / identity)
     if updated_at is not None:
         entry["updatedAt"] = updated_at
     if source_hash is not None:
-        entry["sourceHash"] = source_hash
+        entry[SOURCE_HASH] = source_hash
+    if index_hash is not None:
+        entry[INDEX_HASH] = index_hash
     if directory.kind == SKINS:
-        entry.update(wadHashes=dict(wad_hashes), targets=list(targets))
+        entry["targets"] = list(targets)
     else:
         entry["path"] = name
 
     def register(payload: dict, mods: dict) -> bool:
         _drop_entries(payload, mods, _named(directory, mods, name))
-        key = full_hash if directory.kind == SKINS and full_hash not in mods else name
-        mods[key] = entry
+        mods[name] = entry
         return True
 
     _change_manifest(directory, register)

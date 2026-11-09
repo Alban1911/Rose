@@ -19,7 +19,7 @@ import xxhash
 from utils.core.modpkg import MODPKG_SUFFIX, ModPackage, extract_modpkg
 from utils.core.paths import get_injection_dir
 
-from .mod_files import ModFiles
+from .mod_files import ModFiles, is_mod_archive
 
 PARTY_HASH_LENGTH = 32
 _FACTS_SCRATCH = "mod_facts"
@@ -128,6 +128,29 @@ class ModFacts:
         must then fall back on the mod's files or safe defaults."""
         ships = m.get("shipsLanguageTable") if isinstance(m, Mapping) else None
         return cls(ships) if isinstance(ships, bool) else None
+
+
+def archive_index_hash(mod: Path) -> Optional[str]:
+    """A digest of a mod archive's index: each file's name, size and CRC32
+    as the ZIP's central directory lists them, read in a moment where
+    hashing the content reads every byte. The same whatever the archive is
+    named, and however its files are compressed: a renamed custom skin is
+    found by it (manifest._content_match). The preview image is left out, as
+    the content hash leaves it out. None for a folder or a .modpkg, which
+    have no such index. Raises OSError, zipfile.BadZipFile."""
+    mod = Path(mod)
+    if not mod.is_file() or not is_mod_archive(mod):
+        return None
+    with zipfile.ZipFile(mod) as archive:
+        rows = sorted(
+            (info.filename.replace("\\", "/").lstrip("/").casefold(), info.file_size, info.CRC)
+            for info in archive.infolist()
+            if not info.is_dir() and not _is_preview_image(info.filename)
+        )
+    digest = hashlib.sha256()
+    for name, size, crc in rows:
+        digest.update(f"{name}\0{size}\0{crc:08x}\n".encode("utf-8"))
+    return digest.hexdigest()
 
 
 def read_mod_facts(mod: Path) -> ModFacts:
