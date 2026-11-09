@@ -1592,7 +1592,7 @@
     }
     updateSettingsForm();
     // Badge count should reflect what's actually in diagnostics (and not change while dragging sliders).
-    const localCount = Array.isArray(diagnosticsState.errors) ? diagnosticsState.errors.length : 0;
+    const localCount = currentSessionErrors().length;
     if (localCount > 0) {
       updateErrorBadges(true, localCount);
     } else {
@@ -1600,14 +1600,14 @@
     }
     // If backend reports errors but we don't have the list yet, fetch it once so we can
     // show per-category guidance and clear it after Save (not while dragging).
-    if (payload.hasErrors && (!Array.isArray(diagnosticsState.errors) || diagnosticsState.errors.length === 0)) {
+    if (payload.hasErrors && localCount === 0) {
       requestDiagnostics();
     }
     log("info", "Settings data received", currentSettings);
   }
 
   let diagnosticsDialog = null;
-  let diagnosticsState = { errors: [], path: "", settingsSnapshot: null, baseSkinStats: null };
+  let diagnosticsState = { errors: [], path: "", settingsSnapshot: null, baseSkinStats: null, sessionStart: null };
   let errorBadgeState = { hasErrors: false, count: 0 };
   let _badgeObserverStarted = false;
   let _pendingSave = null;
@@ -1616,6 +1616,12 @@
 
   function _clamp(n, min, max) {
     return Math.max(min, Math.min(max, n));
+  }
+
+  // Errors from this run of Rose: an earlier session's don't light up Troubleshooting
+  function currentSessionErrors() {
+    const errors = Array.isArray(diagnosticsState.errors) ? diagnosticsState.errors : [];
+    return errors.filter((e) => e?.thisSession !== false);
   }
 
   function _diagnosticsCategory(e) {
@@ -1726,8 +1732,10 @@
       path: payload.path || "",
       settingsSnapshot: snapshot,
       baseSkinStats: payload.baseSkinStats || null,
+      sessionStart: typeof payload.sessionStart === "number" ? payload.sessionStart : null,
     };
-    updateErrorBadges(diagnosticsState.errors.length > 0, diagnosticsState.errors.length);
+    const current = currentSessionErrors();
+    updateErrorBadges(current.length > 0, current.length);
     renderDiagnosticsDialog();
     renderThresholdBenchmark();
   }
@@ -5334,8 +5342,40 @@
     if (!body || !foot) return;
 
     const errors = Array.isArray(diagnosticsState.errors) ? diagnosticsState.errors : [];
+    // In a screenshot, this line says which run of Rose the errors belong to
+    const language = String(window.RoseI18n?.language || "en").replace("_", "-");
+    const formatTime = (seconds, options) => {
+      try {
+        return new Date(seconds * 1000).toLocaleString(language, options);
+      } catch (e) {
+        return new Date(seconds * 1000).toLocaleString(undefined, options);
+      }
+    };
+    const timeAgo = (seconds) => {
+      const elapsed = Math.max(0, Date.now() / 1000 - seconds);
+      const [value, unit] =
+        elapsed < 3600 ? [Math.max(1, Math.round(elapsed / 60)), "minute"]
+        : elapsed < 86400 ? [Math.round(elapsed / 3600), "hour"]
+        : [Math.round(elapsed / 86400), "day"];
+      try {
+        return new Intl.RelativeTimeFormat(language, { numeric: "auto" }).format(-value, unit);
+      } catch (e) {
+        return new Intl.RelativeTimeFormat("en", { numeric: "auto" }).format(-value, unit);
+      }
+    };
+    const sessionStart = diagnosticsState.sessionStart;
+    const sessionHtml =
+      typeof sessionStart === "number"
+        ? `<div style="opacity:0.75; margin-bottom:8px;">${escapeHtml(
+            t("This session: Rose v{version}, started {time}", {
+              version: currentSettings?.version || "?",
+              time: formatTime(sessionStart, { dateStyle: "short", timeStyle: "short" }),
+            })
+          )}</div>`
+        : "";
     if (errors.length === 0) {
       body.innerHTML = `
+        ${sessionHtml}
         <div style="opacity:0.85; margin-bottom:8px;">${escapeHtml(t("No recent errors."))}</div>
         <div style="opacity:0.75;">${escapeHtml(t("If something feels off, open the logs folder and share the latest log in a discord ticket."))}</div>
       `.trim();
@@ -5579,18 +5619,21 @@
       };
 
       const headerHtml = `
+        ${sessionHtml}
         <div style="display:flex; flex-direction:column; gap:4px; margin-bottom:10px;">
           <div style="font-weight:700;">${escapeHtml(t("Errors (most recent first)"))}</div>
           <div style="opacity:0.75;">${escapeHtml(t("Tip: after changing a setting, click {save}, then retry.")).replace("{save}", `<span style="font-weight:700;">${escapeHtml(t("Save"))}</span>`)}</div>
         </div>
       `.trim();
 
-      const itemsHtml = errors
-        .map((e, idx) => {
+      const itemHtml = (e, idx, earlier) => {
           const ts = String(e?.ts || "").trim();
+          const at = typeof e?.at === "number" ? e.at : null;
+          // This session's: the time. An earlier one's: how long ago, the date on hover
+          const when = at == null ? ts : earlier ? timeAgo(at) : formatTime(at, { timeStyle: "short" });
           const desc = describe(e);
           const title = escapeHtml(desc.title);
-          const tsHtml = ts ? `<span style="opacity:0.75;">${escapeHtml(ts)}</span>` : "";
+          const tsHtml = when ? `<span style="opacity:0.75;" title="${escapeHtml(ts)}">${escapeHtml(when)}</span>` : "";
 
           const detailsHtml = (desc.details || [])
             .map((d) => `<li style="margin:2px 0;">${escapeHtml(d)}</li>`)
@@ -5613,10 +5656,27 @@
               }
             </div>
           `.trim();
-        })
-        .join("");
+        };
 
-      body.innerHTML = `${headerHtml}${itemsHtml}`;
+      const current = errors.filter((e) => e?.thisSession !== false);
+      const earlier = errors.filter((e) => e?.thisSession === false);
+      const currentHtml = current.length
+        ? current.map((e, idx) => itemHtml(e, idx, false)).join("")
+        : `<div style="opacity:0.85; margin-bottom:8px;">${escapeHtml(t("No errors in this session."))}</div>`;
+      // Stays open across the refreshes while the user reads it
+      const earlierOpen = !!body.querySelector("#rose-diagnostics-earlier")?.open;
+      const earlierHtml = earlier.length
+        ? `
+          <details id="rose-diagnostics-earlier" style="margin-top:6px; opacity:0.6;"${earlierOpen ? " open" : ""}>
+            <summary style="cursor:pointer; margin-bottom:6px;">${escapeHtml(
+              t("Earlier sessions ({count}), not from this run of Rose", { count: earlier.length })
+            )}</summary>
+            ${earlier.map((e, idx) => itemHtml(e, idx, true)).join("")}
+          </details>
+        `.trim()
+        : "";
+
+      body.innerHTML = `${headerHtml}${currentHtml}${earlierHtml}`;
       body.querySelectorAll(".rose-diagnostics-delete").forEach((btn) => {
         btn.addEventListener("click", () => deleteDiagnostics([btn.dataset.key]));
       });
