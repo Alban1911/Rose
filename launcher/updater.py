@@ -1,8 +1,7 @@
 """Launcher auto-update logic for Rose.
 
-Downloads the latest release ZIP from GitHub, stages it under the
-user data directory, and replaces the current installation when running
-as a frozen executable.
+Downloads the latest release ZIP from GitHub and prepares it beside the
+installation for a helper to apply once Rose exits.
 """
 
 from __future__ import annotations
@@ -20,7 +19,7 @@ def auto_update(
 ) -> bool:
     """Download and install the latest release if a new version is available.
 
-    Returns True when an update was installed, False otherwise.
+    Returns True when the update helper is ready, False otherwise.
     """
     sequence = UpdateSequence()
     return sequence.perform_update(

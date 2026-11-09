@@ -9,6 +9,8 @@ import ctypes
 import os
 import sys
 import time
+from contextlib import contextmanager
+from ctypes import wintypes
 from pathlib import Path
 
 from utils.core.logging import get_logger
@@ -22,6 +24,15 @@ log = get_logger()
 # Win32 constant
 ERROR_ALREADY_EXISTS = 183
 SYNCHRONIZE = 0x00100000
+
+if sys.platform == "win32":
+    _kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    _kernel32.OpenMutexW.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.LPCWSTR]
+    _kernel32.OpenMutexW.restype = wintypes.HANDLE
+    _kernel32.CreateMutexW.argtypes = [wintypes.LPVOID, wintypes.BOOL, wintypes.LPCWSTR]
+    _kernel32.CreateMutexW.restype = wintypes.HANDLE
+    _kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    _kernel32.CloseHandle.restype = wintypes.BOOL
 
 
 class LockFile:
@@ -166,29 +177,30 @@ def create_lock_file() -> bool:
 def create_single_instance_mutex() -> bool:
     """Create a Windows named mutex (kernel-managed) to enforce single instance.
 
-    A Rose moving the saved mods in its launcher (MOD_MIGRATION_MUTEX_NAME)
-    is running too: it takes the single-instance mutex only after that.
+    An older Rose moving the saved mods may hold only its migration mutex.
     """
     if sys.platform != "win32":
         return True
 
     app_state = get_app_state()
+    if app_state.mutex_handle:
+        return True
 
     try:
-        migrating = ctypes.windll.kernel32.OpenMutexW(SYNCHRONIZE, False, MOD_MIGRATION_MUTEX_NAME)
+        migrating = _kernel32.OpenMutexW(SYNCHRONIZE, False, MOD_MIGRATION_MUTEX_NAME)
         if migrating:
-            ctypes.windll.kernel32.CloseHandle(migrating)
+            _kernel32.CloseHandle(migrating)
             return False
 
-        handle = ctypes.windll.kernel32.CreateMutexW(None, False, SINGLE_INSTANCE_MUTEX_NAME)
+        handle = _kernel32.CreateMutexW(None, False, SINGLE_INSTANCE_MUTEX_NAME)
         if not handle:
-            log.error("CreateMutexW failed; falling back to lock file.")
-            return True  # allow fallback path to decide
+            log.error("CreateMutexW failed: %s", ctypes.WinError(ctypes.get_last_error()))
+            return False
 
-        last_error = ctypes.windll.kernel32.GetLastError()
+        last_error = ctypes.get_last_error()
         if last_error == ERROR_ALREADY_EXISTS:
             # Another instance already created it
-            ctypes.windll.kernel32.CloseHandle(handle)
+            _kernel32.CloseHandle(handle)
             return False
 
         # Keep handle alive for process lifetime
@@ -205,8 +217,24 @@ def create_single_instance_mutex() -> bool:
         atexit.register(cleanup_lock_file)  # reuse existing cleanup hook
         return True
     except Exception as e:
-        log.error(f"Failed to create mutex: {e}; falling back to lock file.")
-        return True
+        log.error(f"Failed to create mutex: {e}")
+        return False
+
+
+@contextmanager
+def update_instance_lock():
+    """Allow direct updater callers to take the same lock as the launcher."""
+    if sys.platform != "win32":
+        yield False
+        return
+    already_held = bool(get_app_state().mutex_handle)
+    acquired = create_single_instance_mutex()
+    try:
+        yield acquired
+    finally:
+        if acquired and not already_held:
+            # A successful helper handoff keeps its own reference.
+            cleanup_lock_file()
 
 
 def cleanup_lock_file() -> None:
@@ -217,7 +245,7 @@ def cleanup_lock_file() -> None:
         # release mutex handle if we own it
         if sys.platform == "win32" and app_state.mutex_handle:
             try:
-                ctypes.windll.kernel32.CloseHandle(app_state.mutex_handle)
+                _kernel32.CloseHandle(app_state.mutex_handle)
             except Exception as e:
                 log.debug("Could not close single-instance mutex handle: %s", e)
             app_state.mutex_handle = None

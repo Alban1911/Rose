@@ -148,7 +148,7 @@ def _perform_update(dialog: UpdateDialog, dev_mode: bool = False) -> bool:
                 local_version,
             ),
         )
-        updater_log.info(f"Auto-update completed. Update installed: {updated}")
+        updater_log.info("Auto-update check completed. Helper ready: %s", updated)
     except Exception as exc:  # noqa: BLE001
         log.error(f"Auto-update failed: {exc}")
         dialog.set_status(f"Update failed: {exc}")
@@ -160,12 +160,11 @@ def _perform_update(dialog: UpdateDialog, dev_mode: bool = False) -> bool:
         return False
 
     if updated:
-        dialog.set_status("Update installed. Restarting…")
+        dialog.set_status("Update prepared. Closing Rose to apply it…")
         dialog.set_progress(100)
         dialog.pump_messages()
         time.sleep(1.0)
-        # auto_update already launched the new process via batch file; exit current one
-        updater_log.info("Update applied successfully; exiting for restart.")
+        updater_log.info("Update helper acknowledged the handoff. Closing Rose to apply it.")
         os._exit(0)
 
     dialog.set_marquee(False)
@@ -187,11 +186,16 @@ def run_launcher(dev_mode: bool = False, test_download_fail: bool = False) -> No
         log.debug("Win32 launcher skipped on non-Windows platform.")
         return
 
-    with _route_logger(log, updater_log):
-        _run_launcher_dialog(dev_mode, test_download_fail)
+    from main.core.lockfile import update_instance_lock
+
+    with update_instance_lock() as acquired:
+        if not acquired:
+            return
+        with _route_logger(log, updater_log):
+            _run_launcher_dialog(dev_mode, test_download_fail, holds_instance_lock=True)
 
 
-def _run_launcher_dialog(dev_mode: bool, test_download_fail: bool) -> None:
+def _run_launcher_dialog(dev_mode: bool, test_download_fail: bool, *, holds_instance_lock: bool = False) -> None:
     updater_log.info("Launcher sequence starting.")
     dialog = UpdateDialog()
     try:
@@ -212,7 +216,7 @@ def _run_launcher_dialog(dev_mode: bool, test_download_fail: bool) -> None:
                 skin_sequence = SkinSyncSequence()
                 skin_sequence.perform_skin_sync(dialog, test_fail=test_download_fail)
 
-                ModMigrationSequence().perform(dialog)
+                ModMigrationSequence().perform(dialog, holds_instance_lock=holds_instance_lock)
 
                 dialog.set_detail("All checks complete.")
                 dialog.set_status("Launching Rose…")
