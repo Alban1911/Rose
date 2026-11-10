@@ -59,6 +59,20 @@ class RoseProfileTests(LtfSessionTestCase):
 
         self.assertEqual(self.state()["users_profile"], "default-id")
 
+    def test_an_older_roses_turned_off_mod_is_turned_on_in_the_users_profile_alone(self):
+        FakeBridge.initial_library = [{"id": USERS_ID, "name": "Map", "enabled": False}]
+        self.crashed_in_roses_profile(disabled=[USERS_ID])
+
+        self.overlay.start_patcher_early()
+        self.assertNotIn(("toggle", USERS_ID, True), self.bridge.calls, "Rose's profile is the active one")
+        self.overlay.discard_early_patcher()
+        self.assertEqual(self.state()["disabled"], [USERS_ID])
+        FakeBridge.initial_active_profile = "default-id"
+        self.overlay.start_patcher_early()
+
+        self.assertIn(USERS_ID, self.bridge.enabled_in("Default"))
+        self.assertEqual(self.state()["disabled"], [])
+
     def test_a_users_profile_deleted_since_is_forgotten(self):
         self.crashed_in_roses_profile()
         self.state_path.write_text(json.dumps({"users_profile": "deleted-id"}), encoding="utf-8")

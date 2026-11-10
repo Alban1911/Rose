@@ -88,9 +88,11 @@ class RoseProfile:
     def _restore_users_mods(self, bridge) -> None:
         """Turn back on the user's mods an older Rose turned off in their
         profile for a game and never turned back on (journal "disabled"),
-        before leaving that profile. What cannot be turned on stays recorded."""
-        disabled = self._host.journal.read()["disabled"]
-        if not disabled:
+        while that profile is the active one: not after a crash left Rose's
+        active (users_profile). What cannot be turned on stays recorded."""
+        state = self._host.journal.read()
+        disabled = state["disabled"]
+        if not disabled or state["users_profile"] is not None:
             return
         try:
             bridge.stop_patcher()

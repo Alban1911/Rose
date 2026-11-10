@@ -2860,7 +2860,8 @@
     const category = String(data.category || "").trim();
     if (!category || !data.modName) return;
     const target = normalizePathLike(`${category}/${data.modName}`);
-    const isDeleted = (id) => Boolean(id) && normalizePathLike(id) === target;
+    // A mod LTK Manager holds is selected by its archive's path
+    const isDeleted = (id) => Boolean(id) && [target, `${target}.fantome`].includes(normalizePathLike(id));
 
     if (category === "maps") {
       if (isDeleted(selectedMapId)) selectedMapId = null;
@@ -2998,6 +2999,8 @@
       bridge.subscribe("category-mods-response", (data) => handleCategoryModsResponse({ detail: data }));
       bridge.subscribe("others-response", (data) => handleOthersResponse({ detail: data }));
       bridge.subscribe("category-mod-deleted", handleCategoryModDeleted);
+      // One hidden leaves the pick lists as one deleted does; one shown comes back
+      bridge.subscribe("category-mod-hidden", handleCategoryModDeleted);
       bridge.subscribe("champion-mod-deleted", handleChampionModDeleted);
       bridge.subscribe("champion-locked", (data) => handleChampionLocked({ detail: data }));
       bridge.subscribe("custom-mod-state", (data) => {
