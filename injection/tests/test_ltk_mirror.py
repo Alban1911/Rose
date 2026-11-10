@@ -55,6 +55,7 @@ class MirrorTests(unittest.TestCase):
         self.assertEqual(category_of({"tags": ["map-skin"]}), "maps")
         self.assertEqual(category_of({"tags": [], "maps": ["summoners-rift"]}), "maps")
         self.assertEqual(category_of({"tags": ["ui"]}), "ui")
+        self.assertEqual(category_of({"tags": ["map-skin", "ui"], "maps": []}), "ui", "a HUD")
         self.assertEqual(category_of({"tags": ["emote"]}), "others")
         self.assertEqual(category_of(None), "others", "not analysed yet")
         self.assertIsNone(category_of({"tags": ["champion-skin", "map-skin"]}))

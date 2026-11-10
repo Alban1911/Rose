@@ -48,15 +48,16 @@ class MirrorReport:
 def category_of(analysis: Optional[Mapping]) -> Optional[str]:
     """The category Rose lists a mod the user added in LTK Manager in, from
     what LTK Manager's own analysis found in it. None for a champion skin:
-    Rose's skins are its own. One not analysed yet goes to others."""
+    Rose's skins are its own. A HUD is UI, though LTK Manager finds it in a
+    map's files too. One not analysed yet goes to others."""
     analysis = analysis or {}
     tags = set(analysis.get("tags") or ())
     if CHAMPION_SKIN in tags:
         return None
-    if "map-skin" in tags or analysis.get("maps"):
-        return "maps"
     if "ui" in tags:
         return "ui"
+    if "map-skin" in tags or analysis.get("maps"):
+        return "maps"
     return "others"
 
 
