@@ -134,13 +134,14 @@ class UpdateSequence:
         except OSError as exc:
             updater_log.debug("Could not remove downloaded update package: %s", exc)
 
-        hash_asset = self.github_client.get_hash_asset(release)
+        # The installed hashes are carried into the update (see
+        # _preserve_install_files): the release's copy only fills in a missing one
+        hashes = Path("_internal") / "injection" / "tools" / "hashes.game.txt"
+        hash_asset = None if (install_dir / hashes).is_file() else self.github_client.get_hash_asset(release)
         if hash_asset:
             status_callback("Downloading hash file...")
             self.downloader.download_hash_file(
-                hash_asset.get("browser_download_url"),
-                extracted_root / "_internal" / "injection" / "tools" / "hashes.game.txt",
-                status_callback,
+                hash_asset.get("browser_download_url"), extracted_root / hashes, status_callback,
             )
 
         status_callback("Preparing to install update")
