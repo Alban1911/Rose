@@ -274,7 +274,7 @@ class LtfHost:
         self.journal = LtfJournal(injection_dir / JOURNAL_FILE)
         self.switches = SavedModSwitches(self)
         self.profile = RoseProfile(self)
-        self.folder = RoseFolder()
+        self.folder = RoseFolder(self)
 
     def busy(self) -> bool:
         """Whether an injection holds LTK Manager (champion select, a game)."""

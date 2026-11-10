@@ -8,7 +8,7 @@ from injection.mods.manifest import ltk_library_mods, ltk_removals, set_hidden
 from injection.mods.mod_facts import compute_mod_facts
 from injection.overlay import ltk_data
 from injection.tests import test_ltk_sync
-from injection.tests.test_ltk_sync import MAP, MAP_ID, NEW_ID, VO_ID
+from injection.tests.test_ltk_sync import INDEX_TIME, MAP, MAP_ID, NEW_ID, VO_ID
 from injection.tests.test_mod_archives import PNG, VOICEOVER
 
 USERS_HUD = {
@@ -245,6 +245,18 @@ class MirrorTests(unittest.TestCase):
 
         self.assertEqual((list(self.listed("ui")), self.listed("others")), (["dark-hud"], {}))
         self.assertNotEqual(ltk_sync._last_synced_version, ltk_data.library_version(), "synced again next time")
+
+    def test_an_analysis_that_cannot_be_read_is_read_again_though_ltk_manager_holds_no_mod_now(self):
+        self.ltk_archive("dark-hud", USERS_HUD)
+        self.write_index((NEW_ID, "dark-hud"))
+        self.sync(only_if_changed=True)
+        self.write_index(when=INDEX_TIME + 1)
+        with patch.object(ltk_mirror, "read_mod_analysis", side_effect=PermissionError("in use")):
+            self.sync(only_if_changed=True)
+
+        self.sync(only_if_changed=True)
+
+        self.assertEqual(self.listed(), {})
 
     def test_one_that_cannot_be_listed_whole_leaves_nothing_behind_and_is_listed_at_the_next_sync(self):
         self.ltk_archive("dark-hud", USERS_HUD)

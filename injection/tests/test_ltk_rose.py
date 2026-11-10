@@ -28,13 +28,26 @@ class RoseProfileTests(LtfSessionTestCase):
         self.assertEqual(during, {"state": dict(during["state"], users_profile="default-id"), "active": "rose-id"})
         self.assertIsNone(self.state()["users_profile"])
 
-    def test_a_profile_named_rose_is_used_again(self):
-        FakeBridge.initial_profiles = [{"id": "default-id", "name": "Default"}, {"id": "mine", "name": "Rose"}]
+    def test_rose_s_profile_is_used_again(self):
+        self.overlay.mk_run_overlay([self.make_mod()], stop_callback=lambda: True)
+        FakeBridge.initial_profiles = self.bridge.profile_list
+
+        self.overlay.mk_run_overlay([self.make_mod("1002-Other")], stop_callback=lambda: True)
+
+        self.assertNotIn("create_profile", self.bridge.command_names())
+        self.assertIn(("switch_profile", "rose-id"), self.bridge.calls)
+
+    def test_a_profile_the_user_named_rose_is_theirs(self):
+        FakeBridge.initial_library = [{"id": USERS_ID, "name": "Map", "enabled": True}]
+        FakeBridge.initial_profiles = [{"id": "default-id", "name": "Default"}, {"id": "users-rose", "name": "Rose"}]
+        FakeBridge.initial_active_profile = "users-rose"
 
         self.overlay.mk_run_overlay([self.make_mod()], stop_callback=lambda: True)
 
-        self.assertNotIn("create_profile", self.bridge.command_names())
-        self.assertIn(("switch_profile", "mine"), self.bridge.calls)
+        self.assertIn(("create_profile", "Rose (2)"), self.bridge.calls)
+        self.assertEqual((self.bridge.active_profile_id, self.bridge.enabled_in("Rose")), ("users-rose", {USERS_ID}))
+        self.assertEqual(ltk_library.remove_rose_mods(self.host), 0)
+        self.assertEqual([p["id"] for p in self.bridge.profile_list], ["default-id", "users-rose"])
 
     def test_a_session_that_cannot_switch_to_rose_s_profile_changes_nothing(self):
         FakeBridge.initial_library = [{"id": USERS_ID, "name": "Map", "enabled": True}]
@@ -74,8 +87,7 @@ class RoseProfileTests(LtfSessionTestCase):
         self.assertEqual(self.state()["disabled"], [])
 
     def test_a_users_profile_deleted_since_is_forgotten(self):
-        self.crashed_in_roses_profile()
-        self.state_path.write_text(json.dumps({"users_profile": "deleted-id"}), encoding="utf-8")
+        self.crashed_in_roses_profile(users_profile="deleted-id")
 
         self.overlay.start_patcher_early()
         self.overlay.discard_early_patcher()
@@ -125,11 +137,20 @@ class RoseFolderTests(LtfSessionTestCase):
     def test_a_filed_mod_is_not_moved_again(self):
         FakeBridge.initial_folders = [{"id": "root", "name": ""}, {"id": "rose-folder", "name": "Rose"}]
         FakeBridge.initial_library[0]["folderId"] = "rose-folder"
+        self.state_path.write_text(json.dumps({"rose_folder": "rose-folder"}), encoding="utf-8")
 
         self.overlay.start_patcher_early()
 
         self.assertNotIn("move_to_folder", self.bridge.command_names())
         self.assertNotIn("create_folder", self.bridge.command_names())
+
+    def test_a_folder_the_user_named_rose_is_theirs(self):
+        FakeBridge.initial_folders = [{"id": "root", "name": ""}, {"id": "users-folder", "name": "Rose"}]
+        FakeBridge.initial_library[1]["folderId"] = "users-folder"
+
+        self.overlay.start_patcher_early()
+
+        self.assertEqual((self.bridge.in_folder("Rose"), self.bridge.in_folder("Rose (2)")), ({USERS_ID}, {VO_ID}))
 
     def test_folders_that_cannot_be_read_do_not_stop_the_session(self):
         with patch.object(FakeBridge, "folders", side_effect=BridgeCommandError("CDP busy")):
@@ -155,17 +176,15 @@ class UninstallTests(LtfSessionTestCase):
     def remove(self):
         return ltk_library.remove_rose_mods(self.host)
 
-    def index_lists_rose_s_profile(self):
-        """LTK Manager's index on disk lists Rose's profile, as the fake does."""
-        index = json.loads((self.ltk_data / "library.json").read_text(encoding="utf-8"))
-        index["profiles"].append({"id": "rose-id", "name": "Rose", "enabledMods": []})
-        (self.ltk_data / "library.json").write_text(json.dumps(index), encoding="utf-8")
-        FakeBridge.initial_profiles = [{"id": "default-id", "name": "Default"}, {"id": "rose-id", "name": "Rose"}]
-
-    def test_rose_s_profile_and_folder_go_and_the_users_profile_is_active(self):
-        self.index_lists_rose_s_profile()
+    def roses_profile_and_folder(self):
+        """Rose's profile and folder in LTK Manager, as its journal records them."""
         FakeBridge.initial_profiles = [{"id": "default-id", "name": "Default"}, {"id": "rose-id", "name": "Rose"}]
         FakeBridge.initial_folders = [{"id": "root", "name": ""}, {"id": "rose-folder", "name": "Rose"}]
+        self.state_path.write_text(json.dumps({"rose_profile": "rose-id", "rose_folder": "rose-folder"}),
+                                   encoding="utf-8")
+
+    def test_rose_s_profile_and_folder_go_and_the_users_profile_is_active(self):
+        self.roses_profile_and_folder()
         FakeBridge.initial_library = [{"id": USERS_ID, "name": "Map", "enabled": True, "folderId": "rose-folder"}]
 
         self.assertEqual(self.remove(), 0)
@@ -177,14 +196,14 @@ class UninstallTests(LtfSessionTestCase):
         self.assertEqual(self.bridge.enabled_in("Default"), {USERS_ID})
 
     def test_a_rose_profile_left_alone_is_removed_though_rose_added_no_mod(self):
-        self.index_lists_rose_s_profile()
+        self.roses_profile_and_folder()
 
         self.assertEqual(self.remove(), 0)
 
         self.assertIn(("delete_profile", "rose-id"), self.bridge.calls)
 
     def test_a_rose_profile_that_cannot_be_deleted_fails_it(self):
-        self.index_lists_rose_s_profile()
+        self.roses_profile_and_folder()
 
         with patch.object(FakeBridge, "delete_profile", side_effect=BridgeCommandError("busy")):
             self.assertEqual(self.remove(), 1)

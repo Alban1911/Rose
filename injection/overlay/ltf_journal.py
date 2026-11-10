@@ -4,7 +4,7 @@
 import json
 import threading
 from pathlib import Path
-from typing import Callable, Dict, TypedDict
+from typing import Callable, Dict, Optional, TypedDict
 
 from utils.core.atomic_file import atomic_write
 from utils.core.logging import get_logger
@@ -25,7 +25,11 @@ class KeptRecord(TypedDict):
 
 
 _SHARED_STATE_FILE_LOCK = threading.Lock()
-_LAYOUT_KEYS = ("installed", "disabled", "manager", "kept", "switched", "users_profile")
+_LAYOUT_KEYS = ("installed", "disabled", "manager", "kept", "switched", "users_profile", "rose_profile", "rose_folder")
+
+
+def _an_id(value: object) -> Optional[str]:
+    return value if isinstance(value, str) and value else None
 
 
 def _upgrade_first_layout(document: dict) -> dict:
@@ -53,7 +57,6 @@ class LtfJournal:
         manager = document.get("manager")
         kept = document.get("kept")
         switched = document.get("switched")
-        users_profile = document.get("users_profile")
         kept_for_next_game: Dict[LibraryId, KeptRecord] = {
             str(mod_id): record for mod_id, record in kept.items()
             if isinstance(record, dict) and record.get("fingerprint") and record.get("source")
@@ -67,7 +70,9 @@ class LtfJournal:
             "manager": manager if isinstance(manager, dict) else None,
             "kept": kept_for_next_game,
             "switched": switched_on,
-            "users_profile": users_profile if isinstance(users_profile, str) and users_profile else None,
+            "users_profile": _an_id(document.get("users_profile")),
+            "rose_profile": _an_id(document.get("rose_profile")),
+            "rose_folder": _an_id(document.get("rose_folder")),
         }
 
     def update(self, change: Callable[[dict], None]) -> bool:

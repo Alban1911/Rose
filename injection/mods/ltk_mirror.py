@@ -75,13 +75,9 @@ def mirror_users_mods(storage: ModStorageService, index: Mapping[str, IndexEntry
 
     Rose's own entries are read after *index*: one Rose adds meanwhile is in
     the index first, and should it be listed as the user's, the next mirror
-    drops it."""
-    try:
-        analysis = read_mod_analysis()
-    except (OSError, ValueError) as e:
-        log.warning(f"[MODS] LTK Manager's analysis of its mods cannot be read now: the mods added there stay "
-                    f"listed as they are ({e})")
-        return MirrorReport(failed=list(index))
+    drops it. Raises OSError or ValueError, changing nothing, when LTK
+    Manager's analysis cannot be read."""
+    analysis = read_mod_analysis()
     rose_ids = _journal_ids(storage.mods_root) | manifest_ltk_ids(storage.mods_root)
     wanted = {ltk_id: category_of(analysis.get(ltk_id)) for ltk_id in index if ltk_id not in rose_ids}
     listings = defaultdict(list)

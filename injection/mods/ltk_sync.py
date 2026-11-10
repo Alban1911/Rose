@@ -69,8 +69,12 @@ def sync_saved_mods(storage: Optional[ModStorageService] = None, *,
         report = SyncReport()
         for mod in held:
             _sync_mod(storage, mod, index.get(mod.ltk_id), report)
-        mirror = mirror_users_mods(storage, index)
-        if version is not None and not mirror.failed:
+        try:
+            whole = not mirror_users_mods(storage, index).failed
+        except (OSError, ValueError) as e:
+            log.warning(f"[MODS] The mods added in LTK Manager stay listed in Rose as they are until the next sync: {e}")
+            whole = False
+        if version is not None and whole:
             _last_synced_version = version
         if report:
             log.info(f"[MODS] Synced the saved mods with LTK Manager's library: {len(report.gone_from_library)} missing, "

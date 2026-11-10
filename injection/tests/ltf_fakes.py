@@ -370,7 +370,8 @@ class LtfSessionTestCase(unittest.TestCase):
         journal recording the user's profile to switch back to."""
         FakeBridge.initial_profiles = [{"id": "default-id", "name": "Default"}, {"id": "rose-id", "name": "Rose"}]
         FakeBridge.initial_active_profile = "rose-id"
-        self.state_path.write_text(json.dumps({"users_profile": "default-id", **state}), encoding="utf-8")
+        self.state_path.write_text(json.dumps({"users_profile": "default-id", "rose_profile": "rose-id", **state}),
+                                   encoding="utf-8")
 
     def reported_codes(self):
         return [call.args[0] for call in self.report_issue.call_args_list]

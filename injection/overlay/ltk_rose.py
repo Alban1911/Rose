@@ -3,7 +3,8 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Iterable, List, Optional
+import itertools
+from typing import TYPE_CHECKING, Callable, Iterable, List
 
 from utils.core.logging import get_logger
 
@@ -16,10 +17,29 @@ if TYPE_CHECKING:
 log = get_logger()
 
 ROSE_NAME = "Rose"
+ROSE_PROFILE = "rose_profile"
+ROSE_FOLDER = "rose_folder"
 
 
-def _named_rose(items: List[dict]) -> Optional[dict]:
-    return next((item for item in items if item.get("name") == ROSE_NAME and item.get("id")), None)
+def _owned(host: LtfHost, key: str, items: List[dict], create: Callable[[str], dict]) -> dict:
+    """Rose's own profile or folder among LTK Manager's *items*: the one the
+    journal records under *key*, else one *create* makes under the first
+    name none holds, "Rose", "Rose (2)"...: one the user named so is theirs.
+    Raises BridgeCommandError when the one made cannot be recorded."""
+    recorded = host.journal.read()[key]
+    owned = next((item for item in items if recorded is not None and item.get("id") == recorded), None)
+    if owned is not None:
+        return owned
+    taken = {str(item.get("name") or "").casefold() for item in items}
+    names = itertools.chain((ROSE_NAME,), (f"{ROSE_NAME} ({n})" for n in itertools.count(2)))
+    created = create(next(name for name in names if name.casefold() not in taken))
+    if not host.journal.update(lambda state: state.__setitem__(key, str(created["id"]))):
+        raise BridgeCommandError(f"Rose's LTK Manager {key} could not be recorded")
+    return created
+
+
+def _forget(host: LtfHost, key: str) -> None:
+    host.journal.update(lambda state: state.__setitem__(key, None))
 
 
 class RoseProfile:
@@ -47,7 +67,7 @@ class RoseProfile:
         self._restore_users_mods(bridge)
         profiles = bridge.profiles()
         active = bridge.active_profile()
-        rose = _named_rose(profiles) or bridge.create_profile(ROSE_NAME)
+        rose = _owned(self._host, ROSE_PROFILE, profiles, bridge.create_profile)
         if active["id"] == rose["id"]:
             recorded = self._host.journal.read()["users_profile"]
             if recorded is not None and all(profile.get("id") != recorded for profile in profiles):
@@ -78,12 +98,14 @@ class RoseProfile:
         """Switch back to the user's profile and delete Rose's (the
         uninstaller's cleanup). Raises when Rose's stays."""
         self.leave(bridge)
-        rose = _named_rose(bridge.profiles())
+        rose = self._host.journal.read()[ROSE_PROFILE]
         if rose is None:
             return
-        if bridge.active_profile()["id"] == rose["id"]:
-            raise BridgeCommandError("Rose's LTK Manager profile is still the active one")
-        bridge.delete_profile(rose["id"])
+        if any(profile.get("id") == rose for profile in bridge.profiles()):
+            if bridge.active_profile()["id"] == rose:
+                raise BridgeCommandError("Rose's LTK Manager profile is still the active one")
+            bridge.delete_profile(rose)
+        _forget(self._host, ROSE_PROFILE)
 
     def _restore_users_mods(self, bridge) -> None:
         """Turn back on the user's mods an older Rose turned off in their
@@ -116,9 +138,12 @@ class RoseProfile:
 
 
 class RoseFolder:
-    """The folder named "Rose" in LTK Manager's library, which holds the mods
-    Rose added there: someone who uses LTK Manager without Rose sees which
-    are Rose's. The user's own mods never go there."""
+    """Rose's own folder in LTK Manager's library, "Rose", which holds the
+    mods Rose added there: someone who uses LTK Manager without Rose sees
+    which are Rose's. The user's own mods never go there."""
+
+    def __init__(self, host: LtfHost) -> None:
+        self._host = host
 
     def file(self, session: LtfSession, ltk_id: str) -> None:
         """Move an entry Rose just added into its folder. Logged when it
@@ -146,18 +171,19 @@ class RoseFolder:
         if unfiled:
             log.info(f"[INJECT] Moved {len(unfiled)} mod(s) Rose added into LTK Manager's Rose folder")
 
-    @staticmethod
-    def remove(bridge) -> None:
+    def remove(self, bridge) -> None:
         """Delete Rose's folder (the uninstaller's cleanup): LTK Manager moves
         what is left in it to its root. Raises."""
-        rose = _named_rose(bridge.folders())
-        if rose is not None:
-            bridge.delete_folder(rose["id"])
+        rose = self._host.journal.read()[ROSE_FOLDER]
+        if rose is None:
+            return
+        if any(folder.get("id") == rose for folder in bridge.folders()):
+            bridge.delete_folder(rose)
+        _forget(self._host, ROSE_FOLDER)
 
-    @staticmethod
-    def _folder_id(session: LtfSession) -> str:
+    def _folder_id(self, session: LtfSession) -> str:
         """Rose's folder, created when missing, looked up once a session."""
         if session.rose_folder_id is None:
             bridge = session.bridge
-            session.rose_folder_id = str((_named_rose(bridge.folders()) or bridge.create_folder(ROSE_NAME))["id"])
+            session.rose_folder_id = str(_owned(self._host, ROSE_FOLDER, bridge.folders(), bridge.create_folder)["id"])
         return session.rose_folder_id

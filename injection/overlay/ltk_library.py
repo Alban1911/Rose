@@ -24,8 +24,7 @@ from .ltf_session import (
     LtfSession,
     archive_for_ltk,
 )
-from .ltk_data import entry_archive, lists_profile_or_folder
-from .ltk_rose import ROSE_NAME
+from .ltk_data import entry_archive
 
 log = get_logger()
 
@@ -376,7 +375,7 @@ def remove_rose_mods(host: LtfHost) -> int:
     """
     state = host.journal.read()
     ids = manifest_ltk_ids(host.saved_mods_dir()) | set(state["kept"]) | set(state["installed"])
-    if not ids and not state["disabled"] and not lists_profile_or_folder(ROSE_NAME):
+    if not ids and not state["disabled"] and state["rose_profile"] is None and state["rose_folder"] is None:
         log.info("[MODS] Rose added nothing to LTK Manager's library")
         return 0
     removed, failed = [], []
