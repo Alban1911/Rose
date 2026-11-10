@@ -51,12 +51,14 @@ REPLACED_EVENT = "replaced"
 REPLACED_REASON = "replaced"
 # The relay refuses a Rose too old for it with this status: no point retrying
 UPDATE_REQUIRED_STATUS = 426
+# Our summoner is in the room from another installation (another PC, or a
+# Rose reinstalled without its data) for as long as that one stays connected
 IDENTITY_CONFLICT_STATUS = 403
 ROOM_FULL_STATUS = 409
-IDENTITY_LIMIT_STATUS = 507
+# Refusals that end reconnecting until resume(): the room's state changes on its own
+_BUSY_REFUSALS = (IDENTITY_CONFLICT_STATUS, ROOM_FULL_STATUS)
 RELAY_PROTOCOL_VERSION = "2"
 RELAY_PROTOCOL_HEADER = "X-Rose-Party-Protocol"
-_PERMANENT_REFUSALS = (UPDATE_REQUIRED_STATUS, IDENTITY_CONFLICT_STATUS, IDENTITY_LIMIT_STATUS)
 _MEMBER_KEY = re.compile(r"[0-9a-f]{64}")
 
 _ssl_contexts_cache: Optional[List[ssl.SSLContext]] = None
@@ -111,9 +113,7 @@ def _describe_error(error: Optional[BaseException]) -> str:
     if status == UPDATE_REQUIRED_STATUS:
         return "this version of Rose is too old for party mode, please update Rose"
     if status == IDENTITY_CONFLICT_STATUS:
-        return "this account is already linked to a different Rose installation in this party"
-    if status == IDENTITY_LIMIT_STATUS:
-        return "this party has reached its registered identity limit"
+        return "this account is in this party from another Rose installation, try again once it has left"
     if status:
         return f"the party server answered with HTTP {status}"
     if isinstance(error, asyncio.TimeoutError):
@@ -178,7 +178,7 @@ class PartyRelay:
 
     @property
     def permanently_refused(self) -> bool:
-        return self._refused_status in _PERMANENT_REFUSALS
+        return self._refused_status == UPDATE_REQUIRED_STATUS
 
     def set_callbacks(
         self,
@@ -354,7 +354,7 @@ class PartyRelay:
                 if self._closing:
                     return
                 if not await self._open(CONNECT_TIMEOUT):
-                    if self.permanently_refused or self._refused_status == ROOM_FULL_STATUS:
+                    if self.permanently_refused or self._refused_status in _BUSY_REFUSALS:
                         if self.permanently_refused:
                             self.members = []
                         self._stop(self.last_error or "the party server refused the connection")

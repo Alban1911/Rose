@@ -125,7 +125,7 @@ test('legacy and incomplete upgrades do not receive a socket', async () => {
   assert.equal((await upgrade(room, '1', credential('a'), { path: '/other' })).status, 426);
 });
 
-test('an invite cannot replace a bound member, and identity stays fixed after upgrade', async () => {
+test('an invite cannot replace a connected member, whose identity stays fixed', async () => {
   const room = newRoom();
   const id = '18446744073709551615';
   const owner = connect(await upgrade(room, id, credential('a')));
@@ -153,6 +153,13 @@ test('an invite cannot replace a bound member, and identity stays fixed after up
   await owner.next('replaced');
   assert.equal((await reconnected.next('members')).members.length, 2);
   await Promise.all([owner, peer, reconnected].map(close));
+
+  // Once the member has left, another installation (a reinstall, another PC) takes the ID
+  const reinstalled = connect(await upgrade(room, id, credential('c')));
+  const [rejoined] = (await reinstalled.next('members')).members;
+  assert.equal(rejoined.summoner_id, id);
+  assert.notEqual(rejoined.member_key, initial[0].member_key);
+  await close(reinstalled);
 });
 
 test('members can distinguish the same claimed ID across different rooms', async () => {
@@ -167,7 +174,7 @@ test('members can distinguish the same claimed ID across different rooms', async
   await Promise.all([first, same, different].map(close));
 });
 
-test('concurrent first joins register exactly one credential and keep it after restart', async () => {
+test('concurrent joins admit one installation, and none is bound after it leaves', async () => {
   const room = newRoom();
   const secrets = [credential('a'), credential('b')];
   const responses = await Promise.all(secrets.map((secret) => upgrade(room, '1', secret)));
@@ -179,8 +186,7 @@ test('concurrent first joins register exactly one credential and keep it after r
 
   await worker.dispose();
   worker = startWorker();
-  assert.equal((await upgrade(room, '1', secrets[1 - winner])).status, 403);
-  const reconnected = connect(await upgrade(room, '1', secrets[winner]));
-  assert.equal((await reconnected.next('members')).members[0].summoner_id, '1');
-  await close(reconnected);
+  const other = connect(await upgrade(room, '1', secrets[1 - winner]));
+  assert.equal((await other.next('members')).members[0].summoner_id, '1');
+  await close(other);
 });

@@ -95,14 +95,14 @@ class RelayHandshakeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.socket.sent, [])
         self.assertIn("does not support authenticated connections", self.relay.last_error)
 
-    async def test_identity_refusal_reports_a_different_installation(self):
+    async def test_identity_refusal_reports_another_installation_and_can_be_retried(self):
         async def reject(url, **kwargs):
             raise InvalidStatusCode(403, Headers())
 
         with patch.object(ws_relay, "_RelayConnect", reject):
             self.assertFalse(await self.relay._open(1))
-        self.assertTrue(self.relay.permanently_refused)
-        self.assertIn("different Rose installation", self.relay.last_error)
+        self.assertFalse(self.relay.permanently_refused)
+        self.assertIn("from another Rose installation", self.relay.last_error)
 
     async def test_credentials_require_tls_away_from_loopback(self):
         with patch.object(ws_relay, "RELAY_URL", "ws://relay.test"), \

@@ -28,16 +28,12 @@ export function readIdentity(headers: Headers) {
 /** Authenticated, hibernatable room with at most ten simultaneous members. */
 export class PartyRoom extends DurableObject {
   private static readonly MAX_MEMBERS = 10;
-  private static readonly MAX_IDENTITIES = 128;
   private static readonly MAX_MESSAGE_BYTES = 8 * 1024;
   // Clients ping every 25s. A silent socket can be dropped without a close handshake.
   private static readonly STALE_MS = 90_000;
 
   constructor(ctx: DurableObjectState, env: Cloudflare.Env) {
     super(ctx, env);
-    this.ctx.storage.sql.exec(
-      'CREATE TABLE IF NOT EXISTS party_identity (summoner_id TEXT PRIMARY KEY, credential_hash TEXT NOT NULL)',
-    );
     this.ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair('ping', 'pong'));
   }
 
@@ -48,28 +44,19 @@ export class PartyRoom extends DurableObject {
     const proof = new TextEncoder().encode('rose-party-member-v2:' + identity.id + ':' + identity.credential);
     const digest = await crypto.subtle.digest('SHA-256', proof);
     const hash = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
-    const sql = this.ctx.storage.sql;
-    // Keep registration and replacement synchronous after hashing. A concurrent
-    // upgrade must observe the first binding instead of registering over it.
-    const binding = sql.exec<{ credential_hash: string }>(
-      'SELECT credential_hash FROM party_identity WHERE summoner_id = ?', identity.id,
-    ).toArray()[0];
-    if (binding && binding.credential_hash !== hash) {
-      return new Response('Party identity is registered to another installation', { status: 403 });
-    }
-
+    // Keep the check and the accept synchronous after hashing, so a concurrent
+    // upgrade sees the socket this one opens.
     const active = this.openSockets();
     const previous = active.find(({ member }) => member.summoner_id === identity.id);
+    // A connected member can only be replaced by the installation it joined
+    // from. Once that socket is gone, any installation can take the ID again,
+    // so a reinstall or another PC is never locked out of a room.
+    if (previous && previous.member.member_key !== hash) {
+      return new Response('Party identity is connected from another installation', { status: 403 });
+    }
     if (!previous && active.length >= PartyRoom.MAX_MEMBERS) {
       this.log('full', { open: active.length });
       return new Response('Room is full', { status: 409 });
-    }
-    if (!binding) {
-      const { count } = sql.exec<{ count: number }>('SELECT COUNT(*) AS count FROM party_identity').one();
-      if (count >= PartyRoom.MAX_IDENTITIES) {
-        return new Response('Room identity limit reached', { status: 507 });
-      }
-      sql.exec('INSERT INTO party_identity VALUES (?, ?)', identity.id, hash);
     }
 
     const [client, server] = Object.values(new WebSocketPair());

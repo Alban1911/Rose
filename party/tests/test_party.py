@@ -654,10 +654,25 @@ class RelayReconnectTests(unittest.TestCase):
         error = SimpleNamespace(status_code=426)
         self.assertIn("update Rose", self.module._describe_error(error))
 
-    def test_an_identity_conflict_clears_members_and_prevents_automatic_retry(self):
+    def test_an_identity_conflict_stops_reconnecting_until_resumed(self):
         async def open_(timeout):
             self.opens += 1
             self.relay._refused_status = self.module.IDENTITY_CONFLICT_STATUS
+            return False
+
+        self.relay._open = open_
+        asyncio.run(self.relay._run())
+        self.assertEqual(self.opens, 1)
+        self.assertTrue(self.relay.stopped)
+        with patch.object(self.module.asyncio, "create_task") as create_task:
+            self.relay.resume()
+        create_task.assert_called_once()
+        create_task.call_args.args[0].close()
+
+    def test_an_update_refusal_clears_members_and_prevents_automatic_retry(self):
+        async def open_(timeout):
+            self.opens += 1
+            self.relay._refused_status = self.module.UPDATE_REQUIRED_STATUS
             return False
 
         self.relay._open = open_

@@ -106,17 +106,15 @@ set `ROSE_RELAY_URL=ws://127.0.0.1:8787` in the environment that launches Rose.
 Coordinate the protocol v2 Worker deployment with distribution of a matching
 Rose client. The new Worker returns HTTP 426 to older clients, and the new
 client requires a v2 acknowledgement before exchanging party state. Existing
-invite tokens keep their room keys. Deployments outside loopback use WSS, and
-the relay origin must stay stable for existing identity bindings.
+invite tokens keep their room keys. Deployments outside loopback use WSS.
 
-The first accepted connection binds a summoner ID to an installation
-credential in that room. The room key still grants access to join, while only
-the bound credential can replace that member. Rose also checks a public
-fingerprint to keep a known member's identity consistent across rooms during
-the current Party Mode session. This is trust on first use. The relay cannot
-prove who owns a Riot account on first join. Keep the installation's
-`party_identity_keys.json` private. A different device or a lost credential
-cannot reuse an existing room binding.
+Each Rose installation joins with a credential derived from its private
+`party_identity_keys.json`. The room key still grants access to join. While a
+member is connected, only the same installation can take over that summoner
+ID, and Rose keeps a known member's identity consistent across rooms during
+the current Party Mode session. The relay stores no bindings: once a member
+has left, any installation can join with their ID again, so a reinstall or
+another PC is never locked out.
 
 ## Pull requests
 
