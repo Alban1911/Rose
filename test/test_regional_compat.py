@@ -35,6 +35,7 @@ def process(name='LeagueClientUx.exe', args=None, pid=42, denied=False, exe=''):
     proc.cmdline = Mock(return_value=args or ['client', '--app-port=12345', '--remoting-auth-token=test-token'])
     proc.exe = Mock(return_value=exe)
     if denied:
+        proc.name.side_effect = lockfile.psutil.AccessDenied(pid)
         proc.cmdline.side_effect = lockfile.psutil.AccessDenied(pid)
         proc.exe.side_effect = lockfile.psutil.AccessDenied(pid)
     return proc
@@ -50,10 +51,10 @@ def running(*procs):
             raise lockfile.psutil.NoSuchProcess(pid)
         return by_pid[pid]
 
-    snapshot = [(proc.pid, proc.image_name) for proc in procs]
-    with patch.object(lockfile, 'running_processes', return_value=snapshot), \
+    entries = [(proc.pid, proc.image_name) for proc in procs]
+    with patch.object(lockfile, 'running_processes', return_value=entries) as snapshot, \
             patch.object(lockfile.psutil, 'Process', side_effect=open_process):
-        yield
+        yield snapshot
 
 
 class CredentialsTests(unittest.TestCase):
@@ -105,6 +106,44 @@ class CredentialsTests(unittest.TestCase):
                     patch.object(lockfile, 'running_processes', side_effect=AssertionError('processes listed')):
                 self.assertEqual(lockfile.find_lockfile(), str(path))
             saved.assert_called_once_with('General', 'clientPath')
+
+    def test_saved_lockfile_works_when_process_details_are_denied(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / 'lockfile'
+            path.write_text('LeagueClient:42:23456:file-token:https', encoding='utf-8')
+            client = process(denied=True)
+            with running(client) as snapshot, patch.dict(lockfile.os.environ, {'LCU_LOCKFILE': ''}), \
+                    patch.object(lockfile, 'get_config_option', return_value=folder), \
+                    patch.object(Path, 'is_file', lambda candidate: candidate == path), \
+                    patch.object(LCUConnection, '_check_client_elevation'):
+                connection = LCUConnection()
+
+            self.assertEqual(connection.websocket_credentials(), (23456, 'file-token'))
+            client.name.assert_called_once_with()
+            client.cmdline.assert_not_called()
+            snapshot.assert_not_called()
+
+    def test_empty_saved_lockfile_uses_one_snapshot_per_refresh(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / 'lockfile'
+            path.touch()
+            client = process()
+            with running(client) as snapshot, patch.dict(lockfile.os.environ, {'LCU_LOCKFILE': ''}), \
+                    patch.object(lockfile, 'get_config_option', return_value=folder), \
+                    patch.object(Path, 'is_file', lambda candidate: candidate == path), \
+                    patch.object(LCUConnection, '_check_client_elevation'):
+                connection = LCUConnection()
+                snapshot.assert_called_once_with()
+                self.assertEqual(connection.lf_path, str(path))
+                self.assertEqual(connection.websocket_credentials(), (12345, 'test-token'))
+
+                snapshot.reset_mock()
+                connection.refresh_if_needed(force=True)
+                snapshot.assert_called_once_with()
+                self.assertEqual(connection.websocket_credentials(), (12345, 'test-token'))
+
+            client.exe.assert_not_called()
+            client.name.assert_not_called()
 
     def test_stale_saved_lockfile_falls_back_to_the_active_client(self):
         with tempfile.TemporaryDirectory() as folder:

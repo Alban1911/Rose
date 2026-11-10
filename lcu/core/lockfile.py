@@ -37,15 +37,20 @@ class Lockfile:
     protocol: str
 
 
-def _is_live_client_lockfile(path: Path) -> bool:
-    """Check one lockfile against its process without enumerating processes."""
+def _is_lockfile_candidate(path: Path) -> bool:
+    """Keep existing lockfiles unless their recorded process fails validation."""
     try:
+        if not path.is_file():
+            return False
         data = parse_lockfile(str(path))
-        return (
-            data is not None
-            and data.pid > 0
-            and psutil.Process(data.pid).name().lower() in _CLIENT_PROCESS_NAMES
-        )
+        if data is None:
+            # Regional clients may leave an empty file. The connection reads
+            # process credentials directly in this case.
+            return True
+        return data.pid > 0 and psutil.Process(data.pid).name().lower() in _CLIENT_PROCESS_NAMES
+    except psutil.AccessDenied:
+        # The readable lockfile can still work when process metadata is denied.
+        return True
     except (psutil.Error, OSError):
         return False
 
@@ -76,7 +81,7 @@ def find_lockfile(explicit: Optional[str] = None) -> Optional[str]:
     client_dir = (get_config_option("General", "clientPath") or "").strip()
     if client_dir:
         configured = Path(client_dir) / "lockfile"
-        if _is_live_client_lockfile(configured):
+        if _is_lockfile_candidate(configured):
             return str(configured)
 
     # Check common installation paths
@@ -93,7 +98,7 @@ def find_lockfile(explicit: Optional[str] = None) -> Optional[str]:
         ]
     
     for path in common_paths:
-        if _is_live_client_lockfile(path):
+        if _is_lockfile_candidate(path):
             return str(path)
     
     # Try to find via process scanning (repeated every second while no
@@ -111,7 +116,7 @@ def find_lockfile(explicit: Optional[str] = None) -> Optional[str]:
                 # Check in same directory and parent directory
                 for directory in [exe_path.parent, exe_path.parent.parent]:
                     candidate = directory / "lockfile"
-                    if _is_live_client_lockfile(candidate):
+                    if _is_lockfile_candidate(candidate):
                         return str(candidate)
     except (psutil.Error, OSError, AttributeError) as e:
         log.debug(f"Failed to find lockfile via process iteration: {e}")
