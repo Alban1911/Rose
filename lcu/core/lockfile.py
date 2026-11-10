@@ -13,6 +13,7 @@ from typing import Optional
 import psutil
 
 from utils.core.logging import get_logger
+from utils.system.process_list import running_processes
 
 log = get_logger()
 
@@ -72,19 +73,23 @@ def find_lockfile(explicit: Optional[str] = None) -> Optional[str]:
         if p.is_file():
             return str(p)
     
-    # Try to find via process scanning
+    # Try to find via process scanning (repeated every second while no
+    # lockfile is found: the client closed, or installed elsewhere)
     try:
-        for proc in psutil.process_iter(attrs=["name", "exe"]):
-            nm = (proc.info.get("name") or "").lower()
-            if "leagueclient" in nm:
-                exe = proc.info.get("exe") or ""
-                if exe:
-                    exe_path = Path(exe)
-                    # Check in same directory and parent directory
-                    for directory in [exe_path.parent, exe_path.parent.parent]:
-                        lockfile = directory / "lockfile"
-                        if lockfile.is_file():
-                            return str(lockfile)
+        for pid, name in running_processes():
+            if "leagueclient" not in name.lower():
+                continue
+            try:
+                exe = psutil.Process(pid).exe()
+            except psutil.Error:
+                continue
+            if exe:
+                exe_path = Path(exe)
+                # Check in same directory and parent directory
+                for directory in [exe_path.parent, exe_path.parent.parent]:
+                    lockfile = directory / "lockfile"
+                    if lockfile.is_file():
+                        return str(lockfile)
     except (psutil.Error, OSError, AttributeError) as e:
         log.debug(f"Failed to find lockfile via process iteration: {e}")
     
@@ -129,12 +134,11 @@ def find_process_credentials() -> Optional[Lockfile]:
     lines or authentication tokens and never persist these credentials.
     """
     try:
-        for proc in psutil.process_iter(attrs=["name"]):
+        for pid, name in running_processes():
             try:
-                name = proc.info.get("name") or ""
                 if name.lower() not in {"leagueclientux.exe", "leagueclient.exe"}:
                     continue
-                args = proc.cmdline()
+                args = psutil.Process(pid).cmdline()
                 options = {}
                 for index, arg in enumerate(args):
                     key, separator, value = arg.partition("=")
@@ -149,7 +153,7 @@ def find_process_credentials() -> Optional[Lockfile]:
                     continue
                 port = int(port_text)
                 if 0 < port < 65536:
-                    return Lockfile(name, proc.pid, port, password, "https")
+                    return Lockfile(name, pid, port, password, "https")
             except (psutil.Error, OSError, ValueError):
                 continue
     except (psutil.Error, OSError) as e:

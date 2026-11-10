@@ -29,6 +29,7 @@ from ..mods.fingerprint import mod_fingerprint
 from ..mods.ltk_ref import split_mod_names
 from ..mods.mod_files import is_mod_archive
 from utils.core.modpkg import is_modpkg
+from utils.system.process_list import running_processes
 from .ltf_report import (
     LATE_JOIN_MESSAGE,
     LTF_LOGS_HINT,
@@ -1529,9 +1530,13 @@ class OverlayManager:
             return None
         names = {name.lower() for name in GAME_EXECUTABLE_NAMES}
         try:
-            for proc in psutil.process_iter(['name']):
-                if (proc.info.get('name') or '').lower() in names:
-                    return proc
+            # Called every 50 ms while the game is held, and during the game
+            for pid, name in running_processes():
+                if name.lower() in names:
+                    try:
+                        return psutil.Process(pid)
+                    except psutil.NoSuchProcess:
+                        continue  # exited since the snapshot
         except (psutil.Error, OSError) as e:
             log.debug(f"[INJECT] Could not look for the game process: {e}")
         return None

@@ -1,3 +1,4 @@
+from contextlib import contextmanager
 import logging
 from pathlib import Path
 import sys
@@ -28,32 +29,43 @@ from lcu.core import lockfile
 from lcu.core.lcu_connection import LCUConnection
 
 
-def process(name='LeagueClientUx.exe', args=None, pid=42, denied=False):
-    proc = SimpleNamespace(info={'name': name}, pid=pid)
+def process(name='LeagueClientUx.exe', args=None, pid=42, denied=False, exe=''):
+    proc = SimpleNamespace(name=name, pid=pid)
     proc.cmdline = Mock(return_value=args or ['client', '--app-port=12345', '--remoting-auth-token=test-token'])
+    proc.exe = Mock(return_value=exe)
     if denied:
         proc.cmdline.side_effect = lockfile.psutil.AccessDenied(pid)
+        proc.exe.side_effect = lockfile.psutil.AccessDenied(pid)
     return proc
+
+
+@contextmanager
+def running(*procs):
+    """These stand-ins as the running processes"""
+    by_pid = {proc.pid: proc for proc in procs}
+    with patch.object(lockfile, 'running_processes', return_value=[(proc.pid, proc.name) for proc in procs]), \
+            patch.object(lockfile.psutil, 'Process', side_effect=by_pid.__getitem__):
+        yield
 
 
 class CredentialsTests(unittest.TestCase):
     def test_equals_arguments(self):
-        with patch.object(lockfile.psutil, 'process_iter', return_value=[process()]):
+        with running(process()):
             result = lockfile.find_process_credentials()
         self.assertEqual((result.port, result.password, result.protocol), (12345, 'test-token', 'https'))
 
     def test_separate_quoted_arguments(self):
         proc = process(name='LEAGUECLIENTUX.EXE', args=['client', '--app-port', '12345', '--remoting-auth-token', '"quoted-token"'])
-        with patch.object(lockfile.psutil, 'process_iter', return_value=[proc]):
+        with running(proc):
             self.assertEqual(lockfile.find_process_credentials().password, 'quoted-token')
 
     def test_access_denied_client_does_not_block_ux(self):
-        with patch.object(lockfile.psutil, 'process_iter', return_value=[process('LeagueClient.exe', denied=True), process()]):
+        with running(process('LeagueClient.exe', pid=41, denied=True), process()):
             self.assertIsNotNone(lockfile.find_process_credentials())
 
     def test_unrelated_process_not_read(self):
         proc = process('Other.exe')
-        with patch.object(lockfile.psutil, 'process_iter', return_value=[proc]):
+        with running(proc):
             self.assertIsNone(lockfile.find_process_credentials())
         proc.cmdline.assert_not_called()
 
@@ -61,8 +73,19 @@ class CredentialsTests(unittest.TestCase):
         for args in (['--app-port=0', '--remoting-auth-token=x'], ['--app-port=65536', '--remoting-auth-token=x'],
                      ['--app-port=invalid', '--remoting-auth-token=x'], ['--app-port=12345'],
                      ['--app-port=12345', '--remoting-auth-token=']):
-            with self.subTest(args=args), patch.object(lockfile.psutil, 'process_iter', return_value=[process(args=args)]):
+            with self.subTest(args=args), running(process(args=args)):
                 self.assertIsNone(lockfile.find_process_credentials())
+
+    def test_lockfile_found_beside_a_client_installed_elsewhere(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / 'lockfile'
+            path.write_text('LeagueClient:42:12345:sample:https', encoding='utf-8')
+            denied = process('LeagueClient.exe', pid=41, denied=True)
+            client = process(exe=str(Path(folder) / 'LeagueClientUx.exe'))
+            with patch.dict(lockfile.os.environ, {'LCU_LOCKFILE': ''}), \
+                    patch.object(Path, 'is_file', lambda self: self == path), \
+                    running(process('Other.exe', pid=40), denied, client):
+                self.assertEqual(lockfile.find_lockfile(), str(path))
 
     def test_normal_lockfile(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -274,9 +297,12 @@ class OverlayLifetimeTests(unittest.TestCase):
 
     def test_game_detection_accepts_both_names(self):
         for name in config.GAME_EXECUTABLE_NAMES:
-            proc = SimpleNamespace(info={'name': name})
-            with self.subTest(name=name), patch.object(self.module.psutil, 'process_iter', return_value=[proc]):
+            proc = SimpleNamespace(pid=42)
+            with self.subTest(name=name), \
+                    patch.object(self.module, 'running_processes', return_value=[(42, name)]), \
+                    patch.object(self.module.psutil, 'Process', return_value=proc) as opened:
                 self.assertIs(self.manager._running_game(), proc)
+                opened.assert_called_once_with(42)
 
 
 class LoaderFallbackTests(unittest.TestCase):
