@@ -6,14 +6,13 @@ from __future__ import annotations
 import threading
 import zipfile
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import List, Optional
 
 from utils.core.logging import get_logger
 from utils.threading.thread_manager import create_daemon_thread
 
 from ..overlay.ltk_data import IndexEntry, library_index_mtime, read_library_index
-from .manifest import MANIFEST_WRITERS_LOCK, SavedMod, find_saved_mod, ltk_library_mods, update_saved_mod
+from .manifest import MANIFEST_WRITERS_LOCK, SavedMod, ltk_library_mods, still_listed, update_saved_mod
 from .ltk_mirror import mirror_users_mods
 from .migration import delete_copy
 from .mod_facts import read_mod_facts, stamp_of
@@ -108,7 +107,7 @@ def _sync_mod(storage: ModStorageService, mod: SavedMod, entry: Optional[IndexEn
     if entry is not None:
         fields.update(_changed_facts(mod, entry))
     with MANIFEST_WRITERS_LOCK:
-        if not _unchanged(storage.mods_root, mod):
+        if not still_listed(storage.mods_root, mod):
             log.debug(f"[MODS] {mod.name} was deleted or added again during the sync: left to the next one")
             return
         if fields and not update_saved_mod(storage.mods_root, mod.identity, **fields):
@@ -126,14 +125,6 @@ def _sync_mod(storage: ModStorageService, mod: SavedMod, entry: Optional[IndexEn
             log.info(f"[MODS] LTK Manager changed {mod.name}: read what Rose needs to know about it again")
         if entry is not None and mod.rose_copy is not None and delete_copy(storage, mod):
             report.copies_deleted.append(mod.name)
-
-
-def _unchanged(mods_root: Path, mod: SavedMod) -> bool:
-    """Whether the manifest entry *mod* came from is still under its name,
-    with the same LTK Manager entry: one deleted and added again under that
-    name is another mod, whatever the sync read of the first."""
-    current = find_saved_mod(mods_root, mod.identity, match_content=False)
-    return current is not None and (current.key, current.ltk_id) == (mod.key, mod.ltk_id)
 
 
 def _changed_facts(mod: SavedMod, entry: IndexEntry) -> dict:

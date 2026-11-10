@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import itertools
 import json
 import threading
 import zipfile
@@ -580,6 +579,14 @@ def _find(mods_root: Path, relative_path: object,
     return None
 
 
+def still_listed(mods_root: Path, mod: SavedMod) -> bool:
+    """Whether the manifest entry *mod* came from is still under its name,
+    with the same LTK Manager entry: one deleted and added again under that
+    name is another mod, whatever was read of the first."""
+    current = find_saved_mod(mods_root, mod.identity, match_content=False)
+    return current is not None and (current.key, current.ltk_id) == (mod.key, mod.ltk_id)
+
+
 def find_saved_mod(mods_root: Path, relative_path: object, *, match_content: bool = True) -> Optional[SavedMod]:
     """The saved mod known as *relative_path*, compared as Windows compares
     paths: its identity, or the other name it has had (the folder it was
@@ -841,14 +848,16 @@ def forget_ltk_removals(mods_root: Path, ids: Iterable[str]) -> None:
 
 
 def add_saved_mod(mods_root: Path, archive: Path, facts: Optional[ModFacts], targets: Iterable[int] = (), *,
-                  source_hash: Optional[str] = None, index_hash: Optional[str] = None) -> None:
+                  source_hash: Optional[str] = None, index_hash: Optional[str] = None, **fields: object) -> None:
     """Register the archive of a mod just added to its folder, keyed by its
     name, with its date (the listing keeps it once the archive is in LTK
     Manager) and what Rose needs to know about it, read once: a category's
     mod its facts (read_mod_facts); a custom skin its targets, the sha256 of
     the file the user picked (*source_hash*: what party mode shares and
     matches a friend's copy by) and its archive's index (*index_hash*: what
-    a renamed skin is found by, _content_match).
+    a renamed skin is found by, _content_match). *fields* are written as
+    they are (manifest keys: a mod the user added in LTK Manager its ltkId,
+    mirrored=True...).
 
     An entry left under its name by a mod whose file is gone is dropped.
     Raises UnreadableManifest, or ValueError when *archive* is not in a saved
@@ -871,6 +880,7 @@ def add_saved_mod(mods_root: Path, archive: Path, facts: Optional[ModFacts], tar
         entry["targets"] = list(targets)
     else:
         entry["path"] = name
+    entry.update(fields)
 
     def register(payload: dict, mods: dict) -> bool:
         _drop_entries(payload, mods, _named(directory, mods, name))
@@ -878,29 +888,6 @@ def add_saved_mod(mods_root: Path, archive: Path, facts: Optional[ModFacts], tar
         return True
 
     _change_manifest(directory, register)
-
-
-def add_mirrored_mod(mods_root: Path, category: str, ltk_id: str, name: str, fields: Mapping[str, object]) -> str:
-    """List in *category* the mod the user added to LTK Manager as entry
-    *ltk_id*, marked as the user's (mirrored), with *fields* (displayName,
-    facts...), under *name* or the first free "<name>-<n>": no other entry
-    nor stored mod of the category has that name. Returns the name it got.
-    Raises UnreadableManifest."""
-    directory = _Directory(category, Path(mods_root) / category, PurePosixPath(category))
-    directory.path.mkdir(parents=True, exist_ok=True)
-    stored = {(path.name if is_dir else path.stem).casefold() for path, is_dir in _stored_candidates(directory.path)}
-    chosen: List[str] = []
-
-    def register(_payload: dict, mods: dict) -> bool:
-        taken = stored | {_entry_name(directory, k, v if isinstance(v, dict) else {}).casefold() for k, v in mods.items()}
-        candidates = itertools.chain((name,), (f"{name}-{n}" for n in itertools.count(2)))
-        unique = next(candidate for candidate in candidates if candidate.casefold() not in taken)
-        mods[unique] = {**fields, "name": unique, "path": unique, "ltkId": ltk_id, MIRRORED: True}
-        chosen.append(unique)
-        return True
-
-    _change_manifest(directory, register)
-    return chosen[0]
 
 
 def set_hidden(mods_root: Path, relative_path: object, hidden: bool) -> bool:

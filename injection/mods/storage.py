@@ -43,13 +43,18 @@ from .ltk_ref import is_ltk_id
 from .manifest import MANIFEST_WRITERS_LOCK
 from .manifest import SavedMod, normalize_target_ids
 from .mod_facts import ModFacts, archive_index_hash, read_mod_facts
-from .mod_files import ModFiles
+from .mod_placement import (
+    DESCRIPTION_SIDECAR_SUFFIX,
+    IMAGE_SIDECAR_SUFFIXES,
+    PREVIEW_IMAGES,
+    choose_archive_destination,
+    write_image_sidecar,
+)
 from .mod_source import ModSource
 
 log = get_logger()
 
 _INFO_KEY = "meta/info.json"
-_PREVIEW_IMAGES = (("META/image.png", ".png"), ("META/image.webp", ".webp"))
 
 def _folder_file_sizes(folder: Path) -> dict[str, int]:
     """{relative path: size} of every file under *folder*.
@@ -67,11 +72,6 @@ def _folder_file_sizes(folder: Path) -> dict[str, int]:
             path = Path(root) / name
             sizes[path.relative_to(folder).as_posix()] = path.stat().st_size
     return sizes
-
-
-def _occupied(path: Path) -> bool:
-    """Whether something (a link included, even a broken one) is at *path*."""
-    return path.exists() or path.is_symlink()
 
 
 def _check_packed(archive: Path, expected: dict[str, int], added_metadata: bool) -> None:
@@ -123,12 +123,6 @@ class ModStorageService:
     """Service exposing the on-disk mods hierarchy."""
 
     CHAMPION_LIST_CACHE_SECONDS = 0.75
-    # MAX_PATH is 260 including the terminating null character, so keep the
-    # visible path at 259 characters or fewer for legacy Windows APIs.
-    MAX_WINDOWS_PATH_LENGTH = 259
-    # A stored mod's name is also its file name in the injection and LTK
-    # Manager's staging folders, which sit about as deep as the mods storage
-    MAX_MOD_NAME_LENGTH = 120
     # Keep temporary paths short on Windows: a .modpkg (or an archive without
     # META/info.json) is unpacked there before it is packed into a .fantome.
     IMPORT_TEMP_PREFIX = ".rose-import-"
@@ -136,9 +130,6 @@ class ModStorageService:
     CONVERT_TEMP_PREFIX = ".rose-convert-"
     # How Rose stores a mod: the archive LTK Manager installs
     ARCHIVE_SUFFIX = saved_manifest.ARCHIVE_SUFFIX
-    # Beside a stored archive, under its name
-    IMAGE_SIDECAR_SUFFIXES = (".png", ".webp")
-    DESCRIPTION_SIDECAR_SUFFIX = ".txt"
     MAX_MOD_IMAGE_BYTES = 5 * 1024 * 1024
     TARGET_METADATA = saved_manifest.TARGET_METADATA
     LEGACY_TARGET_METADATA = saved_manifest.LEGACY_TARGET_METADATA
@@ -168,60 +159,6 @@ class ModStorageService:
         ] = {}
         self.mods_root.mkdir(parents=True, exist_ok=True)
         self._ensure_mods_root_layout()
-
-    def _choose_archive_destination(self, parent_dir: Path, base_name: str) -> tuple[str, Path]:
-        """Choose a unique mod name for an archive stored in *parent_dir* and
-        return it with the archive's path (<parent_dir>/<name>.fantome).
-
-        A name is taken by a stored mod (archive or folder), and by a saved
-        mod's manifest entry or the image and description beside it under
-        that name: once LTK Manager holds a mod, nothing else in the folder
-        holds its name. One LTK Manager lost keeps it too, until the user
-        deletes it: a mod added under its name is another mod.
-
-        A long name is truncated only as much as Windows' traditional
-        260-character path limit needs, then the normal `` (2)`` collision
-        suffixes are added.
-        """
-        max_name_length = min(
-            self.MAX_MOD_NAME_LENGTH,
-            self.MAX_WINDOWS_PATH_LENGTH - len(str(parent_dir)) - 1 - len(self.ARCHIVE_SUFFIX),
-        )
-        if max_name_length < 1:
-            raise ValueError("The mods folder's path is too long for Windows")
-
-        original_name = base_name
-        suffix_number = 1
-        while True:
-            suffix = "" if suffix_number == 1 else f" ({suffix_number})"
-            available_name_length = max_name_length - len(suffix)
-            if available_name_length < 1:
-                raise ValueError(
-                    "Unable to create a unique Windows-safe name for "
-                    "the selected mod"
-                )
-
-            candidate_base = base_name[:available_name_length].rstrip(" .")
-            if not candidate_base:
-                raise ValueError(
-                    "The selected mod archive has no usable Windows-safe name"
-                )
-            mod_name = f"{candidate_base}{suffix}"
-            archive = parent_dir / f"{mod_name}{self.ARCHIVE_SUFFIX}"
-            taken = [parent_dir / mod_name, *(archive.with_suffix(s) for s in MOD_ARCHIVE_SUFFIXES),
-                     *self.sidecar_paths(archive)]
-            if (
-                not any(_occupied(path) for path in taken)
-                and saved_manifest.find_saved_mod(self.mods_root, archive, match_content=False) is None
-            ):
-                if mod_name != original_name:
-                    log.warning(
-                        "[MODS] Shortened mod name for Windows path limit: '%s' -> '%s'",
-                        original_name,
-                        mod_name,
-                    )
-                return mod_name, archive
-            suffix_number += 1
 
     def _add_archive(
         self,
@@ -258,7 +195,7 @@ class ModStorageService:
             with source.open("rb") as stream:
                 picked_file_hash = hashlib.file_digest(stream, "sha256").hexdigest()
         parent_dir.mkdir(parents=True, exist_ok=True)
-        mod_name, target = self._choose_archive_destination(parent_dir, base_name)
+        mod_name, target = choose_archive_destination(self.mods_root, parent_dir, base_name)
         keeps_package = not skin and source.suffix.lower() == MODPKG_SUFFIX
         if keeps_package:
             target = target.with_suffix(MODPKG_SUFFIX)
@@ -273,7 +210,7 @@ class ModStorageService:
             temporary.replace(target)
         finally:
             safe_remove_entry(temporary)
-        image = self._write_image_sidecar(target)
+        image = write_image_sidecar(target)
         try:
             saved_manifest.add_saved_mod(self.mods_root, target, facts, targets,
                                          source_hash=picked_file_hash, index_hash=index_hash)
@@ -361,39 +298,6 @@ class ModStorageService:
                 raise ValueError("The selected mod archive contains no files")
             write_fantome_zip(unpacked_dir, dest, metadata=metadata, name=mod_name)
 
-    # Larger previews are not copied out of an archive (a broken or odd mod)
-    MAX_SIDECAR_IMAGE_BYTES = 32 * 1024 * 1024
-
-    def _write_image_sidecar(self, archive: Path, beside: Optional[Path] = None) -> Optional[Path]:
-        """Copy the archive's preview image beside it (beside *beside*, the
-        path of a mod Rose does not store), for the mods UI, and return it."""
-        try:
-            with ModFiles(archive) as files:
-                for member, suffix in _PREVIEW_IMAGES:
-                    if not files.is_file(member):
-                        continue
-                    data = files.read(member)
-                    if not 0 < len(data) <= self.MAX_SIDECAR_IMAGE_BYTES:
-                        return None
-                    image = (beside or archive).with_suffix(suffix)
-                    with atomic_write(image, "wb", durable=False) as handle:
-                        handle.write(data)
-                    return image
-        except (OSError, zipfile.BadZipFile) as exc:
-            log.debug(f"[MODS] No preview image for {archive.name}: {exc}")
-        return None
-
-    @classmethod
-    def sidecar_paths(cls, stored: Path) -> list[Path]:
-        """The files beside a stored archive that belong to it (preview image,
-        description); none for a folder, which holds its own."""
-        if stored.is_dir():
-            return []
-        return [
-            stored.with_suffix(suffix)
-            for suffix in (*cls.IMAGE_SIDECAR_SUFFIXES, cls.DESCRIPTION_SIDECAR_SUFFIX)
-        ]
-
     def saved_mods(self, kind: Optional[str] = None) -> List[SavedMod]:
         """Every saved mod (of *kind*: "skins" or a category), whether LTK
         Manager holds it or Rose still does."""
@@ -470,14 +374,14 @@ class ModStorageService:
         """Copy a mod folder's preview image and description beside it, as an
         archive keeps them: the folder is about to go."""
         folder = mod.rose_copy
-        if not any(mod.sidecar(suffix).exists() for suffix in self.IMAGE_SIDECAR_SUFFIXES):
-            for member, suffix in _PREVIEW_IMAGES:
+        if not any(mod.sidecar(suffix).exists() for suffix in IMAGE_SIDECAR_SUFFIXES):
+            for member, suffix in PREVIEW_IMAGES:
                 image = folder.joinpath(*member.split("/"))
                 if image.is_file():
                     shutil.copyfile(image, mod.sidecar(suffix))
                     break
         description = folder / "description.txt"
-        sidecar = mod.sidecar(self.DESCRIPTION_SIDECAR_SUFFIX)
+        sidecar = mod.sidecar(DESCRIPTION_SIDECAR_SUFFIX)
         if description.is_file() and not sidecar.exists():
             shutil.copyfile(description, sidecar)
 
@@ -566,7 +470,7 @@ class ModStorageService:
             raise
         sidecars = []
         try:
-            for member, suffix in _PREVIEW_IMAGES:
+            for member, suffix in PREVIEW_IMAGES:
                 image = folder.joinpath(*member.split("/"))
                 if image.is_file():
                     sidecars.append(archive.with_suffix(suffix))
@@ -574,7 +478,7 @@ class ModStorageService:
                     break
             description = folder / "description.txt"
             if description.is_file():
-                sidecars.append(archive.with_suffix(self.DESCRIPTION_SIDECAR_SUFFIX))
+                sidecars.append(archive.with_suffix(DESCRIPTION_SIDECAR_SUFFIX))
                 shutil.copyfile(description, sidecars[-1])
             folder.rename(previous)
         except OSError:
@@ -792,7 +696,7 @@ class ModStorageService:
             return False
         if mod.rose_copy is not None:
             safe_remove_entry(mod.rose_copy)
-        for suffix in (*self.IMAGE_SIDECAR_SUFFIXES, self.DESCRIPTION_SIDECAR_SUFFIX):
+        for suffix in (*IMAGE_SIDECAR_SUFFIXES, DESCRIPTION_SIDECAR_SUFFIX):
             _remove_sidecar_file(mod.sidecar(suffix))
         return True
 
@@ -997,7 +901,7 @@ class ModStorageService:
         if folder is not None:
             description_file = folder / "description.txt"
         else:
-            description_file = mod.sidecar(cls.DESCRIPTION_SIDECAR_SUFFIX)
+            description_file = mod.sidecar(DESCRIPTION_SIDECAR_SUFFIX)
         try:
             return description_file.read_text(encoding="utf-8").strip()
         except FileNotFoundError:

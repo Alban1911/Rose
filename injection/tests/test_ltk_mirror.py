@@ -1,8 +1,10 @@
 import json
 import unittest
+from unittest.mock import patch
 
+from injection.mods import ltk_mirror
 from injection.mods.ltk_mirror import category_of
-from injection.mods.manifest import ltk_removals, set_hidden
+from injection.mods.manifest import ltk_library_mods, ltk_removals, set_hidden
 from injection.mods.mod_facts import compute_mod_facts
 from injection.tests import test_ltk_sync
 from injection.tests.test_ltk_sync import MAP, MAP_ID, NEW_ID, VO_ID
@@ -131,6 +133,58 @@ class MirrorTests(unittest.TestCase):
         self.save("VO Korean", VO_ID, archive=self.ltk_archive("vo-korean", VOICEOVER))
 
         self.assertFalse(set_hidden(self.mods_root, "voiceover/VO Korean", True))
+
+    def test_a_taken_name_gives_it_the_next_free_one(self):
+        self.save("dark-hud", VO_ID, category="others")
+        (self.mods_root / "others" / "dark-hud (2).fantome").write_bytes(b"stored")
+        self.ltk_archive("dark-hud", USERS_HUD)
+        self.write_index((VO_ID, "vo-korean"), (NEW_ID, "dark-hud"))
+
+        self.sync()
+
+        self.assertEqual(list(self.listed()), ["dark-hud (3)"])
+
+    def test_one_ltk_manager_analyses_later_moves_to_its_category_as_the_user_left_it(self):
+        self.ltk_archive("dark-hud", USERS_HUD)
+        self.write_index((NEW_ID, "dark-hud"))
+        self.sync()
+        self.assertTrue(set_hidden(self.mods_root, "others/dark-hud", True))
+        self.storage.set_category_mod_display_name("others", "dark-hud", "My HUD")
+        self.analysed(**{NEW_ID: {"tags": ["ui"]}})
+
+        self.sync()
+
+        self.assertEqual(self.listed("others"), {})
+        moved = self.listed("ui")["dark-hud"]
+        self.assertEqual((moved.ltk_id, moved.display_name, moved.hidden), (NEW_ID, "My HUD", True))
+        self.assertEqual(moved.sidecar(".txt").read_text(encoding="utf-8"), "A darker HUD")
+
+    def test_one_that_cannot_be_listed_whole_leaves_nothing_behind_and_is_listed_at_the_next_sync(self):
+        self.ltk_archive("dark-hud", USERS_HUD)
+        self.write_index((NEW_ID, "dark-hud"))
+
+        with patch.object(ltk_mirror, "atomic_write", side_effect=OSError("disk full")):
+            self.sync()
+
+        self.assertEqual(self.listed(), {})
+        self.assertEqual(list((self.mods_root / "others").iterdir()), [], "no image or description left")
+        self.sync()
+        self.assertEqual(self.listed()["dark-hud"].sidecar(".txt").read_text(encoding="utf-8"), "A darker HUD")
+
+    def test_a_mod_added_meanwhile_under_a_dropped_one_s_name_stays(self):
+        self.ltk_archive("dark-hud", USERS_HUD)
+        self.write_index((NEW_ID, "dark-hud"))
+        self.sync()
+        read_before = ltk_library_mods(self.mods_root)
+        self.storage.delete_category_mod("others", "dark-hud")
+        self.save("dark-hud", VO_ID, category="others")
+        self.write_index((VO_ID, "dark-hud-rose"))
+
+        with patch.object(ltk_mirror, "ltk_library_mods", return_value=read_before):
+            self.sync()
+
+        self.assertEqual(self.storage.saved_mod("others/dark-hud").ltk_id, VO_ID)
+        self.assertEqual(ltk_removals(self.mods_root), [])
 
 
 if __name__ == "__main__":
