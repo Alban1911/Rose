@@ -12,6 +12,7 @@ from typing import Optional
 
 import psutil
 
+from config import get_config_option
 from utils.core.logging import get_logger
 from utils.system.process_list import running_processes
 
@@ -55,7 +56,15 @@ def find_lockfile(explicit: Optional[str] = None) -> Optional[str]:
         env_path = Path(env)
         if env_path.is_file():
             return str(env_path)
-    
+
+    # The client folder Rose saved: a client installed outside the common
+    # paths is found there without looking through the processes
+    client_dir = (get_config_option("General", "clientPath") or "").strip()
+    if client_dir:
+        configured = Path(client_dir) / "lockfile"
+        if configured.is_file():
+            return str(configured)
+
     # Check common installation paths
     if os.name == "nt":
         common_paths = [

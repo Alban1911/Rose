@@ -83,9 +83,20 @@ class CredentialsTests(unittest.TestCase):
             denied = process('LeagueClient.exe', pid=41, denied=True)
             client = process(exe=str(Path(folder) / 'LeagueClientUx.exe'))
             with patch.dict(lockfile.os.environ, {'LCU_LOCKFILE': ''}), \
+                    patch.object(lockfile, 'get_config_option', return_value=None), \
                     patch.object(Path, 'is_file', lambda self: self == path), \
                     running(process('Other.exe', pid=40), denied, client):
                 self.assertEqual(lockfile.find_lockfile(), str(path))
+
+    def test_lockfile_in_the_saved_client_folder_needs_no_process_list(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / 'lockfile'
+            path.write_text('LeagueClient:42:12345:sample:https', encoding='utf-8')
+            with patch.dict(lockfile.os.environ, {'LCU_LOCKFILE': ''}), \
+                    patch.object(lockfile, 'get_config_option', return_value=f' {folder} ') as saved, \
+                    patch.object(lockfile, 'running_processes', side_effect=AssertionError('processes listed')):
+                self.assertEqual(lockfile.find_lockfile(), str(path))
+            saved.assert_called_once_with('General', 'clientPath')
 
     def test_normal_lockfile(self):
         with tempfile.TemporaryDirectory() as folder:
