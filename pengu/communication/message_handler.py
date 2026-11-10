@@ -24,6 +24,7 @@ from typing import NamedTuple, Optional, Sequence, TypedDict
 from urllib.parse import quote
 
 from config import get_config_float, get_config_option, set_config_option
+from injection.mods.manifest import set_hidden
 from injection.mods.mod_source import LtkEntry, ModSource
 from injection.mods.storage import ModStorageService
 from injection.overlay.ltf_report import has_ltf_logs_hint, ltk_failure_cause
@@ -1325,7 +1326,7 @@ class MessageHandler:
             log.warning("[ManageMods] Invalid category: %s", category)
             return
         try:
-            mods = self.mod_storage.list_mods_for_category(category)
+            mods = self.mod_storage.list_mods_for_category(category, include_hidden=True)
         except Exception as exc:
             log.error("[ManageMods] Failed to list category %s: %s", category, exc)
             mods = []
@@ -2168,7 +2169,7 @@ class MessageHandler:
         game's mods from (no longer picked, if it was), or show it again."""
         category, mod_name, hidden = payload.get("category"), payload.get("modName"), bool(payload.get("hidden"))
         try:
-            changed = bool(self.mod_storage) and self.mod_storage.set_category_mod_hidden(category, mod_name, hidden)
+            changed = bool(self.mod_storage) and set_hidden(self.mod_storage.mods_root, f"{category}/{mod_name}", hidden)
         except Exception as exc:
             log.error("[HideMod] Failed to hide or show category mod: %s", exc)
             changed = False
@@ -2610,7 +2611,7 @@ class MessageHandler:
             return
 
         try:
-            mods = [mod for mod in self.mod_storage.list_mods_for_category(category) if not mod.get("hidden")]
+            mods = self.mod_storage.list_mods_for_category(category)
         except Exception as exc:
             log.error(f"[SkinMonitor] Failed to list category {category}: {exc}")
             mods = []

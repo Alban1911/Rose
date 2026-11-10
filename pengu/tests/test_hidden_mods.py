@@ -1,6 +1,6 @@
 import json
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 from pengu.communication.message_handler import BACKGROUND_MESSAGE_TYPES, MessageHandler
 
@@ -17,26 +17,24 @@ class HiddenModTests(unittest.TestCase):
         self.handler._clear_category_selection_if_matches = MagicMock()
 
     def test_hiding_one_unpicks_it(self):
-        self.handler.mod_storage.set_category_mod_hidden.return_value = True
+        with patch("pengu.communication.message_handler.set_hidden", return_value=True) as hide:
+            self.handler._handle_hide_category_mod({"category": "others", "modName": "dark-hud", "hidden": True})
 
-        self.handler._handle_hide_category_mod({"category": "others", "modName": "dark-hud", "hidden": True})
-
-        self.handler.mod_storage.set_category_mod_hidden.assert_called_once_with("others", "dark-hud", True)
+        hide.assert_called_once_with(self.handler.mod_storage.mods_root, "others/dark-hud", True)
         self.handler._clear_category_selection_if_matches.assert_called_once_with("others", "dark-hud")
         self.assertEqual(self.sent[-1], {"type": "category-mod-hidden", "success": True, "category": "others",
                                          "modName": "dark-hud", "hidden": True})
         self.assertIn("hide-category-mod", BACKGROUND_MESSAGE_TYPES)
 
-    def test_a_hidden_one_is_not_offered_to_pick(self):
-        self.handler.mod_storage.list_mods_for_category.return_value = [
-            {"id": "others/dark-hud.fantome", "name": "dark-hud", "mirrored": True, "hidden": True},
-            {"id": "others/Glow.fantome", "name": "Glow", "mirrored": True, "hidden": False},
-        ]
+    def test_mod_management_alone_asks_for_the_hidden_ones(self):
+        self.handler.mod_storage.list_mods_for_category.return_value = []
 
+        self.handler._handle_request_manage_category_mods({"category": "others"})
         with patch("utils.core.mod_historic.get_historic_mod", return_value=None):
             self.handler._handle_request_category_mods({"category": "others"})
 
-        self.assertEqual([mod["name"] for mod in self.sent[-1]["mods"]], ["Glow"])
+        self.assertEqual(self.handler.mod_storage.list_mods_for_category.call_args_list,
+                         [call("others", include_hidden=True), call("others")])
 
 
 if __name__ == "__main__":

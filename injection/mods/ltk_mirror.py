@@ -21,7 +21,7 @@ from .manifest import (
     ltk_library_mods,
     manifest_ltk_ids,
 )
-from .mod_facts import compute_mod_facts, stamp_of
+from .mod_facts import read_mod_facts, stamp_of
 from .storage import ModStorageService
 
 log = get_logger()
@@ -105,7 +105,7 @@ def _list(storage: ModStorageService, entry: IndexEntry, category: str) -> str:
         fields["displayName"] = display_name
     if archive is not None:
         try:
-            fields.update(compute_mod_facts(archive)[0].to_manifest(), ltkStamp=stamp_of(archive),
+            fields.update(read_mod_facts(archive).to_manifest(), ltkStamp=stamp_of(archive),
                           updatedAt=archive.stat().st_mtime)
         except (OSError, ValueError, zipfile.BadZipFile) as e:
             log.debug(f"[MODS] Could not read the LTK Manager mod {archive.name}: {e}")

@@ -889,17 +889,6 @@ class ModStorageService:
             mod = self.saved_mod(f"{category}/{mod_name}")
             return mod is not None and self._delete_saved_mod(mod)
 
-    def set_category_mod_hidden(self, category: str, mod_name: str, hidden: bool) -> bool:
-        """Hide a mod the user added in LTK Manager (mirrored) from the lists
-        to pick a game's mods from, or show it again. False for any other
-        mod, or one not found."""
-        if category not in self.MOD_CATEGORIES:
-            raise ValueError(f"Unsupported mod category: {category}")
-        with self._storage_lock:
-            mod = self.saved_mod(f"{category}/{mod_name}") if mod_name else None
-            return (mod is not None and mod.mirrored
-                    and saved_manifest.update_listed_mod(mod, hidden=True if hidden else None))
-
     def import_category_mod_file(
         self,
         category: str,
@@ -969,13 +958,12 @@ class ModStorageService:
         kinds = {mod.kind for mod in self.saved_mods()}
         return [category for category in self.ROOT_CATEGORIES if category in kinds]
 
-    def list_mods_for_category(self, category: str) -> List[dict]:
+    def list_mods_for_category(self, category: str, *, include_hidden: bool = False) -> List[dict]:
         """The mods saved in a category, as its manifest lists them (no mod
         file is opened): id and path (the mod's identity), name, displayName,
-        updatedAt, description, where the mod is (its source's plugin_fields:
-        ltkId, missing, pending), whether the user added it in LTK Manager
-        (mirrored) and hid it from the lists to pick from (hidden), and facts
-        (ModFacts.to_manifest(), None when unknown)."""
+        updatedAt, description, SavedMod.plugin_fields and facts (None when
+        unknown). A hidden mod is not one to pick for a game: only
+        *include_hidden* (mod management) lists it."""
         if category not in self.MOD_CATEGORIES:
             return []
         with self._storage_lock:
@@ -987,12 +975,10 @@ class ModStorageService:
                     "path": mod.identity,
                     "updatedAt": mod.updated_at,
                     "description": self._read_mod_description(mod),
-                    **mod.source.plugin_fields(),
-                    "mirrored": mod.mirrored,
-                    "hidden": mod.hidden,
+                    **mod.plugin_fields(),
                     "facts": mod.facts.to_manifest() if mod.facts else None,
                 }
-                for mod in saved_manifest.iter_saved_mods(self.mods_root, category)
+                for mod in saved_manifest.iter_saved_mods(self.mods_root, category) if include_hidden or not mod.hidden
             ]
 
     @staticmethod

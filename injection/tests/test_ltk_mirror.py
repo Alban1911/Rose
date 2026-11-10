@@ -2,7 +2,7 @@ import json
 import unittest
 
 from injection.mods.ltk_mirror import category_of
-from injection.mods.manifest import ltk_removals
+from injection.mods.manifest import ltk_removals, set_hidden
 from injection.mods.mod_facts import compute_mod_facts
 from injection.tests import test_ltk_sync
 from injection.tests.test_ltk_sync import MAP, MAP_ID, NEW_ID, VO_ID
@@ -112,22 +112,25 @@ class MirrorTests(unittest.TestCase):
 
         self.assertEqual(list(self.listed()), ["dark-hud"])
 
-    def test_a_hidden_one_stays_hidden(self):
+    def test_a_hidden_one_stays_hidden_and_is_listed_for_mod_management_alone(self):
         self.ltk_archive("dark-hud", USERS_HUD)
         self.write_index((NEW_ID, "dark-hud"))
         self.sync()
 
-        self.assertTrue(self.storage.set_category_mod_hidden("others", "dark-hud", True))
+        self.assertTrue(set_hidden(self.mods_root, "others/dark-hud", True))
         self.sync()
 
         self.assertTrue(self.listed()["dark-hud"].hidden)
-        self.assertTrue(self.storage.set_category_mod_hidden("others", "dark-hud", False))
+        self.assertEqual(self.storage.list_mods_for_category("others"), [], "not one to pick for a game")
+        self.assertEqual([mod["name"] for mod in self.storage.list_mods_for_category("others", include_hidden=True)],
+                         ["dark-hud"])
+        self.assertTrue(set_hidden(self.mods_root, "others/dark-hud", False))
         self.assertFalse(self.listed()["dark-hud"].hidden)
 
     def test_only_a_mod_the_user_added_in_ltk_manager_can_be_hidden(self):
         self.save("VO Korean", VO_ID, archive=self.ltk_archive("vo-korean", VOICEOVER))
 
-        self.assertFalse(self.storage.set_category_mod_hidden("voiceover", "VO Korean", True))
+        self.assertFalse(set_hidden(self.mods_root, "voiceover/VO Korean", True))
 
 
 if __name__ == "__main__":

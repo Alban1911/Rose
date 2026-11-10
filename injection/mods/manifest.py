@@ -91,6 +91,12 @@ class SavedMod:
         """Whether the user hid it from Rose's lists of mods to pick."""
         return self.metadata.get(HIDDEN) is True
 
+    def plugin_fields(self) -> dict:
+        """What the plugins' listings say of it: where it is (its source's
+        plugin_fields: ltkId, missing, pending), whether the user added it in
+        LTK Manager, and whether they hid it."""
+        return {**self.source.plugin_fields(), "mirrored": self.mirrored, "hidden": self.hidden}
+
     @property
     def registered(self) -> bool:
         """Whether its manifest has an entry for it (not a file nobody registered)."""
@@ -895,6 +901,18 @@ def add_mirrored_mod(mods_root: Path, category: str, ltk_id: str, name: str, fie
 
     _change_manifest(directory, register)
     return chosen[0]
+
+
+def set_hidden(mods_root: Path, relative_path: object, hidden: bool) -> bool:
+    """Hide the mod the user added in LTK Manager (mirrored) known as
+    *relative_path* from the lists to pick a game's mods from, or show it
+    again. False for any other mod, one not found, or a manifest that cannot
+    be read."""
+    with MANIFEST_WRITERS_LOCK:
+        found = _find(Path(mods_root), relative_path, match_content=False)
+        if found is None or not found[1].mirrored:
+            return False
+        return _merge_into_entry(*found, {HIDDEN: True if hidden else None})
 
 
 def set_targets(directory: Path, targets: Iterable[int], name: Optional[str] = None) -> None:
