@@ -21,6 +21,7 @@ from config import (
     WS_PING_INTERVAL_DEFAULT,
     WS_PING_TIMEOUT_DEFAULT,
     WS_RECONNECT_DELAY,
+    WS_RECONNECT_FAST_ATTEMPTS,
     WS_RECONNECT_MAX_DELAY,
     WS_RECONNECT_JITTER,
 )
@@ -93,7 +94,7 @@ class WebSocketConnection:
             self.lcu.refresh_if_needed()
             credentials = self.lcu.websocket_credentials()
             if credentials is None:
-                if self._wait_before_retry("LCU lockfile is not ready"):
+                if self._wait_for_client():
                     break
                 continue
 
@@ -211,12 +212,30 @@ class WebSocketConnection:
             except Exception:
                 pass
 
+    def _wait_for_client(self) -> bool:
+        """Wait for the next look at the lockfile and return whether stopping.
+
+        Without backoff: a look reads what LCU.refresh_if_needed keeps (one
+        refresh a second, whoever asks), and a client that starts is seen
+        within a second instead of up to WS_RECONNECT_MAX_DELAY later. The
+        connection's own backoff starts over with the client."""
+        self._retry_attempt = 0
+        reason = "LCU lockfile is not ready"
+        # The client stays closed for hours: warned once, the repeats are not logged
+        if reason != self._warned_retry_reason:
+            self._warned_retry_reason = reason
+            log.warning("[WS] %s; waiting for the client", reason)
+        return self._stop_event.wait(WS_RECONNECT_DELAY) or self.state.stop
+
     def _wait_before_retry(self, reason: str) -> bool:
         """Wait with bounded exponential backoff and return whether stopping."""
         self._retry_attempt += 1
+        # The first WS_RECONNECT_FAST_ATTEMPTS retries keep the shortest delay
+        # (the client is starting), the delay doubles from there
+        slow_attempts = max(0, self._retry_attempt - WS_RECONNECT_FAST_ATTEMPTS)
         base_delay = min(
             WS_RECONNECT_MAX_DELAY,
-            WS_RECONNECT_DELAY * (2 ** min(self._retry_attempt - 1, 6)),
+            WS_RECONNECT_DELAY * (2 ** min(slow_attempts, 6)),
         )
         jitter = random.uniform(0.0, base_delay * WS_RECONNECT_JITTER)
         delay = min(WS_RECONNECT_MAX_DELAY, base_delay + jitter)
