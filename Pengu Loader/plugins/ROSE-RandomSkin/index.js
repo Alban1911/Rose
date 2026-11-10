@@ -49,6 +49,8 @@
   let randomFlagImageUrl = null; // HTTP URL from Python
   const pendingRandomFlagRequest = new Map(); // Track pending requests
   let isInChampSelect = false; // Track if we're in ChampSelect phase
+  let isInClassicMode = false;
+  let lastPhaseData = null;
   let championLocked = false; // Track if a champion is locked
 
   // Dice button state
@@ -137,9 +139,18 @@
   }
 
   function handlePhaseChange(data) {
+    lastPhaseData = data;
     const wasInChampSelect = isInChampSelect;
+    isInClassicMode =
+      Number(data?.mapId) === 453 ||
+      Number(data?.queueId) === 3260 ||
+      String(data?.gameMode || "").toUpperCase() === "JADE";
+    const classicRandomOwned =
+      isInClassicMode && window.__roseClassicFeatureOwners?.random === true;
     // Check if we're entering ChampSelect phase
-    isInChampSelect = data.phase === "ChampSelect" || data.phase === "FINALIZATION";
+    isInChampSelect =
+      !classicRandomOwned &&
+      (data?.phase === "ChampSelect" || data?.phase === "FINALIZATION");
 
     if (isInChampSelect && !wasInChampSelect) {
       log("debug", "Entered ChampSelect phase - enabling plugin");
@@ -669,6 +680,11 @@
     bridge.subscribe("local-asset-url", handleLocalAssetUrl);
     bridge.subscribe("phase-change", handlePhaseChange);
     bridge.subscribe("champion-locked", handleChampionLocked);
+    window.addEventListener("rose-classic-feature-owner-change", (event) => {
+      if (event?.detail?.feature === "random" && lastPhaseData) {
+        handlePhaseChange(lastPhaseData);
+      }
+    });
 
     // On bridge (re)connect, re-request assets
     bridge.onReady(() => {
@@ -708,4 +724,3 @@
     init();
   }
 })();
-
