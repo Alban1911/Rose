@@ -709,9 +709,6 @@ struct TauriCommand {
     DWORD timeoutMs = kCdpEvalBudgetMs;
 };
 static const TauriCommand kTauriCommands[] = {
-    // Rose switches a game's mods in an LTK Manager profile of its own, so the
-    // user's profile stays as they left it, and files the mods it added in a
-    // folder named "Rose"
     { "list_profiles",    "plugin:library|list_mod_profiles",      {} },
     { "active_profile",   "plugin:library|get_active_mod_profile", {} },
     { "create_profile",   "plugin:library|create_mod_profile",     { "name" } },

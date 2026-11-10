@@ -2801,8 +2801,8 @@
     const category = String(data.category || "").trim();
     if (!category || !data.modName) return;
     const target = normalizePathLike(`${category}/${data.modName}`);
-    // A mod LTK Manager holds is selected by its archive's path
-    const isThisMod = (id) => Boolean(id) && [target, `${target}.fantome`].includes(normalizePathLike(id));
+    const targetArchive = `${target}.fantome`;
+    const isThisMod = (id) => Boolean(id) && [target, targetArchive].includes(normalizePathLike(id));
 
     if (category === "maps") {
       if (isThisMod(selectedMapId)) selectedMapId = null;

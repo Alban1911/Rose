@@ -22,23 +22,18 @@ def status(running=True, phase="patching", **extra):
 
 
 class FakeBridge:
-    """Stands in for the bridge inside ltk-manager.exe"""
 
     created = []
-    patcher_statuses = []  # answers to patcher_status, the last one repeats
+    patcher_statuses = []
     initial_library = []
-    # Answer an install with the whole entry it created (id, names, enabled),
-    # not its id alone
     full_install_answer = False
-    # The health_check_off answer; None: a bridge older than the command
     health_check_answer = {"ok": True, "changed": False}
     # Library entries LTK Manager cannot read, logged to broken_log at each read
     broken_ids = []
     broken_log = None
-    # LTK Manager's mod storage (modDir per entry) and its health answers
     mod_storage = None
-    health_answers = []  # verdicts check_mod_health returns, the last one repeats
-    repair_files = None  # {path in archive: bytes} repair_mod writes into the entry's archive
+    health_answers = []
+    repair_files = None
     # LTK Manager's profiles: an entry's "enabled" is the active profile's,
     # and each other profile keeps its own (enabled_by_profile)
     initial_profiles = None
@@ -226,7 +221,6 @@ class FakeBridge:
         self.profile_list = [p for p in self.profile_list if p["id"] != profile_id]
 
     def enabled_in(self, profile_name):
-        """The entries the profile named *profile_name* enables now."""
         profile_id = next(p["id"] for p in self.profile_list if p["name"] == profile_name)
         if profile_id == self.active_profile_id:
             return {e["id"] for e in self.library_entries if e.get("enabled")}
@@ -258,7 +252,6 @@ class FakeBridge:
         self.folder_list = [f for f in self.folder_list if f["id"] != folder_id]
 
     def in_folder(self, folder_name):
-        """The entries the folder named *folder_name* holds."""
         folder = next((f for f in self.folder_list if f["name"] == folder_name), None)
         return {e["id"] for e in self.library_entries if folder is not None and e.get("folderId") == folder["id"]}
 
@@ -313,8 +306,6 @@ class LtfSessionTestCase(unittest.TestCase):
             patch.object(ltf_session, "CDP_READY_POLL_S", 0.01),
             patch.object(ltf_session, "CDP_READY_TIMEOUT_S", 0.05),
             patch.object(overlay_manager, "PATCHER_STOP_WAIT_S", 0.5),
-            # Never this PC's game or client: RestartMissedGameTests turn it on with fakes
-            patch.object(overlay_manager, "RESTART_MISSED_GAME", False),
         ):
             patcher.start()
             self.addCleanup(patcher.stop)
@@ -322,7 +313,8 @@ class LtfSessionTestCase(unittest.TestCase):
 
     def isolate_from_this_pc(self):
         """Never this PC's saved mods, LTK Manager data and log, LTF logs,
-        registry or Rose's diagnostics file: the test's folders instead."""
+        registry or Rose's diagnostics file: the test's folders instead. Nor
+        its game or client: a test that restarts a missed game fakes them."""
         self.host.saved_mods_root = self.root / "saved-mods"
         self.ltk_data = self.root / "ltk-data"
         self.ltk_data.mkdir(exist_ok=True)
@@ -336,6 +328,7 @@ class LtfSessionTestCase(unittest.TestCase):
             patch.object(ltk_data.LtkLogTail, "log_dir", staticmethod(lambda: self.ltk_logs)),
             patch.object(ltf_session, "ltk_logs_dir", lambda: self.root / "logs" / "ltk"),
             patch("utils.system.windows_account.check_ltk_settings", return_value=False),
+            patch.object(overlay_manager, "RESTART_MISSED_GAME", False),
             patch.object(ltf_session, "launcher_log_paths",
                          lambda: (self.root / "logs" / "ltk" / "ltk_launcher.log",
                                   self.root / "Public" / "ltk_launcher.log",

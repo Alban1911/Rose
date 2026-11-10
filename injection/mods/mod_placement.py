@@ -22,13 +22,10 @@ log = get_logger()
 # MAX_PATH is 260 including the terminating null character, so keep the
 # visible path at 259 characters or fewer for legacy Windows APIs.
 MAX_WINDOWS_PATH_LENGTH = 259
-# A stored mod's name is also its file name in the injection and LTK
-# Manager's staging folders, which sit about as deep as the mods storage
 MAX_MOD_NAME_LENGTH = 120
 IMAGE_SIDECAR_SUFFIXES = (".png", ".webp")
 DESCRIPTION_SIDECAR_SUFFIX = ".txt"
 PREVIEW_IMAGES = (("META/image.png", ".png"), ("META/image.webp", ".webp"))
-# Larger previews are not copied out of an archive (a broken or odd mod)
 MAX_SIDECAR_IMAGE_BYTES = 32 * 1024 * 1024
 
 

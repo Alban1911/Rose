@@ -4533,20 +4533,11 @@
         : t("Manage Mods");
     }
 
-    // De-duplicate by path: the same folder can appear once per target skin.
-    const keyForMod = (mod) => mod.relativePath || mod.modName;
-    const seen = new Set();
-    const uniqueMods = (payload.mods || []).filter((mod) => {
-      const key = keyForMod(mod);
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
-    renderManageModsList(listContainer, uniqueMods, t("No custom mods installed for this champion."), {
+    renderManageModsList(listContainer, payload.mods || [], t("No custom mods installed for this champion."), {
       kind: "champion",
       owner: () => ({ championId: window.__roseManageChampionId }),
       selection: window.__roseManageChampionSelectedMods || new Map(),
-      keyForMod,
+      keyForMod: (mod) => mod.relativePath || mod.modName,
       modFields: (mod) => ({ modName: mod.modName, relativePath: mod.relativePath }),
       rowFor: (mod) => ({
         name: mod.modName,
