@@ -1532,11 +1532,15 @@ class OverlayManager:
         try:
             # Called every 50 ms while the game is held, and during the game
             for pid, name in running_processes():
-                if name.lower() in names:
-                    try:
-                        return psutil.Process(pid)
-                    except psutil.NoSuchProcess:
-                        continue  # exited since the snapshot
+                if name.lower() not in names:
+                    continue
+                try:
+                    game = psutil.Process(pid)
+                    # Windows can reuse the PID after the snapshot was taken.
+                    if game.name().lower() in names:
+                        return game
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    continue
         except (psutil.Error, OSError) as e:
             log.debug(f"[INJECT] Could not look for the game process: {e}")
         return None

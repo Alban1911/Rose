@@ -18,6 +18,8 @@ from utils.system.process_list import running_processes
 
 log = get_logger()
 
+_CLIENT_PROCESS_NAMES = frozenset({"leagueclient.exe", "leagueclientux.exe"})
+
 SWIFTPLAY_MODES = {"SWIFTPLAY", "BRAWL"}
 # Queues where champions and skins are picked in the lobby (no champ select):
 # 480 Swiftplay, 490 Quickplay. Quickplay's game mode is CLASSIC, so only its
@@ -33,6 +35,19 @@ class Lockfile:
     port: int
     password: str
     protocol: str
+
+
+def _is_live_client_lockfile(path: Path) -> bool:
+    """Check one lockfile against its process without enumerating processes."""
+    try:
+        data = parse_lockfile(str(path))
+        return (
+            data is not None
+            and data.pid > 0
+            and psutil.Process(data.pid).name().lower() in _CLIENT_PROCESS_NAMES
+        )
+    except (psutil.Error, OSError):
+        return False
 
 
 def find_lockfile(explicit: Optional[str] = None) -> Optional[str]:
@@ -57,12 +72,11 @@ def find_lockfile(explicit: Optional[str] = None) -> Optional[str]:
         if env_path.is_file():
             return str(env_path)
 
-    # The client folder Rose saved: a client installed outside the common
-    # paths is found there without looking through the processes
+    # Try the saved folder first, but skip stale lockfiles from old installs.
     client_dir = (get_config_option("General", "clientPath") or "").strip()
     if client_dir:
         configured = Path(client_dir) / "lockfile"
-        if configured.is_file():
+        if _is_live_client_lockfile(configured):
             return str(configured)
 
     # Check common installation paths
@@ -78,9 +92,9 @@ def find_lockfile(explicit: Optional[str] = None) -> Optional[str]:
             Path.home() / ".local/share/League of Legends/lockfile",
         ]
     
-    for p in common_paths:
-        if p.is_file():
-            return str(p)
+    for path in common_paths:
+        if _is_live_client_lockfile(path):
+            return str(path)
     
     # Try to find via process scanning (repeated every second while no
     # lockfile is found: the client closed, or installed elsewhere)
@@ -96,9 +110,9 @@ def find_lockfile(explicit: Optional[str] = None) -> Optional[str]:
                 exe_path = Path(exe)
                 # Check in same directory and parent directory
                 for directory in [exe_path.parent, exe_path.parent.parent]:
-                    lockfile = directory / "lockfile"
-                    if lockfile.is_file():
-                        return str(lockfile)
+                    candidate = directory / "lockfile"
+                    if _is_live_client_lockfile(candidate):
+                        return str(candidate)
     except (psutil.Error, OSError, AttributeError) as e:
         log.debug(f"Failed to find lockfile via process iteration: {e}")
     
@@ -145,7 +159,7 @@ def find_process_credentials() -> Optional[Lockfile]:
     try:
         for pid, name in running_processes():
             try:
-                if name.lower() not in {"leagueclientux.exe", "leagueclient.exe"}:
+                if name.lower() not in _CLIENT_PROCESS_NAMES:
                     continue
                 args = psutil.Process(pid).cmdline()
                 options = {}

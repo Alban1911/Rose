@@ -30,7 +30,8 @@ from lcu.core.lcu_connection import LCUConnection
 
 
 def process(name='LeagueClientUx.exe', args=None, pid=42, denied=False, exe=''):
-    proc = SimpleNamespace(name=name, pid=pid)
+    proc = SimpleNamespace(image_name=name, pid=pid)
+    proc.name = Mock(return_value=name)
     proc.cmdline = Mock(return_value=args or ['client', '--app-port=12345', '--remoting-auth-token=test-token'])
     proc.exe = Mock(return_value=exe)
     if denied:
@@ -43,8 +44,15 @@ def process(name='LeagueClientUx.exe', args=None, pid=42, denied=False, exe=''):
 def running(*procs):
     """These stand-ins as the running processes"""
     by_pid = {proc.pid: proc for proc in procs}
-    with patch.object(lockfile, 'running_processes', return_value=[(proc.pid, proc.name) for proc in procs]), \
-            patch.object(lockfile.psutil, 'Process', side_effect=by_pid.__getitem__):
+
+    def open_process(pid):
+        if pid not in by_pid:
+            raise lockfile.psutil.NoSuchProcess(pid)
+        return by_pid[pid]
+
+    snapshot = [(proc.pid, proc.image_name) for proc in procs]
+    with patch.object(lockfile, 'running_processes', return_value=snapshot), \
+            patch.object(lockfile.psutil, 'Process', side_effect=open_process):
         yield
 
 
@@ -92,11 +100,42 @@ class CredentialsTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / 'lockfile'
             path.write_text('LeagueClient:42:12345:sample:https', encoding='utf-8')
-            with patch.dict(lockfile.os.environ, {'LCU_LOCKFILE': ''}), \
+            with running(process()), patch.dict(lockfile.os.environ, {'LCU_LOCKFILE': ''}), \
                     patch.object(lockfile, 'get_config_option', return_value=f' {folder} ') as saved, \
                     patch.object(lockfile, 'running_processes', side_effect=AssertionError('processes listed')):
                 self.assertEqual(lockfile.find_lockfile(), str(path))
             saved.assert_called_once_with('General', 'clientPath')
+
+    def test_stale_saved_lockfile_falls_back_to_the_active_client(self):
+        with tempfile.TemporaryDirectory() as folder:
+            saved_dir = Path(folder) / 'old'
+            saved_dir.mkdir()
+            stale = saved_dir / 'lockfile'
+            stale.write_text('LeagueClient:41:11111:old:https', encoding='utf-8')
+            active = Path(folder) / 'lockfile'
+            active.write_text('LeagueClient:42:12345:active:https', encoding='utf-8')
+            client = process(exe=str(Path(folder) / 'LeagueClientUx.exe'))
+            common = 'C:/Riot Games/League of Legends/lockfile'
+
+            cases = (
+                ('expired PID, common path', (client,), active),
+                ('reused PID, process scan', (process('Other.exe', pid=41), client), stale),
+            )
+            for scenario, procs, common_lockfile in cases:
+                def map_common_path(path):
+                    return common_lockfile if path == common else Path(path)
+
+                with self.subTest(scenario=scenario), running(*procs), \
+                        patch.dict(lockfile.os.environ, {'LCU_LOCKFILE': ''}), \
+                        patch.object(lockfile, 'get_config_option', return_value=str(saved_dir)), \
+                        patch.object(lockfile, 'Path', side_effect=map_common_path), \
+                        patch.object(Path, 'is_file', lambda path: path in (stale, active)), \
+                        patch.object(LCUConnection, '_check_client_elevation'):
+                    connection = LCUConnection()
+                    self.assertEqual(connection.lf_path, str(active))
+                    self.assertEqual(connection.port, 12345)
+                    connection.refresh_if_needed(force=True)
+                    self.assertEqual(connection.port, 12345)
 
     def test_normal_lockfile(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -308,7 +347,7 @@ class OverlayLifetimeTests(unittest.TestCase):
 
     def test_game_detection_accepts_both_names(self):
         for name in config.GAME_EXECUTABLE_NAMES:
-            proc = SimpleNamespace(pid=42)
+            proc = SimpleNamespace(pid=42, name=Mock(return_value=name))
             with self.subTest(name=name), \
                     patch.object(self.module, 'running_processes', return_value=[(42, name)]), \
                     patch.object(self.module.psutil, 'Process', return_value=proc) as opened:
