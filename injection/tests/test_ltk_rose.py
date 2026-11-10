@@ -2,7 +2,7 @@ import json
 import zipfile
 from unittest.mock import patch
 
-from injection.overlay import ltk_library
+from injection.overlay import ltk_library, ltk_rose
 from injection.overlay.ltk_library import LtkLibrary
 from injection.tests.ltf_fakes import FakeBridge, LtfSessionTestCase
 from injection.tools.bridge import BridgeCommandError
@@ -103,6 +103,20 @@ class RoseProfileTests(LtfSessionTestCase):
 
         self.assertIsNone(self.state()["users_profile"])
         self.assertNotIn("switch_profile", self.bridge.command_names())
+
+
+class OwnershipTests(LtfSessionTestCase):
+    """Rose knows its profile and folder by the ids its journal records"""
+
+    def test_a_profile_or_folder_rose_cannot_record_is_deleted_again(self):
+        bridge = FakeBridge()
+        for key, create, delete in ((ltk_rose.ROSE_PROFILE, bridge.create_profile, bridge.delete_profile),
+                                    (ltk_rose.ROSE_FOLDER, bridge.create_folder, bridge.delete_folder)):
+            with self.subTest(key), patch.object(self.host.journal, "update", return_value=False):
+                self.assertRaises(BridgeCommandError, ltk_rose._owned, self.host, key, [], create, delete)
+
+        self.assertEqual(([p["id"] for p in bridge.profile_list], [f["id"] for f in bridge.folder_list]),
+                         (["default-id"], ["root"]))
 
 
 class StartRepairTests(LtfSessionTestCase):

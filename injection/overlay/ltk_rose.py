@@ -27,12 +27,14 @@ def _slug(name: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
 
 
-def _owned(host: LtfHost, key: str, items: List[dict], create: Callable[[str], dict]) -> dict:
+def _owned(host: LtfHost, key: str, items: List[dict], create: Callable[[str], dict],
+           delete: Callable[[str], object]) -> dict:
     """Rose's own profile or folder among LTK Manager's *items*: the one the
     journal records under *key*, else one *create* makes under the first
     name, "Rose", "Rose (2)"..., whose name or slug none holds (LTK Manager
-    keeps both a profile's own): one the user named so is theirs. Raises
-    BridgeCommandError when the one made cannot be recorded."""
+    keeps both a profile's own): one the user named so is theirs. One made
+    that cannot be recorded is deleted again, then BridgeCommandError
+    raised: Rose would never know it as its own."""
     recorded = host.journal.read()[key]
     owned = next((item for item in items if recorded is not None and item.get("id") == recorded), None)
     if owned is not None:
@@ -41,6 +43,7 @@ def _owned(host: LtfHost, key: str, items: List[dict], create: Callable[[str], d
     names = itertools.chain((ROSE_NAME,), (f"{ROSE_NAME} ({n})" for n in itertools.count(2)))
     created = create(next(name for name in names if not {name.casefold(), _slug(name)} & taken))
     if not host.journal.update(lambda state: state.__setitem__(key, str(created["id"]))):
+        delete(str(created["id"]))
         raise BridgeCommandError(f"Rose's LTK Manager {key} could not be recorded")
     return created
 
@@ -74,7 +77,7 @@ class RoseProfile:
         self._restore_users_mods(bridge)
         profiles = bridge.profiles()
         active = bridge.active_profile()
-        rose = _owned(self._host, ROSE_PROFILE, profiles, bridge.create_profile)
+        rose = _owned(self._host, ROSE_PROFILE, profiles, bridge.create_profile, bridge.delete_profile)
         if active["id"] == rose["id"]:
             recorded = self._host.journal.read()["users_profile"]
             if recorded is not None and all(profile.get("id") != recorded for profile in profiles):
@@ -192,5 +195,6 @@ class RoseFolder:
         """Rose's folder, created when missing, looked up once a session."""
         if session.rose_folder_id is None:
             bridge = session.bridge
-            session.rose_folder_id = str(_owned(self._host, ROSE_FOLDER, bridge.folders(), bridge.create_folder)["id"])
+            rose = _owned(self._host, ROSE_FOLDER, bridge.folders(), bridge.create_folder, bridge.delete_folder)
+            session.rose_folder_id = str(rose["id"])
         return session.rose_folder_id
