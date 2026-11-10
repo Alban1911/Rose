@@ -4,6 +4,7 @@ to be packed again (a voiceover pack took a minute, every game)."""
 import hashlib
 import json
 import os
+import sys
 import tempfile
 import unittest
 import zipfile
@@ -514,6 +515,28 @@ class ManifestListingTests(TempCase):
         self.assertFalse(self.skin.with_suffix(".png").exists())
         self.assertEqual(self.manifest_mods(), {})
         self.assertEqual(ltk_removals(self.service.mods_root), [])
+
+    @unittest.skipUnless(sys.platform == "win32", "Windows file sharing")
+    def test_a_locked_skin_retains_its_archive_and_manifest_until_a_retry(self):
+        original = self.manifest_mods()
+        with self.skin.open("rb"):
+            self.assertFalse(self.service.delete_champion_mod(81, mod_name=self.skin_name))
+            self.assertTrue(self.skin.is_file())
+            self.assertEqual(self.manifest_mods(), original)
+            self.assertTrue(self.skin.with_suffix(".png").is_file())
+
+        self.assertTrue(self.service.delete_champion_mod(81, mod_name=self.skin_name))
+        self.assertFalse(self.skin.exists())
+
+    def test_a_manifest_write_failure_restores_the_staged_archive(self):
+        original = self.manifest_mods()
+        with patch("injection.mods.manifest._write_manifest", side_effect=PermissionError("locked")):
+            with self.assertRaises(PermissionError):
+                self.service.delete_champion_mod(81, mod_name=self.skin_name)
+
+        self.assertTrue(self.skin.is_file())
+        self.assertEqual(self.manifest_mods(), original)
+        self.assertEqual(list(self.ezreal.glob(".rose-delete-*")), [])
 
     def test_deleting_a_folder_mod_leaves_a_mod_folder_named_like_its_description(self):
         legacy = self.service.get_skin_dir(81020)

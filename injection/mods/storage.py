@@ -788,10 +788,36 @@ class ModStorageService:
         """Delete a saved mod: its manifest entry (LTK Manager's entry, when
         it holds the mod, goes at the next session start), Rose's copy, and
         the image and description beside the manifest."""
-        if not saved_manifest.remove_saved_mod(self.mods_root, mod):
+        stored = mod.rose_copy
+        staged = None
+        if stored is not None and _occupied(stored):
+            # Moving on the same volume checks that the mod can be removed
+            # while keeping a copy to restore if the manifest write fails.
+            folder = Path(tempfile.mkdtemp(prefix=".rose-delete-", dir=stored.parent))
+            staged = folder / stored.name
+            try:
+                stored.rename(staged)
+            except OSError as exc:
+                safe_remove_entry(folder)
+                log.warning("[MODS] Could not remove %s: %s", mod.name, exc)
+                return False
+
+        removed = False
+        try:
+            removed = saved_manifest.remove_saved_mod(self.mods_root, mod)
+        finally:
+            if staged is not None:
+                if not removed:
+                    try:
+                        staged.rename(stored)
+                    except OSError:
+                        log.exception("[MODS] Could not restore %s. The copy is at %s", stored, staged)
+                        raise
+                safe_remove_entry(staged.parent)
+                if _occupied(staged.parent):
+                    log.warning("[MODS] A removed mod's files could not be cleaned up at %s", staged.parent)
+        if not removed:
             return False
-        if mod.rose_copy is not None:
-            safe_remove_entry(mod.rose_copy)
         for suffix in (*self.IMAGE_SIDECAR_SUFFIXES, self.DESCRIPTION_SIDECAR_SUFFIX):
             _remove_sidecar_file(mod.sidecar(suffix))
         return True

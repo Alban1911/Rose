@@ -2881,8 +2881,9 @@ class MessageHandler:
         holds it (stored_skin_rewrite): LTK Manager's repair is written into
         its file, whose hashes its manifest records again, and it leaves LTK
         Manager. One LTK Manager will still turn off in game (a skinhack, a
-        problem it cannot repair) is not added: *remove* deletes it again, and
-        it joins *errors* with the reason. A checked mod gets the verdict as
+        problem it cannot repair) is removed again, and it joins *errors*
+        with the reason. If removal fails, report that the mod is still saved
+        and keep its verdict. A checked mod gets the verdict as
         "health"; one saved already (the same mod added again) is not checked.
         LTK Manager's check is skipped while a game wants it (_ltk_wanted_by_game:
         a queue, champion select, a game), and one running gives way when the
@@ -2932,11 +2933,18 @@ class MessageHandler:
             if result and result.get("problems"):
                 rejection = _rejected_import(item, result)
                 try:
-                    remove(item)
-                except Exception as e:  # noqa: BLE001 - kept, with the warning, rather than half removed
+                    removed = remove(item)
+                except Exception as e:  # noqa: BLE001 - the rest of the batch can still finish
                     log.warning(f"[MODCHECK] Could not remove {item.get('modName')} again: {e}")
+                    removed = False
+                if not removed:
                     item["health"] = result
                     kept.append(item)
+                    errors.append({
+                        "fileName": rejection["fileName"],
+                        "code": "ltk_cleanup_failed",
+                        "error": "LTK Manager rejected this mod, but Rose could not remove it. It is still in your library.",
+                    })
                     continue
                 log.warning(f"[MODCHECK] Not adding {item.get('modName')}: {rejection['error']}")
                 errors.append(rejection)
