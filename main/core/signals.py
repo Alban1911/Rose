@@ -9,7 +9,7 @@ import signal
 import sys
 
 import utils.integration.pengu_loader as pengu_loader
-from utils.core.logging import get_logger
+from utils.core.logging import flush_logging, get_logger
 
 from .state import get_app_state
 
@@ -47,6 +47,7 @@ def force_quit_handler():
         pengu_loader.deactivate_on_exit()
     except Exception:
         log.warning("Failed to deactivate Pengu Loader during shutdown", exc_info=True)
+    flush_logging()  # os._exit runs no exit handler
     os._exit(0)
 
 

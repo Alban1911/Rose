@@ -9,7 +9,7 @@ import time
 from contextlib import contextmanager
 from typing import Callable, Iterator
 
-from utils.core.logging import get_logger, get_named_logger
+from utils.core.logging import flush_logging, get_logger, get_named_logger
 from utils.system.win32_base import (
     WM_CLOSE,
     SW_SHOWNORMAL,
@@ -166,6 +166,7 @@ def _perform_update(dialog: UpdateDialog, dev_mode: bool = False) -> bool:
         time.sleep(1.0)
         # auto_update already launched the new process via batch file; exit current one
         updater_log.info("Update applied successfully; exiting for restart.")
+        flush_logging()  # os._exit runs no exit handler
         os._exit(0)
 
     dialog.set_marquee(False)

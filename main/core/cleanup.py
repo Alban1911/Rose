@@ -8,7 +8,7 @@ import os
 import sys
 
 import utils.integration.pengu_loader as pengu_loader
-from utils.core.logging import get_logger, log_section, log_success
+from utils.core.logging import flush_logging, get_logger, log_section, log_success
 from utils.threading.thread_manager import ThreadManager
 from utils.integration.tray_manager import TrayManager
 from state import SharedState
@@ -69,6 +69,7 @@ def perform_cleanup(state: SharedState, thread_manager: ThreadManager, tray_mana
         # Force exit after timeout
         if elapsed > THREAD_FORCE_EXIT_TIMEOUT_S:
             log.error(f"Forced exit after {elapsed:.1f}s - threads still running")
+            flush_logging()  # os._exit runs no exit handler
             os._exit(0)  # Force immediate exit without waiting for threads
     else:
         log_success(log, f"All threads stopped cleanly in {elapsed:.1f}s", "")

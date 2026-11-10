@@ -2,21 +2,31 @@
 # -*- coding: utf-8 -*-
 """
 Logging configuration and utilities
+
+A log call only puts its record on a queue and returns: one background thread
+(LogWriter) formats the records and writes them to the log file, and to the
+console when there is one. The threads that log (the countdown ticker, the
+WebSocket handlers, the injection) never wait on the disk or on each other.
+
+The file is flushed each time the writer has caught up, so a line reaches the
+disk within milliseconds of being logged. A path that ends the process without
+running the exit handlers (os._exit) calls flush_logging() first.
 """
 
 # Standard library imports
+import atexit
 import os
 import queue
-import re
 import sys
 import threading
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Dict
+from typing import Dict, List, Optional
 
 # Third-party imports
 import logging
+import logging.handlers
 import urllib3
 from urllib3.exceptions import InsecureRequestWarning
 
@@ -45,255 +55,321 @@ logging.Logger.trace = trace
 _CURRENT_LOG_MODE = 'customer'
 _NAMED_LOGGERS: Dict[str, logging.Logger] = {}
 
+FILE_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
+CONSOLE_DATE_FORMAT = "%H:%M:%S"
+# How long a flush or the shutdown waits for the writer to catch up
+LOG_FLUSH_TIMEOUT_S = 2.0
+
 def get_log_mode() -> str:
     """Get the current logging mode"""
     return _CURRENT_LOG_MODE
 
 
-class SizeRotatingCompositeHandler(logging.Handler):
+def _line_format(log_mode: str) -> str:
+    """The line layout of a log mode."""
+    if log_mode == 'verbose':
+        # Detailed format for developer logs
+        return "%(asctime)s | %(levelname)-7s | %(message)s"
+    if log_mode == 'debug':
+        # Ultra-detailed format with logger name and function
+        return "%(asctime)s | %(levelname)-7s | %(name)-15s | %(funcName)-20s | %(message)s"
+    # Clean, minimal format for customer logs
+    return "%(asctime)s | %(message)s"
+
+
+def _level_for(log_mode: str) -> int:
+    """The lowest level a log mode shows."""
+    if log_mode == 'debug':
+        return TRACE  # Show everything including TRACE
+    if log_mode == 'verbose':
+        return logging.DEBUG  # Show DEBUG and above
+    return logging.INFO  # Show INFO and above (clean output)
+
+
+class TimestampFormatter(logging.Formatter):
+    """Stamps a line with the time its record was logged, to the millisecond.
+
+    The record's own time (record.created) is used, not the time the line is
+    written: the writer thread formats a record after the call that logged it
+    returned.
     """
-    A handler that delegates to an inner file handler and rolls over
-    to a new file when the current file size reaches a threshold.
+
+    def __init__(self, fmt: str, datefmt: str):
+        super().__init__(fmt)
+        self._datefmt = datefmt
+
+    def formatTime(self, record, datefmt=None):
+        when = time.strftime(self._datefmt, time.localtime(record.created))
+        return f"{when}.{min(int(record.msecs), 999):03d}"
+
+
+class RotatingLogFileHandler(logging.Handler):
+    """
+    Writes to a log file and rolls over to a new one when it reaches a size.
 
     - Creates files as: base.ext, base.ext.1, base.ext.2, ...
     - Does not delete on rotation (retention handled separately on startup)
+    - Counts the bytes it writes instead of asking the disk for the size on
+      every line
+    - autoflush=False leaves the flushing to the caller (the writer thread
+      flushes once it has caught up)
     """
-    def __init__(self, base_path: Path, create_handler_fn, max_bytes: int):
+    def __init__(self, base_path: Path, max_bytes: int, autoflush: bool = True):
         super().__init__()
         self.base_path = Path(base_path)
-        self.create_handler_fn = create_handler_fn
+        self.baseFilename = str(self.base_path)
         self.max_bytes = max_bytes
+        self.autoflush = autoflush
         self._index = 0
-        self.current_path = self._compute_current_path()
-        self.current_handler = self.create_handler_fn(self.current_path)
-        self._stored_formatter = None
-        # Ensure the inner handler starts at the same level/filters
-        # as this composite handler once they are set by the caller
+        self.current_path = self.base_path
+        self._stream = None
+        self._size = 0
+        self._stream, self._size = self._open(self.current_path)
 
-    def _compute_current_path(self) -> Path:
-        if self._index == 0:
-            return self.base_path
-        return self.base_path.with_name(f"{self.base_path.name}.{self._index}")
-
-    def _apply_stored_config(self):
+    @staticmethod
+    def _open(path: Path):
+        stream = open(path, "ab")
         try:
-            # Level
-            self.current_handler.setLevel(self.level)
-            # Formatter
-            if self._stored_formatter is not None:
-                self.current_handler.setFormatter(self._stored_formatter)
-            # Filters
-            for flt in getattr(self, 'filters', []) or []:
-                try:
-                    self.current_handler.addFilter(flt)
-                except Exception:
-                    pass
-        except Exception:
-            pass
+            size = os.fstat(stream.fileno()).st_size
+        except OSError:
+            size = 0
+        return stream, size
 
-    def _maybe_rotate(self):
+    def _rotate(self):
+        index = self._index + 1
+        path = self.base_path.with_name(f"{self.base_path.name}.{index}")
+        # Open the next file first: if that fails, the current one is kept
+        stream, size = self._open(path)
+        old = self._stream
+        self._index, self.current_path, self._stream, self._size = index, path, stream, size
         try:
-            current_size = self.current_path.stat().st_size if self.current_path.exists() else 0
-            if current_size >= self.max_bytes:
-                try:
-                    self.current_handler.close()
-                except Exception:
-                    pass
-                self._index += 1
-                self.current_path = self._compute_current_path()
-                self.current_handler = self.create_handler_fn(self.current_path)
-                self._apply_stored_config()
+            old.close()
         except Exception:
-            # Never break logging due to rotation errors
             pass
 
     def emit(self, record):
         try:
-            self._maybe_rotate()
-            self.current_handler.emit(record)
+            if self._stream is None:
+                return
+            data = (self.format(record) + os.linesep).encode("utf-8", "backslashreplace")
+            if self._size >= self.max_bytes:
+                try:
+                    self._rotate()
+                except Exception:
+                    pass  # Never break logging due to rotation errors
+            self._stream.write(data)
+            self._size += len(data)
+            if self.autoflush:
+                self._stream.flush()
         except Exception:
             # Swallow any errors to avoid crashing the app due to logging
             pass
 
-    def setFormatter(self, fmt):
-        self._stored_formatter = fmt
+    def flush(self):
+        self.acquire()
         try:
-            self.current_handler.setFormatter(fmt)
+            if self._stream is not None:
+                self._stream.flush()
         except Exception:
             pass
-        try:
-            super().setFormatter(fmt)
-        except Exception:
-            pass
-
-    def setLevel(self, level):
-        try:
-            super().setLevel(level)
-        except Exception:
-            pass
-        try:
-            self.current_handler.setLevel(level)
-        except Exception:
-            pass
-
-    def addFilter(self, filter):
-        try:
-            super().addFilter(filter)
-        except Exception:
-            pass
-        try:
-            self.current_handler.addFilter(filter)
-        except Exception:
-            pass
+        finally:
+            self.release()
 
     def close(self):
+        self.acquire()
         try:
-            self.current_handler.close()
+            stream, self._stream = self._stream, None
+            if stream is not None:
+                try:
+                    stream.flush()
+                finally:
+                    stream.close()
         except Exception:
             pass
+        finally:
+            self.release()
         try:
             super().close()
         except Exception:
             pass
 
+
+class SafeStreamHandler(logging.StreamHandler):
+    """A stream handler that drops a line the console cannot take."""
+
+    def emit(self, record):
+        try:
+            self.stream.write(self.format(record) + self.terminator)
+            self.stream.flush()
+        except Exception:
+            # The stream is blocking, broken or closed - skip this message
+            pass
+
+
+_STOP = object()
+
+
+class _LogWriter:
+    """The thread that writes the queued records to the handlers."""
+
+    def __init__(self, handlers: List[logging.Handler]):
+        self.queue: queue.SimpleQueue = queue.SimpleQueue()
+        self.handlers = list(handlers)
+        self._thread = threading.Thread(target=self._run, daemon=True, name="LogWriter")
+
+    def start(self) -> None:
+        self._thread.start()
+
+    def _run(self) -> None:
+        while True:
+            item = self.queue.get()
+            # Write everything that is waiting, then flush once
+            while True:
+                if item is _STOP:
+                    self._flush()
+                    return
+                if isinstance(item, threading.Event):
+                    self._flush()
+                    item.set()
+                else:
+                    self._write(item)
+                try:
+                    item = self.queue.get_nowait()
+                except queue.Empty:
+                    break
+            self._flush()
+
+    def _write(self, record) -> None:
+        for handler in self.handlers:
+            try:
+                if record.levelno >= handler.level:
+                    handler.handle(record)
+            except Exception:
+                pass  # a line that cannot be written is dropped
+
+    def _flush(self) -> None:
+        for handler in self.handlers:
+            try:
+                handler.flush()
+            except Exception:
+                pass
+
+    def _reachable(self) -> bool:
+        return self._thread.is_alive() and threading.current_thread() is not self._thread
+
+    def flush(self, timeout: float) -> bool:
+        """Wait until every record queued so far is on disk. Whether it is."""
+        if not self._reachable():
+            return False
+        done = threading.Event()
+        self.queue.put(done)
+        return done.wait(timeout)
+
+    def stop(self, timeout: float) -> None:
+        """Write what is queued, then end the thread."""
+        if not self._reachable():
+            return
+        self.queue.put(_STOP)
+        self._thread.join(timeout)
+
+
+# The running writer, the root handler that feeds it, and the handlers it writes to
+_WRITER: Optional[_LogWriter] = None
+_QUEUE_HANDLER: Optional[logging.Handler] = None
+_TARGET_HANDLERS: List[logging.Handler] = []
+_LOG_FILE: Optional[Path] = None
+_EXIT_HOOK_INSTALLED = False
+
+
+def get_log_file() -> Optional[Path]:
+    """This session's log file, or None when no file is written."""
+    return _LOG_FILE
+
+
+def flush_logging(timeout: float = LOG_FLUSH_TIMEOUT_S) -> bool:
+    """Wait until everything logged so far is in the log file.
+
+    Call it before ending the process with os._exit (which runs no exit
+    handler), and where a line must not be lost. Returns whether it is written.
+    """
+    writer = _WRITER
+    if writer is None:
+        return True
+    return writer.flush(timeout)
+
+
+def shutdown_logging(timeout: float = LOG_FLUSH_TIMEOUT_S) -> None:
+    """Write what is queued and stop the writer thread.
+
+    Whatever is logged afterwards (the interpreter's last moments) is written
+    directly by the calling thread, so nothing is lost on the way out.
+    """
+    global _WRITER, _QUEUE_HANDLER
+    writer, queue_handler = _WRITER, _QUEUE_HANDLER
+    _WRITER = _QUEUE_HANDLER = None
+    if writer is None:
+        return
+    root = logging.getLogger()
+    for handler in writer.handlers:
+        if isinstance(handler, RotatingLogFileHandler):
+            handler.autoflush = True
+        root.addHandler(handler)
+    if queue_handler is not None:
+        root.removeHandler(queue_handler)
+    writer.stop(timeout)
+
+
+def _is_real_stream(stream) -> bool:
+    """Whether *stream* shows somewhere (the windowed app's are None or devnull)."""
+    return stream is not None and getattr(stream, 'name', None) != os.devnull
+
+
+def _close_previous_setup() -> None:
+    """End an earlier setup_logging: its writer, its handlers."""
+    shutdown_logging()
+    for handler in _TARGET_HANDLERS:
+        try:
+            handler.close()
+        except Exception:
+            pass
+    _TARGET_HANDLERS.clear()
+
+
 def setup_logging(log_mode: str = 'customer', *, write_logs: bool = True):
     """
     Setup logging configuration with three modes.
-    
+
     Args:
         log_mode: 'customer' (clean logs), 'verbose' (developer), or 'debug' (ultra-detailed)
         write_logs: If False, skip creating log files (useful for --dev runs).
     """
     # Store the log mode globally
-    global _CURRENT_LOG_MODE
+    global _CURRENT_LOG_MODE, _WRITER, _QUEUE_HANDLER, _LOG_FILE, _EXIT_HOOK_INSTALLED
+    _close_previous_setup()
     _CURRENT_LOG_MODE = log_mode
-    # Handle windowed mode where stdout/stderr might be None or redirected to devnull
-    if sys.stdout is not None and not hasattr(sys.stdout, 'name') or sys.stdout.name != os.devnull:
-        try:
-            sys.stdout.reconfigure(line_buffering=True)
-        except (AttributeError, OSError):
-            pass  # stdout doesn't support reconfigure or is redirected
-    
-    if sys.stderr is not None and not hasattr(sys.stderr, 'name') or sys.stderr.name != os.devnull:
-        try:
-            sys.stderr.reconfigure(line_buffering=True)
-        except (AttributeError, OSError):
-            pass  # stderr doesn't support reconfigure or is redirected
-    
-    # Create a queue-based non-blocking logging handler
-    class QueueHandler(logging.Handler):
-        """A queue-based handler that never blocks the calling thread"""
-        def __init__(self, target_handler):
-            super().__init__()
-            self.target_handler = target_handler
-            self.queue = queue.Queue(maxsize=1000)  # Limit queue size to prevent memory issues
-            self.worker_thread = None
-            self._stop_event = threading.Event()
-            self._start_worker()
-        
-        def _start_worker(self):
-            """Start the worker thread that processes log records"""
-            def worker():
-                while not self._stop_event.is_set():
-                    try:
-                        # Get record with timeout to allow checking stop event
-                        record = self.queue.get(timeout=0.1)
-                        if record is None:  # Sentinel value to stop
-                            break
-                        # Emit to target handler in worker thread
-                        try:
-                            self.target_handler.emit(record)
-                        except Exception:
-                            # If emit fails, silently drop the log message
-                            pass
-                        finally:
-                            self.queue.task_done()
-                    except queue.Empty:
-                        continue
-            
-            self.worker_thread = threading.Thread(target=worker, daemon=True, name="LogQueueWorker")
-            self.worker_thread.start()
-        
-        def emit(self, record):
-            """Queue the log record without blocking"""
+    _LOG_FILE = None
+    level = _level_for(log_mode)
+    line_format = _line_format(log_mode)
+
+    for stream in (sys.stdout, sys.stderr):
+        if _is_real_stream(stream):
             try:
-                # Use put_nowait to never block the calling thread
-                self.queue.put_nowait(record)
-            except queue.Full:
-                # Queue is full - drop the message silently
-                # This prevents blocking even under extreme log load
-                pass
-        
-        def close(self):
-            """Stop the worker thread gracefully"""
-            self._stop_event.set()
-            try:
-                self.queue.put_nowait(None)  # Sentinel to stop worker
-            except queue.Full:
-                pass
-            if self.worker_thread and self.worker_thread.is_alive():
-                self.worker_thread.join(timeout=1.0)
-            super().close()
-    
-    # Create a safe logging handler that works even without console
-    class SafeStreamHandler(logging.StreamHandler):
-        """A stream handler that safely handles None streams and prevents blocking"""
-        def __init__(self, stream=None):
-            # If stream is None, create a dummy stream that does nothing
-            if stream is None:
-                import io
-                stream = io.StringIO()
-            super().__init__(stream)
-        
-        def emit(self, record):
-            try:
-                # Use non-blocking emit with timeout protection
-                msg = self.format(record)
-                stream = self.stream
-                
-                # Try to write without blocking (with signal-based timeout on Unix, best-effort on Windows)
-                try:
-                    stream.write(msg + self.terminator)
-                    stream.flush()
-                except (BlockingIOError, BrokenPipeError, OSError):
-                    # Stream is blocking or broken - skip this message
-                    pass
+                stream.reconfigure(line_buffering=True)
             except (AttributeError, OSError, ValueError):
-                # If the stream is broken, silently ignore
-                pass
-    
-    # Use stderr if stdout is None or redirected to devnull (windowed mode), but make it safe
-    if sys.stdout is not None and hasattr(sys.stdout, 'name') and sys.stdout.name == os.devnull:
-        output_stream = sys.stderr if sys.stderr is not None else sys.stdout
-    else:
-        output_stream = sys.stdout if sys.stdout is not None else sys.stderr
-    
-    # Create a safe stream handler
-    safe_handler = SafeStreamHandler(output_stream)
-    
-    # Set up formatter based on log mode
-    if log_mode == 'customer':
-        # Clean, minimal format for customer logs
-        fmt = "%(_when)s | %(message)s"
-    elif log_mode == 'verbose':
-        # Detailed format for developer logs
-        fmt = "%(_when)s | %(levelname)-7s | %(message)s"
-    else:  # debug mode
-        # Ultra-detailed format for debug logs
-        fmt = "%(_when)s | %(levelname)-7s | %(name)-15s | %(funcName)-20s | %(message)s"
-    
-    class _Fmt(logging.Formatter):
-        def format(self, record):
-            record._when = time.strftime("%H:%M:%S", time.localtime())
-            return super().format(record)
-    
-    safe_handler.setFormatter(_Fmt(fmt))
-    
-    # Wrap in queue handler to prevent blocking
-    h = QueueHandler(safe_handler)
-    
+                pass  # the stream doesn't support reconfigure
+
+    targets: List[logging.Handler] = []
+
+    # Console: only when there is one. The windowed app has none (its streams
+    # are None or devnull), and formatting every line for it was wasted work
+    console_stream = next((s for s in (sys.stdout, sys.stderr) if _is_real_stream(s)), None)
+    if console_stream is not None:
+        console_handler = SafeStreamHandler(console_stream)
+        console_handler.setFormatter(TimestampFormatter(line_format, CONSOLE_DATE_FORMAT))
+        console_handler.setLevel(level)
+        targets.append(console_handler)
+
     # Setup file logging (only if dev mode isn't explicitly suppressing it)
-    file_handler = None
     log_file = None
     if write_logs:
         try:
@@ -301,76 +377,54 @@ def setup_logging(log_mode: str = 'customer', *, write_logs: bool = True):
             from .paths import get_user_data_dir
             logs_dir = get_user_data_dir() / "logs"
             logs_dir.mkdir(parents=True, exist_ok=True)
-            
+
             # Create a unique log file for this session with timestamp
             # Format: dd-mm-yyyy_hh-mm-ss (European format, no colons for Windows compatibility)
             timestamp = datetime.now().strftime(LOG_TIMESTAMP_FORMAT)
-            
+
             max_bytes = int(LOG_MAX_FILE_SIZE_MB_DEFAULT * 1024 * 1024)
             log_file = logs_dir / f"rose_{timestamp}.log"
-            def _factory_plain(p: Path):
-                return logging.FileHandler(p, encoding='utf-8')
-            file_handler = SizeRotatingCompositeHandler(log_file, _factory_plain, max_bytes)
-            
-            # File formatter based on log mode
-            if log_mode == 'customer':
-                # Clean format for customer logs
-                file_fmt = "%(_when)s | %(message)s"
-            elif log_mode == 'verbose':
-                # Detailed format for developer logs
-                file_fmt = "%(_when)s | %(levelname)-7s | %(message)s"
-            else:  # debug mode
-                # Ultra-detailed format with logger name and function
-                file_fmt = "%(_when)s | %(levelname)-7s | %(name)-15s | %(funcName)-20s | %(message)s"
-            
-            class _FileFmt(logging.Formatter):
-                def format(self, record):
-                    record._when = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
-                    return super().format(record)
-            
-            file_handler.setFormatter(_FileFmt(file_fmt))
-            
-            # File handler logging level based on mode
-            if log_mode == 'debug':
-                file_handler.setLevel(TRACE)  # Show everything including TRACE
-            elif log_mode == 'verbose':
-                file_handler.setLevel(logging.DEBUG)  # Show DEBUG and above
-            else:  # customer mode
-                file_handler.setLevel(logging.INFO)  # Show INFO and above
-            
+            # The writer thread flushes it each time it has caught up
+            file_handler = RotatingLogFileHandler(log_file, max_bytes, autoflush=False)
+            file_handler.setFormatter(TimestampFormatter(line_format, FILE_DATE_FORMAT))
+            file_handler.setLevel(level)
+            targets.append(file_handler)
+            _LOG_FILE = log_file
         except Exception as e:
             # If file logging fails, continue without it
-            file_handler = None
             log_file = None
             print(f"Warning: Could not setup file logging: {e}", file=sys.stderr)
-    
+
     root = logging.getLogger()
     root.handlers.clear()
-    
-    # Add console handler
-    root.addHandler(h)
-    # Console handler level based on log mode
-    if log_mode == 'debug':
-        h.setLevel(TRACE)  # Show everything including TRACE
-    elif log_mode == 'verbose':
-        h.setLevel(logging.DEBUG)  # Show DEBUG and above
-    else:  # customer mode
-        h.setLevel(logging.INFO)  # Show INFO and above (clean output)
-    
-    # Always add file handler
-    if file_handler:
-        root.addHandler(file_handler)
-    
-    # Root logger must be at TRACE to allow all handlers to receive all messages
-    # This is critical - if root is at INFO, DEBUG/TRACE messages never reach handlers
-    root.setLevel(TRACE)
-    
+    _TARGET_HANDLERS.extend(targets)
+
+    if targets:
+        # Every log call queues its record; the writer thread does the rest
+        writer = _LogWriter(targets)
+        queue_handler = logging.handlers.QueueHandler(writer.queue)
+        queue_handler.setLevel(level)
+        root.addHandler(queue_handler)
+        writer.start()
+        _WRITER, _QUEUE_HANDLER = writer, queue_handler
+        if not _EXIT_HOOK_INSTALLED:
+            # Registered after logging's own exit handler, so it runs before it
+            atexit.register(shutdown_logging)
+            _EXIT_HOOK_INSTALLED = True
+    else:
+        root.addHandler(logging.NullHandler())
+
+    # Nothing shows a record below the mode's level, so the root logger turns
+    # it away before a record is even built. A logger that needs more (a
+    # dedicated one, the updater's routing) sets its own level
+    root.setLevel(level)
+
     # Add a console print to ensure output is visible (only if we have stdout and it's not redirected)
-    if sys.stdout is not None and not (hasattr(sys.stdout, 'name') and sys.stdout.name == os.devnull):
+    if _is_real_stream(sys.stdout):
         try:
             # Use logging instead of direct print to avoid blocking
             logger = logging.getLogger("startup")
-            
+
             # Show startup message based on log mode
             if _CURRENT_LOG_MODE == 'customer':
                 # Clean startup for customer mode
@@ -386,7 +440,7 @@ def setup_logging(log_mode: str = 'customer', *, write_logs: bool = True):
                 else:
                     logger.info("Rose - Starting... (logs disabled)")
                 logger.info("=" * LOG_SEPARATOR_WIDTH)
-                
+
                 # Log mode information
                 if _CURRENT_LOG_MODE == 'debug':
                     logger.info("Debug mode: ON (ultra-detailed logs with function traces)")
@@ -396,10 +450,10 @@ def setup_logging(log_mode: str = 'customer', *, write_logs: bool = True):
                     logger.info("Verbose mode: ON (developer logs with technical details)")
                     if log_file:
                         logger.debug(f"Log file location: {log_file.absolute()}")
-                    
+
         except (AttributeError, OSError):
             pass  # stdout is broken, ignore
-    
+
     # Suppress HTTPS/HTTP logs
     logging.getLogger("urllib3.connectionpool").setLevel(logging.WARNING)
     logging.getLogger("requests.packages.urllib3.connectionpool").setLevel(logging.WARNING)
@@ -409,10 +463,9 @@ def setup_logging(log_mode: str = 'customer', *, write_logs: bool = True):
     # startup race where the LCU port is up before its WebSocket accepts. The same error already
     # reaches our on_error callback and the retry WARNING, so the library copy is only noise.
     logging.getLogger("websocket").setLevel(logging.CRITICAL)
-    
+
     # Disable SSL warnings for LCU (self-signed cert)
     urllib3.disable_warnings(InsecureRequestWarning)
-    
 
 
 class _ThreadExceptionLogger:
@@ -426,6 +479,7 @@ class _ThreadExceptionLogger:
             thread_name = args.thread.name if args.thread is not None else "unknown"
             exc_info = args.exc_value if args.exc_value is not None else False
             get_logger().critical("Uncaught exception in thread %s: %s", thread_name, args.exc_type.__name__, exc_info=exc_info)
+            flush_logging()  # the traceback must reach the file whatever happens next
         self._previous_hook(args)
 
 
@@ -472,29 +526,11 @@ def get_named_logger(name: str, prefix: str, log_mode: str = None) -> logging.Lo
 
         base_path = logs_dir / f"{prefix}_{timestamp}.log"
 
-        def _factory_plain(p: Path):
-            return logging.FileHandler(p, encoding="utf-8")
-
-        file_handler = SizeRotatingCompositeHandler(base_path, _factory_plain, max_bytes)
-
-        if log_mode == "verbose":
-            file_fmt = "%(_when)s | %(levelname)-7s | %(message)s"
-        elif log_mode == "debug":
-            file_fmt = "%(_when)s | %(levelname)-7s | %(name)-15s | %(funcName)-20s | %(message)s"
-        else:
-            file_fmt = "%(_when)s | %(message)s"
-
-        class _FileFmt(logging.Formatter):
-            def format(self, record):
-                record._when = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
-                return super().format(record)
-
-        file_handler.setFormatter(_FileFmt(file_fmt))
-
-        if log_mode in ("verbose", "debug"):
-            file_handler.setLevel(logging.DEBUG if log_mode != "debug" else TRACE)
-        else:
-            file_handler.setLevel(logging.INFO)
+        # Written by the calling thread and flushed on every line: a dedicated
+        # log is low volume (the updater's), and must survive its os._exit
+        file_handler = RotatingLogFileHandler(base_path, max_bytes, autoflush=True)
+        file_handler.setFormatter(TimestampFormatter(_line_format(log_mode), FILE_DATE_FORMAT))
+        file_handler.setLevel(_level_for(log_mode))
 
         logger = logging.getLogger(name)
         logger.handlers.clear()
