@@ -13,7 +13,7 @@ from state import SharedState, AppStatus
 from injection import InjectionManager
 from injection.game.game_monitor import resume_orphaned_game
 from injection.mods.storage import ModStorageService
-from utils.core.logging import get_logger, log_success
+from utils.core.logging import get_log_file, get_logger, log_success
 from utils.system.admin_utils import ensure_admin_rights
 from utils.system.windows_account import check_windows_account
 from utils.threading.thread_manager import create_daemon_thread
@@ -72,7 +72,7 @@ def initialize_core_components(args, injection_threshold: Optional[float] = None
             try:
                 ctypes.windll.user32.MessageBoxW(
                     0,
-                    f"Rose failed to initialize:\n\n{str(e)}\n\nCheck the log file for details:\n{log.handlers[0].baseFilename if log.handlers else 'N/A'}",
+                    f"Rose failed to initialize:\n\n{str(e)}\n\nCheck the log file for details:\n{get_log_file() or 'N/A'}",
                     "Rose - Initialization Error",
                     0x50010  # MB_OK | MB_ICONERROR | MB_SETFOREGROUND | MB_TOPMOST
                 )
@@ -116,7 +116,7 @@ def initialize_core_components(args, injection_threshold: Optional[float] = None
             try:
                 ctypes.windll.user32.MessageBoxW(
                     0,
-                    f"Rose failed to initialize injection system:\n\n{str(e)}\n\nCheck the log file for details:\n{log.handlers[0].baseFilename if log.handlers else 'N/A'}",
+                    f"Rose failed to initialize injection system:\n\n{str(e)}\n\nCheck the log file for details:\n{get_log_file() or 'N/A'}",
                     "Rose - Injection Error",
                     0x50010  # MB_OK | MB_ICONERROR | MB_SETFOREGROUND | MB_TOPMOST
                 )
