@@ -23,6 +23,7 @@ from pathlib import Path, PureWindowsPath
 from typing import NamedTuple, Optional, Sequence, TypedDict
 from urllib.parse import quote
 
+from analytics import analytics_opted_in, set_analytics_opted_in
 from config import get_config_float, get_config_option, set_config_option
 from injection.mods.mod_source import LtkEntry, ModSource
 from injection.mods.storage import ModStorageService
@@ -620,6 +621,7 @@ class MessageHandler:
             monitor_auto_resume_timeout = get_config_float("General", "monitor_auto_resume_timeout", 60.0)
             autostart = is_registered_for_autostart()
             hide_empty_categories = (get_config_option("General", "hide_empty_categories", "false") or "false").lower() == "true"
+            analytics_enabled = analytics_opted_in()
             game_path = get_config_option("General", "leaguePath") or ""
             # Only this session's errors light up Troubleshooting
             diagnostics_errors = [e for e in self._compute_diagnostics_errors() if e.get("thisSession")]
@@ -635,6 +637,7 @@ class MessageHandler:
                 "monitorAutoResumeTimeout": int(monitor_auto_resume_timeout),
                 "autostart": autostart,
                 "hideEmptyCategories": hide_empty_categories,
+                "analyticsEnabled": analytics_enabled,
                 "gamePath": game_path,
                 "gamePathValid": path_valid,
                 "hasErrors": len(diagnostics_errors) > 0,
@@ -643,7 +646,7 @@ class MessageHandler:
             }
             self._send_response(json.dumps(response_payload))
             
-            log.info(f"[SkinMonitor] Settings data sent: threshold={threshold}, monitor_auto_resume_timeout={monitor_auto_resume_timeout}, autostart={autostart}, hide_empty_categories={hide_empty_categories}, gamePath={game_path}, valid={path_valid}")
+            log.info(f"[SkinMonitor] Settings data sent: threshold={threshold}, monitor_auto_resume_timeout={monitor_auto_resume_timeout}, autostart={autostart}, hide_empty_categories={hide_empty_categories}, analytics={analytics_enabled}, gamePath={game_path}, valid={path_valid}")
         except Exception as e:
             log.error(f"[SkinMonitor] Failed to handle settings request: {e}")
 
@@ -2676,6 +2679,13 @@ class MessageHandler:
 
             set_config_option("General", "hide_empty_categories", "true" if hide_empty_categories else "false")
             log.info(f"[SkinMonitor] Hide empty mod categories updated to {hide_empty_categories}")
+
+            # Only an explicit choice changes it: a missing field never opts anyone in or out
+            if "analyticsEnabled" in payload:
+                analytics_enabled = bool(payload["analyticsEnabled"])
+                if analytics_enabled != analytics_opted_in():
+                    set_analytics_opted_in(analytics_enabled)
+                    log.info(f"[SkinMonitor] Analytics {'enabled' if analytics_enabled else 'disabled'} via settings panel")
             
             if game_path and game_path.strip():
                 if not self._is_valid_local_league_path(game_path):

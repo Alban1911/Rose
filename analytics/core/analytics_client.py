@@ -12,10 +12,10 @@ from config import (
     ANALYTICS_TIMEOUT_S,
     APP_USER_AGENT,
     APP_VERSION,
-    get_config_option,
 )
 from utils.core.logging import get_logger
 from .install_id import get_install_id
+from .preference import analytics_opted_in
 
 log = get_logger()
 AnalyticsEvent = Literal["startup", "heartbeat", "close"]
@@ -38,10 +38,7 @@ class AnalyticsClient:
     def enabled(self) -> bool:
         if self._enabled_override is not None:
             return self._enabled_override
-        if not ANALYTICS_ENABLED:
-            return False
-        value = get_config_option("General", "analytics_enabled")
-        return value is None or value.strip().lower() not in {"0", "false", "no", "off"}
+        return ANALYTICS_ENABLED and analytics_opted_in()
 
     def send_ping(
         self,

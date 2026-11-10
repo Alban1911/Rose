@@ -83,6 +83,8 @@
   "Start with Windows": "Spouštět s Windows",
   "Hide empty categories": "Skrýt prázdné kategorie",
   "Hide empty categories in the custom mods wheel": "Skrýt prázdné kategorie v kole vlastních modů",
+  "Send usage statistics": "Odesílat statistiky používání",
+  "Rose sends its version and a random ID for this install while it runs, to count how many people use it. No account or game data.": "Rose za běhu odesílá svou verzi a náhodné ID této instalace, aby se dalo spočítat, kolik lidí ho používá. Žádná data o účtu ani o hrách.",
   "League of Legends Game Path:": "Cesta ke hře League of Legends:",
   "Language:": "Jazyk:",
   "Auto (client language)": "Automaticky (jazyk klienta)",

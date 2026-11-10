@@ -83,6 +83,8 @@
   "Start with Windows": "Windowsと同時に起動",
   "Hide empty categories": "空のカテゴリーを非表示",
   "Hide empty categories in the custom mods wheel": "カスタムMODホイールで空のカテゴリーを非表示にします",
+  "Send usage statistics": "使用統計を送信",
+  "Rose sends its version and a random ID for this install while it runs, to count how many people use it. No account or game data.": "Roseは実行中、バージョンとこのインストール用のランダムなIDを送信し、利用者数を数えます。アカウントやゲームのデータは送信しません。",
   "League of Legends Game Path:": "League of Legendsのゲームパス:",
   "Language:": "言語:",
   "Auto (client language)": "自動(クライアントの言語)",

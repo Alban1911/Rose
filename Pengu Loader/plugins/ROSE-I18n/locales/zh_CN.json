@@ -83,6 +83,8 @@
   "Start with Windows": "开机时启动",
   "Hide empty categories": "隐藏空分类",
   "Hide empty categories in the custom mods wheel": "在自定义模组轮盘中隐藏空分类",
+  "Send usage statistics": "发送使用统计",
+  "Rose sends its version and a random ID for this install while it runs, to count how many people use it. No account or game data.": "Rose 运行时会发送其版本号和此安装的随机 ID，用于统计使用人数。不含任何账号或游戏数据。",
   "League of Legends Game Path:": "英雄联盟游戏路径：",
   "Language:": "语言：",
   "Auto (client language)": "自动（客户端语言）",

@@ -83,6 +83,8 @@
   "Start with Windows": "Uruchamiaj z Windowsem",
   "Hide empty categories": "Ukryj puste kategorie",
   "Hide empty categories in the custom mods wheel": "Ukryj puste kategorie w kole własnych modów",
+  "Send usage statistics": "Wysyłaj statystyki użytkowania",
+  "Rose sends its version and a random ID for this install while it runs, to count how many people use it. No account or game data.": "Podczas działania Rose wysyła swoją wersję i losowy identyfikator tej instalacji, aby policzyć, ile osób z niego korzysta. Żadnych danych konta ani gier.",
   "League of Legends Game Path:": "Ścieżka gry League of Legends:",
   "Language:": "Język:",
   "Auto (client language)": "Automatycznie (język klienta)",

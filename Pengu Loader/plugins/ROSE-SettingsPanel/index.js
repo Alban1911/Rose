@@ -74,6 +74,7 @@
     monitorAutoResumeTimeout: 60,
     autostart: false,
     hideEmptyCategories: false,
+    analyticsEnabled: true,
     gamePath: "",
     gamePathValid: false,
     version: "",
@@ -1581,6 +1582,7 @@
       monitorAutoResumeTimeout: payload.monitorAutoResumeTimeout || 60,
       autostart: payload.autostart || false,
       hideEmptyCategories: payload.hideEmptyCategories || false,
+      analyticsEnabled: payload.analyticsEnabled !== false,
       gamePath: payload.gamePath || "",
       gamePathValid: payload.gamePathValid || false,
       version: payload.version || "",
@@ -2607,6 +2609,26 @@
     checkboxRow.appendChild(customWheelSection);
     form.appendChild(checkboxRow);
 
+    // Opt in or out of the startup and presence pings (README: Analytics and privacy)
+    const analyticsSection = document.createElement("div");
+    analyticsSection.className = "settings-section";
+
+    const analyticsWrapper = document.createElement("div");
+    analyticsWrapper.className = "settings-checkbox-wrapper";
+    analyticsWrapper.title = t("Rose sends its version and a random ID for this install while it runs, to count how many people use it. No account or game data.");
+
+    const analyticsCheckbox = document.createElement("input");
+    analyticsCheckbox.type = "checkbox";
+    analyticsCheckbox.className = "settings-checkbox";
+    analyticsCheckbox.id = "analytics-checkbox";
+    analyticsWrapper.appendChild(analyticsCheckbox);
+
+    const analyticsText = document.createElement("span");
+    analyticsText.textContent = t("Send usage statistics");
+    analyticsWrapper.appendChild(analyticsText);
+    analyticsSection.appendChild(analyticsWrapper);
+    form.appendChild(analyticsSection);
+
     // Game path section
     const pathSection = document.createElement("div");
     pathSection.className = "settings-section";
@@ -3389,6 +3411,7 @@
     const timeoutFill = timeoutSlider?.closest('.lol-settings-slider')?.querySelector('.lol-uikit-slider-fill');
     const autostartCheckbox = document.getElementById("autostart-checkbox");
     const hideEmptyCategoriesCheckbox = document.getElementById("hide-empty-categories-checkbox");
+    const analyticsCheckbox = document.getElementById("analytics-checkbox");
     const pathInput = document.getElementById("game-path-input");
 
     if (thresholdSlider && thresholdValue && thresholdButton && thresholdFill) {
@@ -3422,6 +3445,10 @@
 
     if (hideEmptyCategoriesCheckbox) {
       hideEmptyCategoriesCheckbox.checked = currentSettings.hideEmptyCategories;
+    }
+
+    if (analyticsCheckbox) {
+      analyticsCheckbox.checked = currentSettings.analyticsEnabled;
     }
 
     if (pathInput) {
@@ -3498,6 +3525,7 @@
     const timeoutSlider = document.getElementById("timeout-slider");
     const autostartCheckbox = document.getElementById("autostart-checkbox");
     const hideEmptyCategoriesCheckbox = document.getElementById("hide-empty-categories-checkbox");
+    const analyticsCheckbox = document.getElementById("analytics-checkbox");
     const pathInput = document.getElementById("game-path-input");
 
     const threshold = thresholdSlider
@@ -3508,6 +3536,8 @@
       : 60;
     const autostart = autostartCheckbox ? autostartCheckbox.checked : false;
     const hideEmptyCategories = hideEmptyCategoriesCheckbox ? hideEmptyCategoriesCheckbox.checked : false;
+    // Left out without the checkbox, so Rose keeps the user's choice
+    const analyticsEnabled = analyticsCheckbox ? analyticsCheckbox.checked : undefined;
     const gamePath = pathInput ? pathInput.value.trim() : "";
 
     const clampedThreshold = Math.max(THRESHOLD_MIN_S, Math.min(THRESHOLD_MAX_S, threshold));
@@ -3523,6 +3553,7 @@
       monitorAutoResumeTimeout: clampedTimeout,
       autostart: autostart,
       hideEmptyCategories: hideEmptyCategories,
+      analyticsEnabled: analyticsEnabled,
       gamePath: gamePath,
     });
 
@@ -3531,6 +3562,7 @@
       monitorAutoResumeTimeout: clampedTimeout,
       autostart,
       hideEmptyCategories,
+      analyticsEnabled,
       gamePath,
     });
   }

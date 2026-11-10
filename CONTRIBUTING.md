@@ -327,6 +327,7 @@ Rose/
 │       ├── install_id.py   # Pseudonymous persistent installation UUID
 │       ├── machine_id.py   # Old name of install_id, kept for compatibility
 │       ├── analytics_client.py  # HTTP client for analytics and presence pings
+│       ├── preference.py   # The user's opt-in/out, set from Settings ([General] analytics_enabled)
 │       └── analytics_thread.py  # Background thread for startup/heartbeat/close pings
 │
 ├── scripts/                # Build scripts (loader, LTF bridge, PyInstaller, installer, update package)

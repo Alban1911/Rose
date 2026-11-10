@@ -83,6 +83,8 @@
   "Start with Windows": "Indítás a Windowszal",
   "Hide empty categories": "Üres kategóriák elrejtése",
   "Hide empty categories in the custom mods wheel": "Üres kategóriák elrejtése az egyéni modok kerekén",
+  "Send usage statistics": "Használati statisztikák küldése",
+  "Rose sends its version and a random ID for this install while it runs, to count how many people use it. No account or game data.": "A Rose futás közben elküldi a verzióját és ennek a telepítésnek egy véletlenszerű azonosítóját, hogy megszámolja, hányan használják. Fiók- és játékadatokat nem küld.",
   "League of Legends Game Path:": "A League of Legends játék elérési útja:",
   "Language:": "Nyelv:",
   "Auto (client language)": "Automatikus (a kliens nyelve)",
