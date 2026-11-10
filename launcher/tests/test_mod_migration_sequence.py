@@ -5,7 +5,7 @@ from datetime import date
 from unittest.mock import MagicMock, patch
 
 from injection.mods import migration
-from injection.tests.test_ltf_session import FakeBridge
+from injection.tests.ltf_fakes import FakeBridge
 from injection.tests.test_mod_archives import PNG
 from injection.tests.test_mod_migration import MigrationTestCase
 from launcher.core import launcher

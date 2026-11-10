@@ -294,8 +294,15 @@
   }
 
   // A category's mod LTK Manager lost (missing) is listed greyed, so the user
-  // adds it again or deletes it, and is never picked: no click, never auto-selected
+  // adds it again or deletes it, and is never picked: no click, never auto-selected.
+  // One the user added in LTK Manager says so
   function bindPick(listItem, nameRow, mod, pick) {
+    if (mod?.mirrored) {
+      const source = document.createElement("div");
+      source.className = "mod-source-note";
+      source.textContent = tr("From LTK Manager");
+      nameRow.appendChild(source);
+    }
     if (!mod?.missing) {
       listItem.addEventListener("click", pick);
       return;
@@ -878,7 +885,8 @@
       border-left-color: transparent;
     }
 
-    .${PANEL_CLASS} .mod-missing-note {
+    .${PANEL_CLASS} .mod-missing-note,
+    .${PANEL_CLASS} .mod-source-note {
       color: #a09b8c;
       font-size: 10px;
       font-style: italic;
@@ -1445,6 +1453,24 @@
     flyoutFrame.style.pointerEvents = "all";
   }
 
+  // The "None" row atop a pick list, to deselect
+  function appendNoneItem(listEl, idAttribute, nothingSelected, onClick) {
+    const noneItem = document.createElement("li");
+    noneItem.setAttribute(idAttribute, "__none__");
+    const noneRow = document.createElement("div");
+    noneRow.className = "mod-name-row";
+    const noneName = document.createElement("div");
+    noneName.className = "mod-name none-label";
+    noneName.textContent = tr("None");
+    noneRow.appendChild(noneName);
+    if (nothingSelected) {
+      noneItem.classList.add("selected-row");
+    }
+    noneItem.addEventListener("click", () => onClick(noneItem));
+    noneItem.appendChild(noneRow);
+    listEl.appendChild(noneItem);
+  }
+
   function updateNoneRow(listEl, isNoneActive) {
     const noneLi = listEl?.querySelector('[data-mod-id="__none__"], [data-map-id="__none__"], [data-font-id="__none__"], [data-announcer-id="__none__"], [data-other-id="__none__"]');
     if (!noneLi) return;
@@ -1497,34 +1523,17 @@
 
     loadingEl.style.display = "none";
 
-    // "None" deselect option
-    {
-      const noneItem = document.createElement("li");
-      noneItem.setAttribute("data-mod-id", "__none__");
-      const noneRow = document.createElement("div");
-      noneRow.className = "mod-name-row";
-      const noneName = document.createElement("div");
-      noneName.className = "mod-name none-label";
-      noneName.textContent = tr("None");
-      noneRow.appendChild(noneName);
-      const nothingSelected = !isSelectedModForSkin(currentSkinId);
-      if (nothingSelected) {
-        noneItem.classList.add("selected-row");
+    appendNoneItem(modList, "data-mod-id", !isSelectedModForSkin(currentSkinId), () => {
+      if (selectedModId) {
+        const { championId, skinId } = getCurrentSkinContext();
+        sendSkinModSelection({
+          championId,
+          skinId,
+          modId: null,
+          expectedModId: selectedModId,
+        });
       }
-      noneItem.addEventListener("click", () => {
-        if (selectedModId) {
-          const { championId, skinId } = getCurrentSkinContext();
-          sendSkinModSelection({
-            championId,
-            skinId,
-            modId: null,
-            expectedModId: selectedModId,
-          });
-        }
-      });
-      noneItem.appendChild(noneRow);
-      modList.appendChild(noneItem);
-    }
+    });
 
     mods.forEach((mod) => {
       const listItem = document.createElement("li");
@@ -1595,33 +1604,18 @@
 
     loadingEl.style.display = "none";
 
-    // "None" deselect option
-    {
-      const noneItem = document.createElement("li");
-      noneItem.setAttribute("data-map-id", "__none__");
-      const noneRow = document.createElement("div");
-      noneRow.className = "mod-name-row";
-      const noneName = document.createElement("div");
-      noneName.className = "mod-name none-label";
-      noneName.textContent = tr("None");
-      noneRow.appendChild(noneName);
-      const nothingSelected = !selectedMapId;
-      if (nothingSelected) { noneItem.classList.add("selected-row"); }
-      noneItem.addEventListener("click", () => {
-        if (selectedMapId) {
-          const prevLi = mapsListEl.querySelector(`[data-map-id="${selectedMapId}"]`);
-          if (prevLi) {
-            prevLi.classList.remove("selected-row");
-          }
-          selectedMapId = null;
-          if (bridge) bridge.send({ type: "select-map", mapId: null });
+    appendNoneItem(mapsListEl, "data-map-id", !selectedMapId, (noneItem) => {
+      if (selectedMapId) {
+        const prevLi = mapsListEl.querySelector(`[data-map-id="${selectedMapId}"]`);
+        if (prevLi) {
+          prevLi.classList.remove("selected-row");
         }
-        noneItem.classList.add("selected-row");
-        refreshSummaryValues(); refreshButtonBadgeFromSelections();
-      });
-      noneItem.appendChild(noneRow);
-      mapsListEl.appendChild(noneItem);
-    }
+        selectedMapId = null;
+        if (bridge) bridge.send({ type: "select-map", mapId: null });
+      }
+      noneItem.classList.add("selected-row");
+      refreshSummaryValues(); refreshButtonBadgeFromSelections();
+    });
 
     mapsList.forEach((map) => {
       const listItem = document.createElement("li");
@@ -1677,33 +1671,18 @@
 
     loadingEl.style.display = "none";
 
-    // "None" deselect option
-    {
-      const noneItem = document.createElement("li");
-      noneItem.setAttribute("data-font-id", "__none__");
-      const noneRow = document.createElement("div");
-      noneRow.className = "mod-name-row";
-      const noneName = document.createElement("div");
-      noneName.className = "mod-name none-label";
-      noneName.textContent = tr("None");
-      noneRow.appendChild(noneName);
-      const nothingSelected = !selectedFontId;
-      if (nothingSelected) { noneItem.classList.add("selected-row"); }
-      noneItem.addEventListener("click", () => {
-        if (selectedFontId) {
-          const prevLi = fontsListEl.querySelector(`[data-font-id="${selectedFontId}"]`);
-          if (prevLi) {
-            prevLi.classList.remove("selected-row");
-          }
-          selectedFontId = null;
-          if (bridge) bridge.send({ type: "select-font", fontId: null });
+    appendNoneItem(fontsListEl, "data-font-id", !selectedFontId, (noneItem) => {
+      if (selectedFontId) {
+        const prevLi = fontsListEl.querySelector(`[data-font-id="${selectedFontId}"]`);
+        if (prevLi) {
+          prevLi.classList.remove("selected-row");
         }
-        noneItem.classList.add("selected-row");
-        refreshSummaryValues(); refreshButtonBadgeFromSelections();
-      });
-      noneItem.appendChild(noneRow);
-      fontsListEl.appendChild(noneItem);
-    }
+        selectedFontId = null;
+        if (bridge) bridge.send({ type: "select-font", fontId: null });
+      }
+      noneItem.classList.add("selected-row");
+      refreshSummaryValues(); refreshButtonBadgeFromSelections();
+    });
 
     fontsList.forEach((font) => {
       const listItem = document.createElement("li");
@@ -1759,33 +1738,18 @@
 
     loadingEl.style.display = "none";
 
-    // "None" deselect option
-    {
-      const noneItem = document.createElement("li");
-      noneItem.setAttribute("data-announcer-id", "__none__");
-      const noneRow = document.createElement("div");
-      noneRow.className = "mod-name-row";
-      const noneName = document.createElement("div");
-      noneName.className = "mod-name none-label";
-      noneName.textContent = tr("None");
-      noneRow.appendChild(noneName);
-      const nothingSelected = !selectedAnnouncerId;
-      if (nothingSelected) { noneItem.classList.add("selected-row"); }
-      noneItem.addEventListener("click", () => {
-        if (selectedAnnouncerId) {
-          const prevLi = announcersListEl.querySelector(`[data-announcer-id="${selectedAnnouncerId}"]`);
-          if (prevLi) {
-            prevLi.classList.remove("selected-row");
-          }
-          selectedAnnouncerId = null;
-          if (bridge) bridge.send({ type: "select-announcer", announcerId: null });
+    appendNoneItem(announcersListEl, "data-announcer-id", !selectedAnnouncerId, (noneItem) => {
+      if (selectedAnnouncerId) {
+        const prevLi = announcersListEl.querySelector(`[data-announcer-id="${selectedAnnouncerId}"]`);
+        if (prevLi) {
+          prevLi.classList.remove("selected-row");
         }
-        noneItem.classList.add("selected-row");
-        refreshSummaryValues(); refreshButtonBadgeFromSelections();
-      });
-      noneItem.appendChild(noneRow);
-      announcersListEl.appendChild(noneItem);
-    }
+        selectedAnnouncerId = null;
+        if (bridge) bridge.send({ type: "select-announcer", announcerId: null });
+      }
+      noneItem.classList.add("selected-row");
+      refreshSummaryValues(); refreshButtonBadgeFromSelections();
+    });
 
     announcersList.forEach((announcer) => {
       const listItem = document.createElement("li");
@@ -1845,35 +1809,20 @@
 
     loadingEl.style.display = "none";
 
-    // "None" deselect option (clears all selections for this category)
-    {
-      const noneItem = document.createElement("li");
-      noneItem.setAttribute("data-other-id", "__none__");
-      const noneRow = document.createElement("div");
-      noneRow.className = "mod-name-row";
-      const noneName = document.createElement("div");
-      noneName.className = "mod-name none-label";
-      noneName.textContent = tr("None");
-      noneRow.appendChild(noneName);
-      const nothingSelected = selectedIds.length === 0;
-      if (nothingSelected) { noneItem.classList.add("selected-row"); }
-      noneItem.addEventListener("click", () => {
-        const allSelectedLis = listEl.querySelectorAll("li.selected-row");
-        allSelectedLis.forEach((li) => {
-          if (li === noneItem) return;
-          li.classList.remove("selected-row");
-        });
-        const ids = getSelectedIdsForCategory(categoryId);
-        for (const id of [...ids]) {
-          if (bridge) bridge.send({ type: "select-other", category: categoryId, otherId: id, otherData: null, action: "deselect" });
-        }
-        ids.length = 0;
-        noneItem.classList.add("selected-row");
-        refreshSummaryValues(); refreshButtonBadgeFromSelections();
+    appendNoneItem(listEl, "data-other-id", selectedIds.length === 0, (noneItem) => {
+      const allSelectedLis = listEl.querySelectorAll("li.selected-row");
+      allSelectedLis.forEach((li) => {
+        if (li === noneItem) return;
+        li.classList.remove("selected-row");
       });
-      noneItem.appendChild(noneRow);
-      listEl.appendChild(noneItem);
-    }
+      const ids = getSelectedIdsForCategory(categoryId);
+      for (const id of [...ids]) {
+        if (bridge) bridge.send({ type: "select-other", category: categoryId, otherId: id, otherData: null, action: "deselect" });
+      }
+      ids.length = 0;
+      noneItem.classList.add("selected-row");
+      refreshSummaryValues(); refreshButtonBadgeFromSelections();
+    });
 
     items.forEach((other) => {
       const listItem = document.createElement("li");
@@ -2845,30 +2794,31 @@
     }
   }
 
-  // The mod manager deleted a mod: drop it from the selection right away
-  // (the backend already cleared its own), then refresh that list.
-  function handleCategoryModDeleted(data) {
+  // The mod manager deleted, hid or showed a mod: drop it from the selection
+  // right away, then refresh that list.
+  function handleCategoryModListChanged(data) {
     if (!data || !data.success) return;
     const category = String(data.category || "").trim();
     if (!category || !data.modName) return;
     const target = normalizePathLike(`${category}/${data.modName}`);
-    const isDeleted = (id) => Boolean(id) && normalizePathLike(id) === target;
+    const targetArchive = `${target}.fantome`;
+    const isThisMod = (id) => Boolean(id) && [target, targetArchive].includes(normalizePathLike(id));
 
     if (category === "maps") {
-      if (isDeleted(selectedMapId)) selectedMapId = null;
+      if (isThisMod(selectedMapId)) selectedMapId = null;
       requestMaps();
     } else if (category === "fonts") {
-      if (isDeleted(selectedFontId)) selectedFontId = null;
+      if (isThisMod(selectedFontId)) selectedFontId = null;
       requestFonts();
     } else if (category === "announcers") {
-      if (isDeleted(selectedAnnouncerId)) selectedAnnouncerId = null;
+      if (isThisMod(selectedAnnouncerId)) selectedAnnouncerId = null;
       requestAnnouncers();
     } else if (OTHER_CATEGORY_TABS.some((t) => t.id === category)) {
       const selected = getSelectedIdsForCategory(category);
-      for (const id of selected.filter(isDeleted)) {
+      for (const id of selected.filter(isThisMod)) {
         emittedHistoricSelectionKeys.delete(`${category}:${id}`);
       }
-      const kept = selected.filter((id) => !isDeleted(id));
+      const kept = selected.filter((id) => !isThisMod(id));
       selected.splice(0, selected.length, ...kept);
       requestCategoryMods(category);
     } else {
@@ -2976,7 +2926,6 @@
       passive: true,
     });
 
-    // Subscribe to bridge messages instead of window CustomEvents
     if (bridge) {
       bridge.subscribe("settings-data", (data) => handleSettingsData({ detail: data }));
       bridge.subscribe("skin-mods-response", (data) => handleModsResponse({ detail: data }));
@@ -2989,7 +2938,8 @@
       bridge.subscribe("announcers-response", (data) => handleAnnouncersResponse({ detail: data }));
       bridge.subscribe("category-mods-response", (data) => handleCategoryModsResponse({ detail: data }));
       bridge.subscribe("others-response", (data) => handleOthersResponse({ detail: data }));
-      bridge.subscribe("category-mod-deleted", handleCategoryModDeleted);
+      bridge.subscribe("category-mod-deleted", handleCategoryModListChanged);
+      bridge.subscribe("category-mod-hidden", handleCategoryModListChanged);
       bridge.subscribe("champion-mod-deleted", handleChampionModDeleted);
       bridge.subscribe("champion-locked", (data) => handleChampionLocked({ detail: data }));
       bridge.subscribe("custom-mod-state", (data) => {

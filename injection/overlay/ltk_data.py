@@ -17,6 +17,7 @@ log = get_logger()
 LTK_DATA_FOLDER = "dev.leaguetoolkit.manager"
 LIBRARY_INDEX = "library.json"
 LTK_SETTINGS = "settings.json"
+WAD_REPORTS = "wad-reports.json"
 # The index layout this reads (LTK Manager 1.33): {"version": 2, "mods": [{id,
 # format, storage, slug...}], "profiles": [{id, enabledMods...}], "activeProfileId"}.
 # Another layout is not guessed at: a misread index would mark mods missing
@@ -55,15 +56,21 @@ def library_index_path() -> Optional[Path]:
     return data_dir / LIBRARY_INDEX if data_dir is not None else None
 
 
-def library_index_mtime() -> Optional[float]:
-    """When LTK Manager last changed its library (None: no index)."""
-    path = library_index_path()
-    if path is None:
-        return None
+def _mtime(path: Path) -> Optional[float]:
     try:
         return path.stat().st_mtime
     except OSError:
         return None
+
+
+def library_version() -> Optional[tuple]:
+    """When LTK Manager last changed its library, and its analysis of the
+    mods (wad-reports.json, written apart from the index as it analyses
+    one): (the index's mtime, the analysis's or None). None without an
+    index."""
+    path = library_index_path()
+    index = _mtime(path) if path is not None else None
+    return None if index is None else (index, _mtime(path.with_name(WAD_REPORTS)))
 
 
 @dataclass(frozen=True)
@@ -154,6 +161,29 @@ def read_library_index() -> Optional[Dict[str, IndexEntry]]:
             archive = root / f"{slug}{_archive_suffix(fmt)}"
         index[ltk_id] = IndexEntry(ltk_id, slug, fmt, storage, ltk_id in enabled, archive)
     return index
+
+
+def read_mod_analysis() -> Dict[str, dict]:
+    """What LTK Manager's own analysis found in each mod of its library, by
+    entry id: {"tags": ["champion-skin", "map-skin", "ui"...], "maps": [...],
+    "champions": [...]} (its wad-reports.json, written as it installs a mod).
+    A mod it has not analysed is left out; {} when it analysed none. Raises
+    OSError or ValueError when it cannot be read (LTK Manager writing it,
+    another layout): never read that as "no mod is analysed"."""
+    data_dir = ltk_data_dir()
+    if data_dir is None:
+        return {}
+    try:
+        document = json.loads((data_dir / WAD_REPORTS).read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return {}
+    reports = document.get("reports") if isinstance(document, dict) else None
+    if not isinstance(reports, dict):
+        raise ValueError(f"{WAD_REPORTS} holds no reports")
+    return {
+        str(mod_id): report["derived"] for mod_id, report in reports.items()
+        if isinstance(report, dict) and isinstance(report.get("derived"), dict)
+    }
 
 
 def entry_archive(entry: Mapping) -> Optional[Path]:

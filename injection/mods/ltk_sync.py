@@ -6,14 +6,14 @@ from __future__ import annotations
 import threading
 import zipfile
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import List, Optional
 
 from utils.core.logging import get_logger
 from utils.threading.thread_manager import create_daemon_thread
 
-from ..overlay.ltk_data import IndexEntry, library_index_mtime, read_library_index
-from .manifest import MANIFEST_WRITERS_LOCK, SavedMod, find_saved_mod, ltk_library_mods, update_saved_mod
+from ..overlay.ltk_data import IndexEntry, library_version, read_library_index
+from .manifest import MANIFEST_WRITERS_LOCK, SavedMod, listed_now, ltk_library_mods, update_saved_mod
+from .ltk_mirror import mirror_users_mods
 from .migration import delete_copy
 from .mod_facts import read_mod_facts, stamp_of
 from .storage import ModStorageService
@@ -21,7 +21,7 @@ from .storage import ModStorageService
 log = get_logger()
 
 _ONE_SYNC_AT_A_TIME = threading.Lock()
-_last_synced_index_mtime: Optional[float] = None
+_last_synced_version: Optional[tuple] = None
 
 
 @dataclass
@@ -40,22 +40,24 @@ class SyncReport:
 
 def sync_saved_mods(storage: Optional[ModStorageService] = None, *,
                     only_if_changed: bool) -> Optional[SyncReport]:
-    """Bring every saved mod's manifest in line with LTK Manager's index.
-    *only_if_changed* skips it while the index is the one this Rose's last
-    sync read.
+    """Bring every saved mod's manifest in line with LTK Manager's index,
+    and list in Rose the mods the user added in LTK Manager
+    (mirror_users_mods). *only_if_changed* skips it while LTK Manager's index
+    and its analysis of the mods are those this Rose's last whole sync read:
+    one that left a mod for later runs again.
 
     The manifests are read before the index: a mod added meanwhile is in LTK
     Manager's index before its manifest names it, so it is never taken for
     one LTK Manager lost. None when the sync did not run: another one is
-    running, the index did not change, or it cannot be read.
+    running, nothing changed, or the index cannot be read.
     """
-    global _last_synced_index_mtime
+    global _last_synced_version
     if not _ONE_SYNC_AT_A_TIME.acquire(blocking=False):
         log.debug("[MODS] A sync with LTK Manager's library is running already")
         return None
     try:
-        mtime = library_index_mtime()
-        if only_if_changed and mtime is not None and mtime == _last_synced_index_mtime:
+        version = library_version()
+        if only_if_changed and version is not None and version == _last_synced_version:
             log.debug("[MODS] LTK Manager's library did not change since the last sync")
             return None
         storage = storage or ModStorageService()
@@ -67,8 +69,13 @@ def sync_saved_mods(storage: Optional[ModStorageService] = None, *,
         report = SyncReport()
         for mod in held:
             _sync_mod(storage, mod, index.get(mod.ltk_id), report)
-        if mtime is not None:
-            _last_synced_index_mtime = mtime
+        try:
+            whole = not mirror_users_mods(storage, index).failed
+        except (OSError, ValueError) as e:
+            log.warning(f"[MODS] The mods added in LTK Manager stay listed in Rose as they are until the next sync: {e}")
+            whole = False
+        if version is not None and whole:
+            _last_synced_version = version
         if report:
             log.info(f"[MODS] Synced the saved mods with LTK Manager's library: {len(report.gone_from_library)} missing, "
                      f"{len(report.listed_again)} found again, {len(report.facts_reread)} changed by LTK Manager, "
@@ -97,14 +104,15 @@ def _sync_mod(storage: ModStorageService, mod: SavedMod, entry: Optional[IndexEn
     """Bring one saved mod LTK Manager holds in line with its index *entry*
     (None: gone), in one manifest write, then delete Rose's leftover copy of
     a listed one: under the manifests' lock, and only while its manifest
-    entry is still the one the sync read."""
+    entry is still the one the sync read. One the user added in LTK Manager
+    is never missing: it leaves Rose's lists (mirror_users_mods)."""
     fields: dict = {}
-    if (entry is None) != mod.missing:
+    if (entry is None) != mod.missing and not mod.mirrored:
         fields["missing"] = True if entry is None else None
     if entry is not None:
         fields.update(_changed_facts(mod, entry))
     with MANIFEST_WRITERS_LOCK:
-        if not _unchanged(storage.mods_root, mod):
+        if listed_now(storage.mods_root, mod) is None:
             log.debug(f"[MODS] {mod.name} was deleted or added again during the sync: left to the next one")
             return
         if fields and not update_saved_mod(storage.mods_root, mod.identity, **fields):
@@ -122,14 +130,6 @@ def _sync_mod(storage: ModStorageService, mod: SavedMod, entry: Optional[IndexEn
             log.info(f"[MODS] LTK Manager changed {mod.name}: read what Rose needs to know about it again")
         if entry is not None and mod.rose_copy is not None and delete_copy(storage, mod):
             report.copies_deleted.append(mod.name)
-
-
-def _unchanged(mods_root: Path, mod: SavedMod) -> bool:
-    """Whether the manifest entry *mod* came from is still under its name,
-    with the same LTK Manager entry: one deleted and added again under that
-    name is another mod, whatever the sync read of the first."""
-    current = find_saved_mod(mods_root, mod.identity, match_content=False)
-    return current is not None and (current.key, current.ltk_id) == (mod.key, mod.ltk_id)
 
 
 def _changed_facts(mod: SavedMod, entry: IndexEntry) -> dict:

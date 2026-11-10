@@ -4,7 +4,7 @@
 import json
 import threading
 from pathlib import Path
-from typing import Callable, Dict, TypedDict
+from typing import Callable, Dict, Optional, TypedDict
 
 from utils.core.atomic_file import atomic_write
 from utils.core.logging import get_logger
@@ -12,6 +12,7 @@ from utils.core.logging import get_logger
 log = get_logger()
 
 LibraryId = str
+JOURNAL_FILE = "ltf_installed.json"
 LibraryNames = Dict[LibraryId, str]
 
 
@@ -24,7 +25,11 @@ class KeptRecord(TypedDict):
 
 
 _SHARED_STATE_FILE_LOCK = threading.Lock()
-_LAYOUT_KEYS = ("installed", "disabled", "manager", "kept", "switched")
+_LAYOUT_KEYS = ("installed", "disabled", "manager", "kept", "switched", "users_profile", "rose_profile", "rose_folder")
+
+
+def _an_id(value: object) -> Optional[str]:
+    return value if isinstance(value, str) and value else None
 
 
 def _upgrade_first_layout(document: dict) -> dict:
@@ -65,6 +70,9 @@ class LtfJournal:
             "manager": manager if isinstance(manager, dict) else None,
             "kept": kept_for_next_game,
             "switched": switched_on,
+            "users_profile": _an_id(document.get("users_profile")),
+            "rose_profile": _an_id(document.get("rose_profile")),
+            "rose_folder": _an_id(document.get("rose_folder")),
         }
 
     def update(self, change: Callable[[dict], None]) -> bool:

@@ -12,7 +12,7 @@ from unittest.mock import patch
 from injection.loadingname import loading_name
 from injection.mods import mod_facts
 from injection.mods.mod_facts import ModFacts, compute_mod_facts, stamp_of
-from injection.tests.test_ltf_session import FakeBridge, LtfSessionTestCase
+from injection.tests.ltf_fakes import FakeBridge, LtfSessionTestCase
 from party.discovery import custom_mods
 from test.test_loading_name import make_wad
 

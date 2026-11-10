@@ -41,7 +41,7 @@ class LtkSyncTests(unittest.TestCase):
                                                  encoding="utf-8")
         for patcher in (
             patch.object(ltk_data, "ltk_data_dir", return_value=self.data),
-            patch.object(ltk_sync, "_last_synced_index_mtime", NEVER_SYNCED),
+            patch.object(ltk_sync, "_last_synced_version", NEVER_SYNCED),
             patch.object(mod_facts, "get_injection_dir", return_value=self.root / "injection"),
             patch.object(historic, "get_user_data_dir", return_value=self.root),
             patch.object(mod_historic, "get_user_data_dir", return_value=self.root),

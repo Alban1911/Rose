@@ -10,7 +10,7 @@ import zipfile
 from pathlib import Path
 from unittest.mock import patch
 
-from injection.mods import conversion
+from injection.mods import conversion, mod_placement
 from injection.mods.fantome import fantome_display_name, read_info, write_fantome_zip
 from injection.mods.fingerprint import mod_fingerprint
 from injection.mods.manifest import ltk_removals
@@ -317,6 +317,12 @@ class AddTests(TempCase):
         self.assertEqual(self.entries(self.maps_manifest)["Rift"]["ltkId"], MOVED_ID)
         self.assertEqual(ltk_removals(self.service.mods_root), [])
 
+    def test_a_mod_whose_image_cannot_be_written_is_not_added(self):
+        with patch.object(mod_placement, "atomic_write", side_effect=PermissionError("in use")):
+            self.assertRaises(PermissionError, self.add_map)
+
+        self.assertEqual(list(self.maps.iterdir()), [])
+
     def test_a_name_an_image_or_a_description_holds_is_not_taken(self):
         (self.maps / "Rift.txt").write_text("Somebody's description", encoding="utf-8")
         (self.maps / "Abyss.webp").write_bytes(b"somebody's image")
@@ -492,7 +498,8 @@ class ManifestListingTests(TempCase):
         self.assertEqual(listed["VO Korean"], {
             "id": "voiceover/VO Korean.fantome", "name": "VO Korean", "displayName": None,
             "path": "voiceover/VO Korean.fantome", "updatedAt": 0.0, "description": "Korean voices",
-            "ltkId": VOICE_ID, "missing": False, "pending": False, "facts": FACTS.to_manifest(),
+            "ltkId": VOICE_ID, "missing": False, "pending": False, "mirrored": False, "hidden": False,
+            "facts": FACTS.to_manifest(),
         })
         self.assertEqual((listed["VO Pending"]["pending"], listed["VO Pending"]["ltkId"]), (True, None))
         self.assertEqual(listed["VO Pending"]["facts"],

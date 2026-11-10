@@ -24,6 +24,7 @@ from typing import NamedTuple, Optional, Sequence, TypedDict
 from urllib.parse import quote
 
 from config import get_config_float, get_config_option, set_config_option
+from injection.mods.manifest import set_hidden
 from injection.mods.mod_source import LtkEntry, ModSource
 from injection.mods.storage import ModStorageService
 from injection.overlay.ltf_report import has_ltf_logs_hint, ltk_failure_cause
@@ -82,6 +83,7 @@ BACKGROUND_MESSAGE_TYPES = frozenset({
     "delete-champion-mods",
     "delete-category-mod",
     "delete-category-mods",
+    "hide-category-mod",
     "rename-champion-mod",
     "rename-category-mod",
 })
@@ -345,7 +347,6 @@ class MessageHandler:
                 log.exception("[SkinMonitor] Failed to handle %s: %s", payload_type, e)
 
     def _route(self, payload_type: Optional[str], payload: dict) -> None:
-        # Route to appropriate handler
         if payload_type in {"chroma-log", "plugin-log"}:
             self._handle_chroma_log(payload)
         elif payload_type == "request-local-preview":
@@ -370,12 +371,8 @@ class MessageHandler:
             self._handle_request_manage_champion_mods(payload)
         elif payload_type == "request-manage-category-mods":
             self._handle_request_manage_category_mods(payload)
-        elif payload_type == "request-maps":
-            self._handle_request_maps(payload)
-        elif payload_type == "request-fonts":
-            self._handle_request_fonts(payload)
-        elif payload_type == "request-announcers":
-            self._handle_request_announcers(payload)
+        elif payload_type in ("request-maps", "request-fonts", "request-announcers"):
+            self._handle_request_one_mod(payload_type.removeprefix("request-").removesuffix("s"), payload)
         elif payload_type == "request-category-mods":
             self._handle_request_category_mods(payload)
         elif payload_type == "request-others":
@@ -427,6 +424,8 @@ class MessageHandler:
             self._handle_delete_category_mod(payload)
         elif payload_type == "delete-category-mods":
             self._handle_delete_category_mods(payload)
+        elif payload_type == "hide-category-mod":
+            self._handle_hide_category_mod(payload)
         elif payload_type == "rename-champion-mod":
             self._handle_rename_champion_mod(payload)
         elif payload_type == "set-champion-mod-image":
@@ -1322,7 +1321,7 @@ class MessageHandler:
             log.warning("[ManageMods] Invalid category: %s", category)
             return
         try:
-            mods = self.mod_storage.list_mods_for_category(category)
+            mods = self.mod_storage.list_mods_for_category(category, include_hidden=True)
         except Exception as exc:
             log.error("[ManageMods] Failed to list category %s: %s", category, exc)
             mods = []
@@ -1433,99 +1432,36 @@ class MessageHandler:
             )
         self._send_response(json.dumps(result))
     
-    def _handle_request_maps(self, payload: dict) -> None:
-        """Return the list of maps"""
+    def _handle_request_one_mod(self, kind: str, payload: dict) -> None:
+        """Return the list of map, font or announcer mods (*kind*) with the one
+        saved from the last game, and pick that one again if none is picked"""
+        pick = _ONE_MOD_CATEGORIES[kind]
         if not self.mod_storage:
             return
-        
+
         try:
-            maps = self.mod_storage.list_mods_for_category(self.mod_storage.CATEGORY_MAPS)
+            mods = self.mod_storage.list_mods_for_category(pick.category)
         except Exception as exc:
-            log.error(f"[SkinMonitor] Failed to list maps: {exc}")
-            maps = []
-        
-        # Get historic mod and add it to response
-        historic_map_path = None
+            log.error(f"[SkinMonitor] Failed to list {pick.category}: {exc}")
+            mods = []
+
+        historic_path = None
         try:
             from utils.core.mod_historic import get_historic_mod
-            historic_map_path = get_historic_mod("map")
+            historic_path = get_historic_mod(kind)
         except Exception as e:
-            log.warning('[SkinMonitor] Could not load saved map selection; it will not be restored: %s', e)
-        
-        response_payload = {
-            "type": "maps-response",
-            "maps": maps,
-            "historicMod": historic_map_path,  # Add historic mod identifier
+            log.warning('[SkinMonitor] Could not load saved %s selection; it will not be restored: %s', kind, e)
+
+        self._send_response(json.dumps({
+            "type": f"{pick.category}-response",
+            pick.category: mods,
+            "historicMod": historic_path,
             "timestamp": int(time.time() * 1000),
-        }
-        self._send_response(json.dumps(response_payload))
-        
-        # Auto-select historic mod if available and not already selected
-        if historic_map_path and not getattr(self.shared_state, 'selected_map_mod', None):
-            self._auto_select_historic_mod("map", historic_map_path, maps)
-    
-    def _handle_request_fonts(self, payload: dict) -> None:
-        """Return the list of fonts"""
-        if not self.mod_storage:
-            return
-        
-        try:
-            fonts = self.mod_storage.list_mods_for_category(self.mod_storage.CATEGORY_FONTS)
-        except Exception as exc:
-            log.error(f"[SkinMonitor] Failed to list fonts: {exc}")
-            fonts = []
-        
-        # Get historic mod and add it to response
-        historic_font_path = None
-        try:
-            from utils.core.mod_historic import get_historic_mod
-            historic_font_path = get_historic_mod("font")
-        except Exception as e:
-            log.warning('[SkinMonitor] Could not load saved font selection; it will not be restored: %s', e)
-        
-        response_payload = {
-            "type": "fonts-response",
-            "fonts": fonts,
-            "historicMod": historic_font_path,  # Add historic mod identifier
-            "timestamp": int(time.time() * 1000),
-        }
-        self._send_response(json.dumps(response_payload))
-        
-        # Auto-select historic mod if available and not already selected
-        if historic_font_path and not getattr(self.shared_state, 'selected_font_mod', None):
-            self._auto_select_historic_mod("font", historic_font_path, fonts)
-    
-    def _handle_request_announcers(self, payload: dict) -> None:
-        """Return the list of announcers"""
-        if not self.mod_storage:
-            return
-        
-        try:
-            announcers = self.mod_storage.list_mods_for_category(self.mod_storage.CATEGORY_ANNOUNCERS)
-        except Exception as exc:
-            log.error(f"[SkinMonitor] Failed to list announcers: {exc}")
-            announcers = []
-        
-        # Get historic mod and add it to response
-        historic_announcer_path = None
-        try:
-            from utils.core.mod_historic import get_historic_mod
-            historic_announcer_path = get_historic_mod("announcer")
-        except Exception as e:
-            log.warning('[SkinMonitor] Could not load saved announcer selection; it will not be restored: %s', e)
-        
-        response_payload = {
-            "type": "announcers-response",
-            "announcers": announcers,
-            "historicMod": historic_announcer_path,  # Add historic mod identifier
-            "timestamp": int(time.time() * 1000),
-        }
-        self._send_response(json.dumps(response_payload))
-        
-        # Auto-select historic mod if available and not already selected
-        if historic_announcer_path and not getattr(self.shared_state, 'selected_announcer_mod', None):
-            self._auto_select_historic_mod("announcer", historic_announcer_path, announcers)
-    
+        }))
+
+        if historic_path and not getattr(self.shared_state, pick.state_attr, None):
+            self._auto_select_historic_mod(kind, historic_path, mods)
+
     def _handle_request_others(self, payload: dict) -> None:
         """Return the list of others"""
         if not self.mod_storage:
@@ -2159,6 +2095,25 @@ class MessageHandler:
                 "modName": mod_name,
                 "error": str(exc),
             }))
+
+    def _handle_hide_category_mod(self, payload: dict) -> None:
+        """Hide a mod the user added in LTK Manager from the lists to pick a
+        game's mods from (no longer picked, if it was), or show it again."""
+        category, mod_name, hidden = payload.get("category"), payload.get("modName"), bool(payload.get("hidden"))
+        try:
+            changed = bool(self.mod_storage) and set_hidden(self.mod_storage.mods_root, f"{category}/{mod_name}", hidden)
+        except Exception as exc:
+            log.error("[HideMod] Failed to hide or show category mod: %s", exc)
+            changed = False
+        if changed and hidden:
+            self._clear_category_selection_if_matches(category, mod_name)
+        self._send_response(json.dumps({
+            "type": "category-mod-hidden",
+            "success": changed,
+            "category": category,
+            "modName": mod_name,
+            "hidden": hidden,
+        }))
 
     def _handle_delete_category_mods(self, payload: dict) -> None:
         """Delete selected category mods and report each result in one response."""

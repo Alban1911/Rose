@@ -38,6 +38,7 @@ __all__ = [
     "LtkLibrary",
     "LtkUnavailable",
     "remove_rose_mods",
+    "restore_users_profile",
 ]
 
 REJECTED_SEVERITIES = ("fatal", "error")
@@ -358,22 +359,23 @@ class LibrarySession:
 
 
 def remove_rose_mods(host: LtfHost) -> int:
-    """Remove from LTK Manager's library every entry Rose added there, for
-    Rose's uninstaller when the user does not keep Rose's data (main's
-    --remove-ltk-mods): only that data names them, so nothing would remove
-    them after. These are the saved mods' entries (the missing ones, and
-    those of deleted mods still to remove), the copies games kept and the
-    installs a Rose that crashed left. The session's start-up cleanup removes
-    those installs and turns the user's own mods a game turned off back on,
-    but leaves every entry a manifest names: those are removed here.
+    """Remove from LTK Manager's library every entry Rose added there, and
+    Rose's profile and folder, for Rose's uninstaller when the user does not
+    keep Rose's data (main's --remove-ltk-mods): only that data names them,
+    so nothing would remove them after. These are the saved mods' entries
+    (the missing ones, and those of deleted mods still to remove), the copies
+    games kept and the installs a Rose that crashed left. The user's own mods
+    Rose lists (mirrored) stay. The session's start-up cleanup removes those
+    installs and turns back on the user's mods an older Rose turned off, but
+    leaves every entry a manifest names: those are removed here.
 
     Returns 0 when done (LTK Manager is not even started when Rose added
-    nothing and turned nothing off), 1 when LTK Manager could not be reached,
-    an entry could not be removed or a user's mod stays off.
+    nothing), 1 when LTK Manager could not be reached, an entry, Rose's
+    profile or folder could not be removed, or a user's mod stays off.
     """
     state = host.journal.read()
     ids = manifest_ltk_ids(host.saved_mods_dir()) | set(state["kept"]) | set(state["installed"])
-    if not ids and not state["disabled"]:
+    if not ids and not state["disabled"] and state["rose_profile"] is None and state["rose_folder"] is None:
         log.info("[MODS] Rose added nothing to LTK Manager's library")
         return 0
     removed, failed = [], []
@@ -390,27 +392,25 @@ def remove_rose_mods(host: LtfHost) -> int:
                 removed.append(ltk_id)
             if removed:
                 host.journal.forget_kept(removed)
-            failed += _turn_users_mods_back_on(host, session, library)
+            host.folder.remove(session.bridge)
+            host.profile.remove(session.bridge)
     except (LtkBusy, LtkUnavailable, BridgeUnavailable, BridgeCommandError) as e:
-        log.warning(f"[MODS] Could not remove Rose's mods from LTK Manager's library: {e}")
+        log.warning(f"[MODS] Could not remove Rose's mods, profile and folder from LTK Manager: {e}")
         return 1
-    log.info(f"[MODS] Removed {len(removed)} mod(s) Rose added from LTK Manager's library")
-    return 1 if failed else 0
+    log.info(f"[MODS] Removed {len(removed)} mod(s) Rose added, and its profile and folder, from LTK Manager")
+    return 1 if failed or host.journal.read()["disabled"] else 0
 
 
-def _turn_users_mods_back_on(host: LtfHost, session: LibrarySession, library: Mapping[str, dict]) -> List[str]:
-    """Turn back on the user's own mods a game turned off that the session's
-    start could not (its cleanup leaves them recorded and goes on), and
-    return those still off: the uninstaller deletes that record next."""
-    still_off = []
-    for ltk_id in host.journal.read()["disabled"]:
-        if ltk_id not in library or library[ltk_id].get("enabled"):
-            continue
-        try:
-            session.switch(ltk_id, True)
-        except BridgeCommandError as e:
-            log.warning(f"[MODS] Could not turn the user's mod {ltk_id} back on in LTK Manager: {e}")
-            still_off.append(ltk_id)
-            continue
-        host.journal.untrack(restored=[ltk_id])
-    return still_off
+def restore_users_profile(host: LtfHost) -> None:
+    """Switch LTK Manager back to the user's profile when a Rose that crashed
+    left it in Rose's, at Rose's start: the user may open LTK Manager before
+    the next game. A session does it (and undoes the rest that Rose left);
+    LTK Manager open without Rose's bridge is left alone, and the next
+    session does it then."""
+    if not host.profile.left_open():
+        return
+    try:
+        with LtkLibrary(host).session():
+            pass
+    except (LtkBusy, LtkUnavailable, BridgeUnavailable, BridgeCommandError) as e:
+        log.info(f"[MODS] LTK Manager stays in Rose's profile until the next game: {e}")

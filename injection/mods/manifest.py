@@ -34,6 +34,8 @@ LEGACY_TARGET_METADATA = "rose_wad_targets.json"
 CATEGORY_METADATA = "rose_category_mods.json"
 ARCHIVE_SUFFIX = ".fantome"
 PENDING_REMOVALS = "pendingRemovals"
+MIRRORED = "mirrored"
+HIDDEN = "hidden"
 SOURCE_HASHES = "sourceHashes"
 # A custom skin's: the sha256 of the file the user picked (party mode shares
 # it, and matches a friend's copy by it), and its archive's index
@@ -76,6 +78,23 @@ class SavedMod:
     target_skin_ids: tuple[int, ...]
     updated_at: float
     metadata: Mapping[str, object] = field(compare=False)
+
+    @property
+    def mirrored(self) -> bool:
+        """Whether the user added it in LTK Manager, not in Rose: Rose lists
+        it (ltk_mirror) and never removes it from LTK Manager."""
+        return bool(self.ltk_id) and self.metadata.get(MIRRORED) is True
+
+    @property
+    def hidden(self) -> bool:
+        """Whether the user hid it from Rose's lists of mods to pick."""
+        return self.metadata.get(HIDDEN) is True
+
+    def plugin_fields(self) -> dict:
+        """What the plugins' listings say of it: where it is (its source's
+        plugin_fields: ltkId, missing, pending), whether the user added it in
+        LTK Manager, and whether they hid it."""
+        return {**self.source.plugin_fields(), "mirrored": self.mirrored, "hidden": self.hidden}
 
     @property
     def registered(self) -> bool:
@@ -560,6 +579,15 @@ def _find(mods_root: Path, relative_path: object,
     return None
 
 
+def listed_now(mods_root: Path, mod: SavedMod) -> Optional[SavedMod]:
+    """*mod* as its manifest lists it now, while its entry is still under its
+    name with the same LTK Manager entry; None once it is not: one deleted
+    and added again under that name is another mod, whatever was read of
+    the first."""
+    current = find_saved_mod(mods_root, mod.identity, match_content=False)
+    return current if current is not None and (current.key, current.ltk_id) == (mod.key, mod.ltk_id) else None
+
+
 def find_saved_mod(mods_root: Path, relative_path: object, *, match_content: bool = True) -> Optional[SavedMod]:
     """The saved mod known as *relative_path*, compared as Windows compares
     paths: its identity, or the other name it has had (the folder it was
@@ -611,10 +639,12 @@ def leftover_copies(mods_root: Path) -> List[SavedMod]:
 
 
 def _ltk_ids_in(payload: Optional[dict]) -> set[str]:
+    """The LTK Manager entries Rose added for a manifest's mods: not those of
+    the user's own mods it lists (mirrored)."""
     raw = payload.get("mods") if isinstance(payload, dict) else None
     return {
         value["ltkId"] for value in (raw.values() if isinstance(raw, dict) else ())
-        if isinstance(value, dict) and is_ltk_id(value.get("ltkId"))
+        if isinstance(value, dict) and is_ltk_id(value.get("ltkId")) and value.get(MIRRORED) is not True
     }
 
 
@@ -639,8 +669,9 @@ def _manifest_ids(mods_root: Path) -> tuple[set[str], List[str]]:
 
 def manifest_ltk_ids(mods_root: Path) -> set[str]:
     """Every LTK Manager entry Rose added for a saved mod: each manifest's
-    ltkIds, the missing ones too, and those still to remove. Cleaning up
-    after a game must never take one of them for a leftover."""
+    ltkIds, the missing ones too, and those still to remove, but not the
+    user's own mods it lists (mirrored). Cleaning up after a game must never
+    take one of them for a leftover."""
     named, removals = _manifest_ids(mods_root)
     return named | set(removals)
 
@@ -696,12 +727,14 @@ def _set_pending_removals(payload: dict, ids: Iterable[object]) -> None:
 
 
 def _drop_entries(payload: dict, mods: dict, keys: Iterable[str]) -> None:
-    """Take these entries out of *mods*, their LTK Manager entries added to
-    the manifest's pendingRemovals in the same write: one no manifest named
-    any more would stay in LTK Manager for good, as Rose would never know it
-    again."""
+    """Take these entries out of *mods*, the LTK Manager entries Rose added
+    for them added to the manifest's pendingRemovals in the same write: one
+    no manifest named any more would stay in LTK Manager for good, as Rose
+    would never know it again. A mod the user added in LTK Manager stays
+    there (mirrored)."""
     keys = list(keys)
-    dropped = [mods[key].get("ltkId") for key in keys if isinstance(mods[key], dict)]
+    dropped = [mods[key].get("ltkId") for key in keys
+               if isinstance(mods[key], dict) and mods[key].get(MIRRORED) is not True]
     _set_pending_removals(payload, [*_pending_removals(payload), *dropped])
     for key in keys:
         del mods[key]
@@ -816,14 +849,16 @@ def forget_ltk_removals(mods_root: Path, ids: Iterable[str]) -> None:
 
 
 def add_saved_mod(mods_root: Path, archive: Path, facts: Optional[ModFacts], targets: Iterable[int] = (), *,
-                  source_hash: Optional[str] = None, index_hash: Optional[str] = None) -> None:
+                  source_hash: Optional[str] = None, index_hash: Optional[str] = None, **fields: object) -> None:
     """Register the archive of a mod just added to its folder, keyed by its
     name, with its date (the listing keeps it once the archive is in LTK
     Manager) and what Rose needs to know about it, read once: a category's
     mod its facts (read_mod_facts); a custom skin its targets, the sha256 of
     the file the user picked (*source_hash*: what party mode shares and
     matches a friend's copy by) and its archive's index (*index_hash*: what
-    a renamed skin is found by, _content_match).
+    a renamed skin is found by, _content_match). *fields* are written as
+    they are (manifest keys: a mod the user added in LTK Manager its ltkId,
+    mirrored=True...).
 
     An entry left under its name by a mod whose file is gone is dropped.
     Raises UnreadableManifest, or ValueError when *archive* is not in a saved
@@ -846,6 +881,7 @@ def add_saved_mod(mods_root: Path, archive: Path, facts: Optional[ModFacts], tar
         entry["targets"] = list(targets)
     else:
         entry["path"] = name
+    entry.update(fields)
 
     def register(payload: dict, mods: dict) -> bool:
         _drop_entries(payload, mods, _named(directory, mods, name))
@@ -853,6 +889,18 @@ def add_saved_mod(mods_root: Path, archive: Path, facts: Optional[ModFacts], tar
         return True
 
     _change_manifest(directory, register)
+
+
+def set_hidden(mods_root: Path, relative_path: object, hidden: bool) -> bool:
+    """Hide the mod the user added in LTK Manager (mirrored) known as
+    *relative_path* from the lists to pick a game's mods from, or show it
+    again. False for any other mod, one not found, or a manifest that cannot
+    be read."""
+    with MANIFEST_WRITERS_LOCK:
+        found = _find(Path(mods_root), relative_path, match_content=False)
+        if found is None or not found[1].mirrored:
+            return False
+        return _merge_into_entry(*found, {HIDDEN: True if hidden else None})
 
 
 def set_targets(directory: Path, targets: Iterable[int], name: Optional[str] = None) -> None:

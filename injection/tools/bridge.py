@@ -444,6 +444,53 @@ class LtkBridge:
     def uninstall(self, target: str) -> Dict[str, Any]:
         return self._ok({"cmd": "uninstall", "target": target})
 
+    def _value(self, payload: Dict[str, Any]) -> Any:
+        """What LTK Manager answered the command *payload* sends."""
+        nested = self._ok(payload).get("response")
+        return nested.get("value") if isinstance(nested, dict) else None
+
+    def profiles(self) -> List[Dict[str, Any]]:
+        profiles = self._value({"cmd": "list_profiles"})
+        if not isinstance(profiles, list):
+            raise BridgeCommandError("list_profiles failed: LTK Manager answered no profiles")
+        return profiles
+
+    def active_profile(self) -> Dict[str, Any]:
+        profile = self._value({"cmd": "active_profile"})
+        if not isinstance(profile, dict) or not profile.get("id"):
+            raise BridgeCommandError("active_profile failed: LTK Manager answered no profile")
+        return profile
+
+    def create_profile(self, name: str) -> Dict[str, Any]:
+        profile = self._value({"cmd": "create_profile", "name": name})
+        if not isinstance(profile, dict) or not profile.get("id"):
+            raise BridgeCommandError("create_profile failed: LTK Manager answered no profile")
+        return profile
+
+    def switch_profile(self, profile_id: str) -> None:
+        self._ok({"cmd": "switch_profile", "profileId": profile_id})
+
+    def delete_profile(self, profile_id: str) -> None:
+        self._ok({"cmd": "delete_profile", "profileId": profile_id})
+
+    def folders(self) -> List[Dict[str, Any]]:
+        folders = self._value({"cmd": "list_folders"})
+        if not isinstance(folders, list):
+            raise BridgeCommandError("list_folders failed: LTK Manager answered no folders")
+        return folders
+
+    def create_folder(self, name: str) -> Dict[str, Any]:
+        folder = self._value({"cmd": "create_folder", "name": name})
+        if not isinstance(folder, dict) or not folder.get("id"):
+            raise BridgeCommandError("create_folder failed: LTK Manager answered no folder")
+        return folder
+
+    def move_to_folder(self, mod_id: str, folder_id: str) -> None:
+        self._ok({"cmd": "move_to_folder", "modId": mod_id, "folderId": folder_id})
+
+    def delete_folder(self, folder_id: str) -> None:
+        self._ok({"cmd": "delete_folder", "folderId": folder_id})
+
     # -- mod health --------------------------------------------------------
     def check_mod_health(self, mod_id: str) -> Dict[str, Any]:
         """LTK Manager's verdict on one mod of its library (its Problems rules).

@@ -98,12 +98,13 @@ class ModMigrationSequence:
             from injection.mods.migration import migrate_saved_mods
             from injection.mods.storage import ModStorageService
             from injection.overlay.ltf_session import LtfHost
-            from injection.overlay.ltk_library import LtkLibrary
+            from injection.overlay.ltk_library import LtkLibrary, restore_users_profile
             from utils.core.paths import get_injection_dir, get_tools_dir
 
             storage = self._storage or ModStorageService()
             library = self._library or LtkLibrary(LtfHost(get_tools_dir(), get_injection_dir()))
             report = migrate_saved_mods(storage, library, _DialogUi(dialog))
+            restore_users_profile(library.host)
         except Exception as exc:
             log.error(f"[MIGRATE] Could not move the saved mods into LTK Manager: {exc}", exc_info=True)
             return None

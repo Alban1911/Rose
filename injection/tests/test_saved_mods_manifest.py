@@ -399,6 +399,20 @@ class RemovalTests(SavedModsTestCase):
             MOVED_ID, GONE_ID, NIGHT_ID, NEW_ID, "0f0f0f0f-0000-4000-8000-000000000000"})
 
 
+class MirroredEntryTests(SavedModsTestCase):
+    """A mod the user added in LTK Manager, listed in Rose: never one Rose
+    removes from LTK Manager"""
+
+    def test_it_is_not_rose_s_and_deleting_it_leaves_nothing_to_remove(self):
+        manifest.add_saved_mod(self.mods_root, self.maps / "Users Map.fantome", None, ltkId=NEW_ID, mirrored=True)
+        mirrored = next(mod for mod in iter_saved_mods(self.mods_root, "maps") if mod.ltk_id == NEW_ID)
+
+        self.assertTrue(mirrored.mirrored)
+        self.assertNotIn(NEW_ID, manifest_ltk_ids(self.mods_root))
+        self.assertTrue(manifest.remove_saved_mod(self.mods_root, mirrored))
+        self.assertEqual(ltk_removals(self.mods_root), [])
+
+
 class SourceTests(unittest.TestCase):
     def test_a_file_is_available_while_it_is_there(self):
         with tempfile.TemporaryDirectory() as temp_dir:
