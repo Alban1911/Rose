@@ -4,7 +4,7 @@ from unittest.mock import patch
 
 from injection.overlay import ltk_library
 from injection.overlay.ltk_library import LtkLibrary
-from injection.tests.test_ltf_session import FakeBridge, LtfSessionTestCase
+from injection.tests.ltf_fakes import FakeBridge, LtfSessionTestCase
 from injection.tools.bridge import BridgeCommandError
 
 VO_ID = "5e9b2219-f49f-4cf1-bc7e-774fb43e1349"

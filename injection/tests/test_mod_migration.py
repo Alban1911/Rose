@@ -18,7 +18,7 @@ from injection.mods.storage import ModStorageService
 from injection.overlay import ltf_session
 from injection.overlay.ltf_session import ALREADY_OPEN_REASON, LtfHost, MissingComponent
 from injection.overlay.ltk_library import LibrarySession, LtkLibrary
-from injection.tests.test_ltf_session import FakeBridge, LtfSessionTestCase
+from injection.tests.ltf_fakes import FakeBridge, LtfSessionTestCase
 from injection.tests.test_mod_archives import PNG, VOICEOVER, add_entries, make_archive, make_folder
 from injection.tools.bridge import BridgeCommandError, BridgeUnavailable
 from injection.tools.tools_manager import ToolsManager

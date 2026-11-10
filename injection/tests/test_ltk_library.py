@@ -23,7 +23,7 @@ from injection.overlay.ltk_data import (
     read_library_index,
 )
 from injection.overlay.ltk_library import LibrarySession, LtkBusy, LtkLibrary, LtkUnavailable
-from injection.tests.test_ltf_session import FakeBridge, LtfSessionTestCase
+from injection.tests.ltf_fakes import FakeBridge, LtfSessionTestCase
 from injection.tools.bridge import BridgeCommandError
 from injection.tools.tools_manager import ToolsManager
 

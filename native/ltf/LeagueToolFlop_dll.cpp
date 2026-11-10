@@ -86,11 +86,7 @@ static const char* kLibToggleMod = "plugin:library|toggle_mod";
 static const char* kLibUninstallMod = "plugin:library|uninstall_mod";
 static const char* kLibInstallMod = "plugin:library|install_mod";
 static const char* kLibHealthVerdicts = "plugin:library|get_mod_health_verdicts";
-static const char* kLibCheckModHealth = "plugin:library|check_mod_health";
-static const char* kLibRepairMod = "plugin:library|repair_mod";
 static const char* kPatStartPatcher = "plugin:patcher|start_patcher";
-static const char* kPatStopPatcher = "plugin:patcher|stop_patcher";
-static const char* kPatGetPatcherStatus = "plugin:patcher|get_patcher_status";
 
 static void LogTo(const wchar_t* path, const char* fmt, va_list ap) {
     char buf[2048];
@@ -704,48 +700,44 @@ static mj::JVal TauriInvoke(const std::string& command, const mj::JVal& args, DW
     return CdpEvaluateJson(js, timeoutMs);
 }
 
-// LTK Manager's own check of one mod (its Problems rules), and its repair of
-// what a machine can repair: Rose runs them on a mod the user adds. Both read
-// the whole mod, and the check reads the game too: a hard drive takes minutes
-static mj::JVal CmdLibraryCall(const char* command, const std::string& modId) {
-    if (modId.empty()) {
-        mj::JVal r = mj::JVal::obj_();
-        r.set("ok", mj::JVal::boo(false)); r.set("error", mj::JVal::str("missing 'modId'"));
-        return r;
-    }
-    mj::JVal args = mj::JVal::obj_();
-    args.set("modId", mj::JVal::str(modId));
-    mj::JVal resp = TauriInvoke(command, args, kCdpInstallBudgetMs);
-    mj::JVal r = mj::JVal::obj_();
-    r.set("ok", resp.get("ok") ? *resp.get("ok") : mj::JVal::boo(true));
-    r.set("response", resp);
-    return r;
-}
-
-// Rose switches a game's mods in an LTK Manager profile of its own, so the
-// user's profile stays as they left it, and files the mods it added in a
-// folder named "Rose". Each command is one of LTK Manager's, with the string
+// Bridge commands that are each one of LTK Manager's, with the string
 // arguments it takes
-struct OrganizeCommand { const char* cmd; const char* tauri; std::vector<const char*> args; };
-static const OrganizeCommand kOrganizeCommands[] = {
-    { "list_profiles",  "plugin:library|list_mod_profiles",      {} },
-    { "active_profile", "plugin:library|get_active_mod_profile", {} },
-    { "create_profile", "plugin:library|create_mod_profile",     { "name" } },
-    { "switch_profile", "plugin:library|switch_mod_profile",     { "profileId" } },
-    { "delete_profile", "plugin:library|delete_mod_profile",     { "profileId" } },
-    { "list_folders",   "plugin:library|get_folders",            {} },
-    { "create_folder",  "plugin:library|create_folder",          { "name" } },
-    { "move_to_folder", "plugin:library|move_mod_to_folder",     { "modId", "folderId" } },
-    { "delete_folder",  "plugin:library|delete_folder",          { "folderId" } },
+struct TauriCommand {
+    const char* cmd;
+    const char* tauri;
+    std::vector<const char*> args;
+    DWORD timeoutMs = kCdpEvalBudgetMs;
+};
+static const TauriCommand kTauriCommands[] = {
+    // Rose switches a game's mods in an LTK Manager profile of its own, so the
+    // user's profile stays as they left it, and files the mods it added in a
+    // folder named "Rose"
+    { "list_profiles",    "plugin:library|list_mod_profiles",      {} },
+    { "active_profile",   "plugin:library|get_active_mod_profile", {} },
+    { "create_profile",   "plugin:library|create_mod_profile",     { "name" } },
+    { "switch_profile",   "plugin:library|switch_mod_profile",     { "profileId" } },
+    { "delete_profile",   "plugin:library|delete_mod_profile",     { "profileId" } },
+    { "list_folders",     "plugin:library|get_folders",            {} },
+    { "create_folder",    "plugin:library|create_folder",          { "name" } },
+    { "move_to_folder",   "plugin:library|move_mod_to_folder",     { "modId", "folderId" } },
+    { "delete_folder",    "plugin:library|delete_folder",          { "folderId" } },
+    // LTK Manager's own check of one mod (its Problems rules), and its repair
+    // of what a machine can repair: Rose runs them on a mod the user adds. Both
+    // read the whole mod, and the check reads the game too: a hard drive takes
+    // minutes
+    { "check_mod_health", "plugin:library|check_mod_health",       { "modId" }, kCdpInstallBudgetMs },
+    { "repair_mod",       "plugin:library|repair_mod",             { "modId" }, kCdpInstallBudgetMs },
+    { "stop_patcher",     "plugin:patcher|stop_patcher",           {} },
+    { "patcher_status",   "plugin:patcher|get_patcher_status",     {} },
 };
 
-static const OrganizeCommand* FindOrganizeCommand(const std::string& cmd) {
-    for (const auto& command : kOrganizeCommands)
+static const TauriCommand* FindTauriCommand(const std::string& cmd) {
+    for (const auto& command : kTauriCommands)
         if (cmd == command.cmd) return &command;
     return nullptr;
 }
 
-static mj::JVal CmdOrganize(const OrganizeCommand& command, const mj::JVal& req) {
+static mj::JVal CmdTauri(const TauriCommand& command, const mj::JVal& req) {
     mj::JVal args = mj::JVal::obj_();
     for (const char* name : command.args) {
         auto* value = req.get(name);
@@ -757,7 +749,7 @@ static mj::JVal CmdOrganize(const OrganizeCommand& command, const mj::JVal& req)
         }
         args.set(name, mj::JVal::str(text));
     }
-    mj::JVal resp = TauriInvoke(command.tauri, args);
+    mj::JVal resp = TauriInvoke(command.tauri, args, command.timeoutMs);
     mj::JVal r = mj::JVal::obj_();
     r.set("ok", resp.get("ok") ? *resp.get("ok") : mj::JVal::boo(true));
     r.set("response", resp);
@@ -1249,32 +1241,31 @@ static mj::JVal CmdImport(const mj::JVal& req) {
     return r;
 }
 
+// The id of the library mod *target* names by its id, or by its display name
+// or name in any case; *target* itself when no mod matches
+static std::string ResolveModId(const std::string& target) {
+    mj::JVal libResp = TauriInvoke(kLibGetInstalledMods, mj::JVal::obj_());
+    auto* libVal = libResp.get("value");
+    if (!libVal || libVal->t != mj::JVal::ARR) return target;
+    auto lower = [](std::string s) { for (auto& c : s) c = (char)tolower((unsigned char)c); return s; };
+    std::string wanted = lower(target);
+    for (auto& m : libVal->arr) {
+        auto* id = m.get("id"); if (!id) continue;
+        if (id->asStr() == target) return target;
+        auto* nm = m.get("displayName");
+        auto* sn = m.get("name");
+        if ((nm && lower(nm->asStr()) == wanted) || (sn && lower(sn->asStr()) == wanted)) return id->asStr();
+    }
+    return target;
+}
+
 static mj::JVal CmdToggle(const std::string& target, bool enable) {
     if (target.empty()) {
         mj::JVal r = mj::JVal::obj_();
         r.set("ok", mj::JVal::boo(false)); r.set("error", mj::JVal::str("missing 'target'"));
         return r;
     }
-    std::string modId = target;
-    mj::JVal libResp = TauriInvoke(kLibGetInstalledMods, mj::JVal::obj_());
-    auto* libVal = libResp.get("value");
-    if (libVal && libVal->t == mj::JVal::ARR) {
-        for (auto& m : libVal->arr) {
-            auto* id = m.get("id"); if (!id) continue;
-            if (id->asStr() == target) { modId = target; break; }
-            auto* nm = m.get("displayName");
-            auto* sn = m.get("name");
-            std::string a = target; for (auto& c : a) c = (char)tolower((unsigned char)c);
-            if (nm) {
-                std::string b = nm->asStr(); for (auto& c : b) c = (char)tolower((unsigned char)c);
-                if (a == b) { modId = id->asStr(); break; }
-            }
-            if (sn) {
-                std::string b = sn->asStr(); for (auto& c : b) c = (char)tolower((unsigned char)c);
-                if (a == b) { modId = id->asStr(); break; }
-            }
-        }
-    }
+    std::string modId = ResolveModId(target);
     mj::JVal args = mj::JVal::obj_();
     args.set("modId", mj::JVal::str(modId));
     args.set("enabled", mj::JVal::boo(enable));
@@ -1292,26 +1283,7 @@ static mj::JVal CmdUninstall(const std::string& target) {
         r.set("ok", mj::JVal::boo(false)); r.set("error", mj::JVal::str("missing 'target'"));
         return r;
     }
-    std::string modId = target;
-    mj::JVal libResp = TauriInvoke(kLibGetInstalledMods, mj::JVal::obj_());
-    auto* libVal = libResp.get("value");
-    if (libVal && libVal->t == mj::JVal::ARR) {
-        for (auto& m : libVal->arr) {
-            auto* id = m.get("id"); if (!id) continue;
-            if (id->asStr() == target) { modId = target; break; }
-            auto* nm = m.get("displayName");
-            auto* sn = m.get("name");
-            std::string a = target; for (auto& c : a) c = (char)tolower((unsigned char)c);
-            if (nm) {
-                std::string b = nm->asStr(); for (auto& c : b) c = (char)tolower((unsigned char)c);
-                if (a == b) { modId = id->asStr(); break; }
-            }
-            if (sn) {
-                std::string b = sn->asStr(); for (auto& c : b) c = (char)tolower((unsigned char)c);
-                if (a == b) { modId = id->asStr(); break; }
-            }
-        }
-    }
+    std::string modId = ResolveModId(target);
     mj::JVal args = mj::JVal::obj_();
     args.set("modId", mj::JVal::str(modId));
     mj::JVal resp = TauriInvoke(kLibUninstallMod, args);
@@ -1340,18 +1312,6 @@ static mj::JVal CmdStartPatcher() {
     mj::JVal args = mj::JVal::obj_();
     args.set("config", mj::JVal::obj_());
     mj::JVal resp = TauriInvoke(kPatStartPatcher, args);
-    mj::JVal r = mj::JVal::obj_();
-    r.set("ok", resp.get("ok") ? *resp.get("ok") : mj::JVal::boo(true));
-    r.set("response", resp); return r;
-}
-static mj::JVal CmdStopPatcher() {
-    mj::JVal resp = TauriInvoke(kPatStopPatcher, mj::JVal::obj_());
-    mj::JVal r = mj::JVal::obj_();
-    r.set("ok", resp.get("ok") ? *resp.get("ok") : mj::JVal::boo(true));
-    r.set("response", resp); return r;
-}
-static mj::JVal CmdPatcherStatus() {
-    mj::JVal resp = TauriInvoke(kPatGetPatcherStatus, mj::JVal::obj_());
     mj::JVal r = mj::JVal::obj_();
     r.set("ok", resp.get("ok") ? *resp.get("ok") : mj::JVal::boo(true));
     r.set("response", resp); return r;
@@ -1412,13 +1372,9 @@ static std::string HandleCommand(const std::string& line) {
     if (c == "health")         return CmdHealth(req.get("modId") ? req.get("modId")->asStr() : "").dump();
     if (c == "spoof_health")   return CmdSpoofHealth().dump();
     if (c == "health_check_off") return CmdHealthCheckOff().dump();
-    if (c == "check_mod_health") return CmdLibraryCall(kLibCheckModHealth, req.get("modId") ? req.get("modId")->asStr() : "").dump();
-    if (c == "repair_mod")       return CmdLibraryCall(kLibRepairMod, req.get("modId") ? req.get("modId")->asStr() : "").dump();
     if (c == "start_patcher")  return CmdStartPatcher().dump();
-    if (c == "stop_patcher")   return CmdStopPatcher().dump();
-    if (c == "patcher_status") return CmdPatcherStatus().dump();
     if (c == "kill")           return CmdKill().dump();
-    if (const OrganizeCommand* organize = FindOrganizeCommand(c)) return CmdOrganize(*organize, req).dump();
+    if (const TauriCommand* tauri = FindTauriCommand(c)) return CmdTauri(*tauri, req).dump();
 
     mj::JVal r = mj::JVal::obj_();
     r.set("ok", mj::JVal::boo(false)); r.set("error", mj::JVal::str("unknown: " + c));

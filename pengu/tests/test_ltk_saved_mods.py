@@ -5,7 +5,7 @@ import unittest
 import zipfile
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, call, patch
 
 from injection.mods.mod_facts import ModFacts
 from injection.mods.mod_source import LtkEntry, RoseFile
@@ -139,7 +139,7 @@ class SavedLtkModSelectionTests(unittest.TestCase):
 
     def test_the_lists_say_where_each_mod_is(self):
         self.handler._handle_request_skin_mods({"championId": 81, "skinId": 81020})
-        self.handler._handle_request_maps({})
+        self.handler._handle_request_one_mod("map", {})
 
         (skin,) = self.sent[0]["mods"]
         self.assertEqual(skin["modName"], "Arcane Ezreal")
@@ -147,6 +147,20 @@ class SavedLtkModSelectionTests(unittest.TestCase):
         maps = {mod["name"]: mod for mod in self.sent[1]["maps"]}
         self.assertEqual((maps["Lost"]["missing"], maps["Rift"]["pending"]), (True, True))
         self.assertEqual(maps["Night"]["ltkId"], NIGHT_ID)
+
+    def test_each_one_mod_list_answers_under_its_own_name_and_restores_its_saved_pick(self):
+        saved = {"map": "maps/Night.fantome"}
+        with patch("utils.core.mod_historic.get_historic_mod", side_effect=saved.get) as historic:
+            for message_type in ("request-maps", "request-fonts", "request-announcers"):
+                self.handler.handle_message(json.dumps({"type": message_type}))
+
+        self.assertEqual(historic.call_args_list, [call("map"), call("font"), call("announcer")])
+        self.assertEqual([(response["type"], response["historicMod"]) for response in self.sent], [
+            ("maps-response", "maps/Night.fantome"), ("fonts-response", None), ("announcers-response", None),
+        ])
+        self.assertEqual(sorted(mod["name"] for mod in self.sent[0]["maps"]), ["Lost", "Night", "Rift"])
+        self.assertEqual((self.sent[1]["fonts"], self.sent[2]["announcers"]), ([], []))
+        self.assertEqual(self.handler.shared_state.selected_map_mod["mod_name"], "Night")
 
 
 if __name__ == "__main__":

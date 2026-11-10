@@ -30,7 +30,7 @@ from injection.overlay import ltf_session, overlay_manager
 from injection.overlay.ltf_report import ltk_failure_hint
 from injection.overlay.ltf_session import LtfSession
 from injection.overlay.ltk_data import LtkLogTail
-from injection.tests.test_ltf_session import FakeBridge, LtfSessionTestCase, status
+from injection.tests.ltf_fakes import FakeBridge, LtfSessionTestCase, status
 from threads.handlers.injection_trigger import InjectionTrigger
 from utils.core.junction import link_or_extract
 
@@ -205,16 +205,13 @@ class OverlayStagingTests(LtfSessionTestCase):
     def test_the_staging_runs_in_roses_profile_and_a_discard_switches_back(self):
         FakeBridge.initial_library = [{"id": "user-mod", "name": "Map", "displayName": "Map", "enabled": True}]
         self.stage()
-        self.assertEqual(self.bridge.active_profile_id, "rose-id")
-        self.assertNotIn("user-mod", self.bridge.enabled_in("Rose"))
+        self.assertEqual((self.bridge.active_profile_id, "user-mod" in self.bridge.enabled_in("Rose")), ("rose-id", False))
 
         self.overlay.discard_early_patcher()
 
-        self.assertEqual(self.bridge.active_profile_id, "default-id")
-        self.assertEqual(self.bridge.library_entries,
-                         [{"id": "user-mod", "name": "Map", "displayName": "Map", "enabled": True, "folderId": "root"}])
-        self.assertEqual(self.state()["installed"], {})
-        self.assertIsNone(self.state()["users_profile"])
+        self.assertEqual((self.bridge.active_profile_id, self.bridge.enabled_in("Default")), ("default-id", {"user-mod"}))
+        self.assertEqual([entry["id"] for entry in self.bridge.library_entries], ["user-mod"])
+        self.assertEqual((self.state()["installed"], self.state()["users_profile"]), ({}, None))
 
     def test_a_failed_staging_reports_nothing(self):
         mod = self.make_mod(where=self.stage_dir)
