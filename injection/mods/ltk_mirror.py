@@ -38,11 +38,14 @@ KEPT_WHEN_MOVED = ("displayName", HIDDEN)
 
 @dataclass
 class MirrorReport:
-    """What a mirror changed in Rose's lists, by the mods' names."""
+    """What a mirror changed in Rose's lists, by the mods' names, and the
+    LTK Manager entries it left as they were (failed): the next sync tries
+    them again."""
 
     listed: List[str] = field(default_factory=list)
     moved: List[str] = field(default_factory=list)
     dropped: List[str] = field(default_factory=list)
+    failed: List[str] = field(default_factory=list)
 
 
 def category_of(analysis: Optional[Mapping]) -> Optional[str]:
@@ -84,12 +87,17 @@ def mirror_users_mods(storage: ModStorageService, index: Mapping[str, IndexEntry
         category, mods = wanted.get(ltk_id), listings[ltk_id]
         keep = next((mod for mod in mods if mod.kind == category), mods[0] if mods else None) if category else None
         for mod in mods:
-            if mod is not keep and _drop(storage, mod):
+            if mod is keep:
+                continue
+            if _drop(storage, mod):
                 report.dropped.append(mod.display_name or mod.name)
+            else:
+                report.failed.append(ltk_id)
         if category and (keep is None or keep.kind != category):
             try:
                 (report.moved if keep else report.listed).append(_list(storage, index[ltk_id], category, keep))
             except (OSError, ValueError) as e:
+                report.failed.append(ltk_id)
                 log.warning(f"[MODS] Could not list the LTK Manager mod {ltk_id} in Rose's {category}: {e}")
     if report.listed or report.moved or report.dropped:
         log.info(f"[MODS] Mods added in LTK Manager: {len(report.listed)} now listed in Rose, "

@@ -19,7 +19,7 @@ from injection.overlay.ltk_data import (
     IndexEntry,
     LtkLogTail,
     entry_archive,
-    library_index_mtime,
+    library_version,
     read_library_index,
 )
 from injection.overlay.ltk_library import LibrarySession, LtkBusy, LtkLibrary, LtkUnavailable
@@ -97,14 +97,17 @@ class OfflineIndexTests(unittest.TestCase):
                 self.assertIsNone(read_library_index())
         (self.data / "library.json").unlink()
         self.assertIsNone(read_library_index())
-        self.assertIsNone(library_index_mtime())
+        self.assertIsNone(library_version())
         with patch.object(ltk_data, "ltk_data_dir", return_value=None):
             self.assertIsNone(read_library_index())
 
-    def test_the_index_time_tells_when_the_library_changed(self):
+    def test_the_index_and_analysis_times_tell_when_the_library_changed(self):
         os.utime(self.data / "library.json", (1_700_000_000, 1_700_000_000))
+        self.assertEqual(library_version(), (1_700_000_000, None))
 
-        self.assertEqual(library_index_mtime(), 1_700_000_000)
+        (self.data / "wad-reports.json").write_text("{}", encoding="utf-8")
+        os.utime(self.data / "wad-reports.json", (1_700_000_100, 1_700_000_100))
+        self.assertEqual(library_version(), (1_700_000_000, 1_700_000_100))
 
     def test_an_entrys_archive_sits_beside_its_folder(self):
         mod_dir = str(self.storage / "vo-korean")

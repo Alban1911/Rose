@@ -56,15 +56,21 @@ def library_index_path() -> Optional[Path]:
     return data_dir / LIBRARY_INDEX if data_dir is not None else None
 
 
-def library_index_mtime() -> Optional[float]:
-    """When LTK Manager last changed its library (None: no index)."""
-    path = library_index_path()
-    if path is None:
-        return None
+def _mtime(path: Path) -> Optional[float]:
     try:
         return path.stat().st_mtime
     except OSError:
         return None
+
+
+def library_version() -> Optional[tuple]:
+    """When LTK Manager last changed its library, and its analysis of the
+    mods (wad-reports.json, written apart from the index as it analyses
+    one): (the index's mtime, the analysis's or None). None without an
+    index."""
+    path = library_index_path()
+    index = _mtime(path) if path is not None else None
+    return None if index is None else (index, _mtime(path.with_name(WAD_REPORTS)))
 
 
 @dataclass(frozen=True)

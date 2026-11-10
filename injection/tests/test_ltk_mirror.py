@@ -201,6 +201,26 @@ class MirrorTests(unittest.TestCase):
         self.sync()
         self.assertEqual(self.listed()["dark-hud"].image_paths()[0].read_bytes(), PNG)
 
+    def test_a_category_ltk_manager_finds_later_is_taken_at_the_next_champion_select(self):
+        self.ltk_archive("dark-hud", USERS_HUD)
+        self.write_index((NEW_ID, "dark-hud"))
+        self.sync(only_if_changed=True)
+        self.analysed(**{NEW_ID: {"tags": ["ui"]}})
+
+        self.sync(only_if_changed=True)
+
+        self.assertEqual((list(self.listed("ui")), self.listed("others")), (["dark-hud"], {}))
+
+    def test_one_that_could_not_be_listed_is_tried_again_at_the_next_champion_select(self):
+        self.ltk_archive("dark-hud", USERS_HUD)
+        self.write_index((NEW_ID, "dark-hud"))
+        with patch.object(mod_placement, "atomic_write", side_effect=PermissionError("in use")):
+            self.sync(only_if_changed=True)
+
+        self.sync(only_if_changed=True)
+
+        self.assertEqual(list(self.listed()), ["dark-hud"])
+
     def test_one_that_cannot_be_listed_whole_leaves_nothing_behind_and_is_listed_at_the_next_sync(self):
         self.ltk_archive("dark-hud", USERS_HUD)
         self.write_index((NEW_ID, "dark-hud"))
