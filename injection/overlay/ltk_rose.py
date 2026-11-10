@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import itertools
+import re
 from typing import TYPE_CHECKING, Callable, Iterable, List
 
 from utils.core.logging import get_logger
@@ -21,18 +22,24 @@ ROSE_PROFILE = "rose_profile"
 ROSE_FOLDER = "rose_folder"
 
 
+def _slug(name: str) -> str:
+    """The slug LTK Manager makes of one of Rose's names, which are ASCII."""
+    return re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+
+
 def _owned(host: LtfHost, key: str, items: List[dict], create: Callable[[str], dict]) -> dict:
     """Rose's own profile or folder among LTK Manager's *items*: the one the
     journal records under *key*, else one *create* makes under the first
-    name none holds, "Rose", "Rose (2)"...: one the user named so is theirs.
-    Raises BridgeCommandError when the one made cannot be recorded."""
+    name, "Rose", "Rose (2)"..., whose name or slug none holds (LTK Manager
+    keeps both a profile's own): one the user named so is theirs. Raises
+    BridgeCommandError when the one made cannot be recorded."""
     recorded = host.journal.read()[key]
     owned = next((item for item in items if recorded is not None and item.get("id") == recorded), None)
     if owned is not None:
         return owned
-    taken = {str(item.get("name") or "").casefold() for item in items}
+    taken = {held for item in items for held in (str(item.get("name") or "").casefold(), item.get("slug"))}
     names = itertools.chain((ROSE_NAME,), (f"{ROSE_NAME} ({n})" for n in itertools.count(2)))
-    created = create(next(name for name in names if name.casefold() not in taken))
+    created = create(next(name for name in names if not {name.casefold(), _slug(name)} & taken))
     if not host.journal.update(lambda state: state.__setitem__(key, str(created["id"]))):
         raise BridgeCommandError(f"Rose's LTK Manager {key} could not be recorded")
     return created

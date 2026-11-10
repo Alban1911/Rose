@@ -49,6 +49,15 @@ class RoseProfileTests(LtfSessionTestCase):
         self.assertEqual(ltk_library.remove_rose_mods(self.host), 0)
         self.assertEqual([p["id"] for p in self.bridge.profile_list], ["default-id", "users-rose"])
 
+    def test_a_profile_the_user_named_with_rose_s_slug_is_theirs(self):
+        FakeBridge.initial_profiles = [{"id": "default-id", "name": "Default", "slug": "default"},
+                                       {"id": "users-rose", "name": "Rose!", "slug": "rose"}]
+
+        self.assertEqual(self.overlay.mk_run_overlay([self.make_mod()], stop_callback=lambda: True), 0)
+
+        self.assertIn(("create_profile", "Rose (2)"), self.bridge.calls)
+        self.assertNotIn(("create_profile", "Rose"), self.bridge.calls)
+
     def test_a_session_that_cannot_switch_to_rose_s_profile_changes_nothing(self):
         FakeBridge.initial_library = [{"id": USERS_ID, "name": "Map", "enabled": True}]
         FakeBridge.profile_switch_fails = True

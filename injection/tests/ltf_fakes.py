@@ -2,6 +2,7 @@
 Manager, and a temp Rose tree that never reaches this PC's."""
 
 import json
+import re
 import tempfile
 import unittest
 import uuid
@@ -200,7 +201,10 @@ class FakeBridge:
 
     def create_profile(self, name):
         self.calls.append(("create_profile", name))
-        profile = {"id": f"{name.lower()}-id", "name": name}
+        slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+        if any(p["name"] == name or p.get("slug") == slug for p in self.profile_list):
+            raise BridgeCommandError(f"create_mod_profile failed: Profile '{name}' already exists")
+        profile = {"id": f"{name.lower()}-id", "name": name, "slug": slug}
         self.profile_list.append(profile)
         return dict(profile)
 
