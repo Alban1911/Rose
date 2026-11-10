@@ -918,6 +918,20 @@ class SavedLtkModTests(LtfSessionTestCase):
         self.assertEqual(self.state()["switched"], {})
         self.assertEqual(self.state()["disabled"], [])
 
+    def test_a_profile_the_user_switches_to_during_the_game_keeps_its_mods(self):
+        FakeBridge.initial_library = [self.entry(self.VO_ID, "VO Korean", enabled=True)]
+
+        def users_switch_back():
+            if self.bridge.active_profile_id != "default-id":
+                self.bridge.switch_profile("default-id")
+            return True
+
+        self.assertEqual(self.overlay.mk_run_overlay([ltk_ref(self.VO_ID), self.make_mod()],
+                                                     stop_callback=users_switch_back), 0)
+
+        self.assertEqual(self.bridge.active_profile_id, "default-id")
+        self.assertEqual((self.bridge.enabled_in("Default"), self.bridge.enabled_in("Rose")), ({self.VO_ID}, set()))
+
     def test_one_that_failed_to_switch_on_is_switched_on_by_the_next_install(self):
         toggle = FakeBridge.toggle
         refusals = [BridgeCommandError("toggle failed: CDP busy")]

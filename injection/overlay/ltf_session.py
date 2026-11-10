@@ -407,9 +407,10 @@ class LtfHost:
         except (BridgeUnavailable, BridgeCommandError) as e:
             log.debug(f"[INJECT] Could not stop the LTK patcher: {e}")
 
+        in_roses_profile = self.profile.back_in(bridge)
         removed = []
         for mod_id, tracked in session.imports.items():
-            if self._park(session, mod_id):
+            if in_roses_profile and self._park(session, mod_id):
                 log.debug(f"[INJECT] Turned off {tracked.source_folder} in LTK Manager, kept for the next game")
                 continue
             try:
@@ -418,7 +419,8 @@ class LtfHost:
                 log.debug(f"[INJECT] Removed {tracked.source_folder} from LTK Manager")
             except (BridgeUnavailable, BridgeCommandError) as e:
                 log.debug(f"[INJECT] Could not remove {tracked.source_folder} from LTK Manager: {e}")
-        self.switches.switch_off_all(session)
+        if in_roses_profile:
+            self.switches.switch_off_all(session)
         self.journal.untrack(removed)
         self.profile.leave(bridge)
 

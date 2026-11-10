@@ -85,9 +85,30 @@ class RoseProfile:
                             "Rose's stays active")
                 self._host.journal.update(lambda state: state.__setitem__("users_profile", None))
             return
+        self._switch_from(bridge, active, rose["id"])
+
+    def back_in(self, bridge) -> bool:
+        """Whether Rose's profile is LTK Manager's active one, switched back to
+        should the user have switched LTK Manager to another during the
+        session (theirs now, switched back to at its end). False, changing
+        nothing, when it is not or cannot be: what Rose switched on there
+        stays on, recorded, and the next session turns it off."""
+        rose = self._host.journal.read()[ROSE_PROFILE]
+        if rose is None:
+            return False
+        try:
+            active = bridge.active_profile()
+            if active["id"] != rose:
+                self._switch_from(bridge, active, rose)
+        except (BridgeUnavailable, BridgeCommandError) as e:
+            log.warning(f"[INJECT] LTK Manager is not in Rose's profile: the mods Rose switched on stay on there ({e})")
+            return False
+        return True
+
+    def _switch_from(self, bridge, active: dict, rose: str) -> None:
         if not self._host.journal.update(lambda state: state.__setitem__("users_profile", active["id"])):
             raise BridgeCommandError("the user's LTK Manager profile could not be recorded")
-        bridge.switch_profile(rose["id"])
+        bridge.switch_profile(rose)
         log.info(f"[INJECT] Switched LTK Manager to Rose's profile (the user's is {active.get('name')})")
 
     def leave(self, bridge) -> None:
