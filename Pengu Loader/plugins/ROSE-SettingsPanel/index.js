@@ -4219,21 +4219,15 @@
     nameEl.style.whiteSpace = "nowrap";
     infoWrapper.appendChild(nameEl);
 
-    if (mod.missing) {
-      nameEl.style.opacity = "0.6";
-      const missingEl = document.createElement("div");
-      missingEl.textContent = t("Missing - add it again");
-      missingEl.style.cssText = "color:#a09b8c;font-size:11px;font-style:italic;flex:0 0 auto;";
-      infoWrapper.appendChild(missingEl);
-    }
-
-    if (mod.mirrored) {
-      if (mod.hidden) nameEl.style.opacity = "0.6";
-      const mirroredEl = document.createElement("div");
-      mirroredEl.textContent = t(mod.hidden ? "From LTK Manager - hidden" : "From LTK Manager");
-      mirroredEl.style.cssText = "color:#a09b8c;font-size:11px;font-style:italic;flex:0 0 auto;";
-      infoWrapper.appendChild(mirroredEl);
-    }
+    const addNote = (text) => {
+      const note = document.createElement("div");
+      note.textContent = text;
+      note.style.cssText = "color:#a09b8c;font-size:11px;font-style:italic;flex:0 0 auto;";
+      infoWrapper.appendChild(note);
+    };
+    if (mod.missing || (mod.mirrored && mod.hidden)) nameEl.style.opacity = "0.6";
+    if (mod.missing) addNote(t("Missing - add it again"));
+    if (mod.mirrored) addNote(t(mod.hidden ? "From LTK Manager - hidden" : "From LTK Manager"));
 
     row.appendChild(infoWrapper);
 
@@ -4242,52 +4236,29 @@
     actions.style.alignItems = "center";
     actions.style.gap = "8px";
     actions.style.flex = "0 0 auto";
+    const addAction = (className, text, onClick) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = className;
+      button.textContent = text;
+      button.addEventListener("click", (e) => {
+        e.stopPropagation();
+        onClick(button);
+      });
+      actions.appendChild(button);
+    };
 
     if (onRename) {
-      const renameButton = document.createElement("button");
-      renameButton.type = "button";
-      renameButton.className = "mod-rename-button";
-      renameButton.textContent = t("Rename");
-      renameButton.addEventListener("click", (e) => {
-        e.stopPropagation();
-        promptRenameMod(displayLabel, (newName) => onRename(renameButton, row, newName));
-      });
-      actions.appendChild(renameButton);
+      addAction("mod-rename-button", t("Rename"), (button) =>
+        promptRenameMod(displayLabel, (newName) => onRename(button, row, newName)));
     }
-
     if (onImage && mod.imageEditable) {
-      const imageButton = document.createElement("button");
-      imageButton.type = "button";
-      imageButton.className = "mod-rename-button";
-      imageButton.textContent = t(mod.thumbnailUrl ? "Change image" : "Add image");
-      imageButton.addEventListener("click", (e) => {
-        e.stopPropagation();
-        onImage(imageButton, row);
-      });
-      actions.appendChild(imageButton);
+      addAction("mod-rename-button", t(mod.thumbnailUrl ? "Change image" : "Add image"), (button) => onImage(button, row));
     }
-
     if (onHide && mod.mirrored) {
-      const hideButton = document.createElement("button");
-      hideButton.type = "button";
-      hideButton.className = "mod-rename-button";
-      hideButton.textContent = t(mod.hidden ? "Show" : "Hide");
-      hideButton.addEventListener("click", (e) => {
-        e.stopPropagation();
-        onHide(hideButton);
-      });
-      actions.appendChild(hideButton);
+      addAction("mod-rename-button", t(mod.hidden ? "Show" : "Hide"), onHide);
     }
-
-    const deleteButton = document.createElement("button");
-    deleteButton.type = "button";
-    deleteButton.className = "mod-delete-button";
-    deleteButton.textContent = t("Delete");
-    deleteButton.addEventListener("click", (e) => {
-      e.stopPropagation();
-      confirmDeleteMod(displayLabel, () => onDelete(deleteButton, row));
-    });
-    actions.appendChild(deleteButton);
+    addAction("mod-delete-button", t("Delete"), (button) => confirmDeleteMod(displayLabel, () => onDelete(button, row)));
 
     row.appendChild(actions);
     listContainer.appendChild(row);
@@ -4485,11 +4456,67 @@
     });
   }
 
-  function closeChampionModsList() {
-    const dialog = document.getElementById("champion-mods-manage-dialog");
-    if (dialog) dialog.remove();
-    delete window.__roseManageChampionId;
-    delete window.__roseManageChampionSelectedMods;
+  function reopenChampionModsListIfShown(championId) {
+    if (
+      document.getElementById("champion-mods-manage-dialog") &&
+      Number(championId) === Number(window.__roseManageChampionId)
+    ) {
+      openChampionModsList(championId);
+    }
+  }
+
+  // Fills an open manage dialog with Rose's list. The champion and category dialogs differ
+  // only in how Rose's messages name a mod (`kind` picks the message types, `owner()` gives
+  // the champion or category shown, `modFields` the mod) and in each row (`rowFor`, `actionsFor`)
+  function renderManageModsList(listContainer, mods, emptyText, list) {
+    const { kind, owner, selection, keyForMod, modFields } = list;
+    listContainer.innerHTML = "";
+    if (mods.length === 0) {
+      listContainer.innerHTML = `<div style="color: #cdbe91; text-align: center; padding: 20px; font-family: 'Beaufort for LOL', serif;">${escapeHtml(emptyText)}</div>`;
+      return;
+    }
+
+    const send = (type, fields) => {
+      if (bridge) bridge.send({ type, ...owner(), ...fields });
+    };
+    const currentKeys = new Set(mods.map(keyForMod));
+    Array.from(selection.keys()).forEach((key) => {
+      if (!currentKeys.has(key)) selection.delete(key);
+    });
+    const updateSelection = renderModSelectionToolbar(
+      listContainer,
+      mods,
+      selection,
+      keyForMod,
+      (selectedMods, toolbar) => {
+        if (!bridge) return;
+        toolbar.querySelectorAll("button, input").forEach((control) => { control.disabled = true; });
+        listContainer.querySelectorAll("button, input").forEach((control) => { control.disabled = true; });
+        send(`delete-${kind}-mods`, { mods: selectedMods.map(modFields) });
+      }
+    );
+    mods.forEach((mod) => {
+      const key = keyForMod(mod);
+      renderModRow(listContainer, { ...list.rowFor(mod), selected: selection.has(key) }, {
+        onDelete: (deleteButton) => {
+          deleteButton.disabled = true;
+          deleteButton.textContent = t("Deleting...");
+          send(`delete-${kind}-mod`, modFields(mod));
+        },
+        onRename: (renameButton, row, newName) => {
+          renameButton.disabled = true;
+          renameButton.textContent = t("Saving...");
+          send(`rename-${kind}-mod`, { ...modFields(mod), newName });
+        },
+        onSelect: (selected) => {
+          if (selected) selection.set(key, mod);
+          else selection.delete(key);
+          updateSelection();
+        },
+        ...list.actionsFor(mod, send),
+      });
+    });
+    updateSelection();
   }
 
   function handleManageSkinModsResponse(payload) {
@@ -4506,96 +4533,35 @@
         : t("Manage Mods");
     }
 
-    listContainer.innerHTML = "";
-    const mods = payload.mods || [];
-    if (mods.length === 0) {
-      listContainer.innerHTML = `<div style="color: #cdbe91; text-align: center; padding: 20px; font-family: 'Beaufort for LOL', serif;">${escapeHtml(t("No custom mods installed for this champion."))}</div>`;
-      return;
-    }
-
     // De-duplicate by path: the same folder can appear once per target skin.
+    const keyForMod = (mod) => mod.relativePath || mod.modName;
     const seen = new Set();
-    const uniqueMods = mods.filter((mod) => {
-      const key = mod.relativePath || mod.modName;
+    const uniqueMods = (payload.mods || []).filter((mod) => {
+      const key = keyForMod(mod);
       if (seen.has(key)) return false;
       seen.add(key);
       return true;
     });
-    const selection = window.__roseManageChampionSelectedMods || new Map();
-    const currentKeys = new Set(uniqueMods.map((mod) => mod.relativePath || mod.modName));
-    Array.from(selection.keys()).forEach((key) => {
-      if (!currentKeys.has(key)) selection.delete(key);
-    });
-    const updateSelection = renderModSelectionToolbar(
-      listContainer,
-      uniqueMods,
-      selection,
-      (mod) => mod.relativePath || mod.modName,
-      (selectedMods, toolbar) => {
-        if (!bridge) return;
-        toolbar.querySelectorAll("button, input").forEach((control) => { control.disabled = true; });
-        listContainer.querySelectorAll("button, input").forEach((control) => { control.disabled = true; });
-        bridge.send({
-          type: "delete-champion-mods",
-          championId: window.__roseManageChampionId,
-          mods: selectedMods.map((mod) => ({
-            modName: mod.modName,
-            relativePath: mod.relativePath,
-          })),
-        });
-      }
-    );
-    uniqueMods.forEach((mod) => {
-      const key = mod.relativePath || mod.modName;
-      renderModRow(
-        listContainer,
-        {
-          name: mod.modName,
-          displayName: mod.displayName,
-          thumbnailUrl: mod.thumbnailUrl,
-          imageEditable: mod.imageEditable,
-          selected: selection.has(key),
+    renderManageModsList(listContainer, uniqueMods, t("No custom mods installed for this champion."), {
+      kind: "champion",
+      owner: () => ({ championId: window.__roseManageChampionId }),
+      selection: window.__roseManageChampionSelectedMods || new Map(),
+      keyForMod,
+      modFields: (mod) => ({ modName: mod.modName, relativePath: mod.relativePath }),
+      rowFor: (mod) => ({
+        name: mod.modName,
+        displayName: mod.displayName,
+        thumbnailUrl: mod.thumbnailUrl,
+        imageEditable: mod.imageEditable,
+      }),
+      actionsFor: (mod, send) => ({
+        onImage: (imageButton) => {
+          imageButton.disabled = true;
+          imageButton.textContent = t("Saving...");
+          send("set-champion-mod-image", { relativePath: mod.relativePath });
         },
-        {
-          onDelete: (deleteButton, row) => {
-            deleteButton.disabled = true;
-            deleteButton.textContent = t("Deleting...");
-            if (bridge) bridge.send({
-              type: "delete-champion-mod",
-              championId: window.__roseManageChampionId,
-              modName: mod.modName,
-              relativePath: mod.relativePath,
-            });
-          },
-          onRename: (renameButton, row, newName) => {
-            renameButton.disabled = true;
-            renameButton.textContent = t("Saving...");
-            if (bridge) bridge.send({
-              type: "rename-champion-mod",
-              championId: window.__roseManageChampionId,
-              modName: mod.modName,
-              relativePath: mod.relativePath,
-              newName: newName,
-            });
-          },
-          onImage: (imageButton) => {
-            imageButton.disabled = true;
-            imageButton.textContent = t("Saving...");
-            if (bridge) bridge.send({
-              type: "set-champion-mod-image",
-              championId: window.__roseManageChampionId,
-              relativePath: mod.relativePath,
-            });
-          },
-          onSelect: (selected) => {
-            if (selected) selection.set(key, mod);
-            else selection.delete(key);
-            updateSelection();
-          },
-        }
-      );
+      }),
     });
-    updateSelection();
   }
 
   function handleChampionModsBulkDeleted(payload) {
@@ -4608,12 +4574,7 @@
       log("info", `Deleted ${payload.deletedCount} champion mod(s)`);
       requestManageCategories();
     }
-    if (
-      document.getElementById("champion-mods-manage-dialog") &&
-      Number(payload.championId) === Number(window.__roseManageChampionId)
-    ) {
-      openChampionModsList(payload.championId);
-    }
+    reopenChampionModsListIfShown(payload.championId);
   }
 
   function handleChampionModImageUpdated(payload) {
@@ -4644,12 +4605,7 @@
       log("info", `Champion mod deleted: champion=${payload.championId}, mod=${payload.modName}`);
       requestManageCategories();
     }
-    if (
-      document.getElementById("champion-mods-manage-dialog") &&
-      Number(payload.championId) === Number(window.__roseManageChampionId)
-    ) {
-      openChampionModsList(payload.championId);
-    }
+    reopenChampionModsListIfShown(payload.championId);
   }
 
   function handleChampionModRenamed(payload) {
@@ -4658,12 +4614,7 @@
     } else {
       log("info", `Champion mod renamed: champion=${payload.championId}, mod=${payload.modName} -> ${payload.displayName}`);
     }
-    if (
-      document.getElementById("champion-mods-manage-dialog") &&
-      Number(payload.championId) === Number(window.__roseManageChampionId)
-    ) {
-      openChampionModsList(payload.championId);
-    }
+    reopenChampionModsListIfShown(payload.championId);
   }
 
   function openCategoryModsList(category) {
@@ -4686,86 +4637,38 @@
     });
   }
 
+  function reopenCategoryModsListIfShown(category) {
+    if (
+      document.getElementById("category-mods-manage-dialog") &&
+      category === window.__roseManageCategory
+    ) {
+      openCategoryModsList(category);
+    }
+  }
+
   function handleManageCategoryModsResponse(payload) {
     if (payload.category !== window.__roseManageCategory) return;
 
     const listContainer = document.getElementById("category-mods-manage-dialog-list");
     if (!listContainer) return;
 
-    listContainer.innerHTML = "";
-    const mods = payload.mods || [];
-    if (mods.length === 0) {
-      listContainer.innerHTML = `<div style="color: #cdbe91; text-align: center; padding: 20px; font-family: 'Beaufort for LOL', serif;">${escapeHtml(t("No custom mods installed in this category."))}</div>`;
-      return;
-    }
-
-    const selection = window.__roseManageCategorySelectedMods || new Map();
-    const currentKeys = new Set(mods.map((mod) => mod.name));
-    Array.from(selection.keys()).forEach((key) => {
-      if (!currentKeys.has(key)) selection.delete(key);
-    });
-    const updateSelection = renderModSelectionToolbar(
-      listContainer,
-      mods,
-      selection,
-      (mod) => mod.name,
-      (selectedMods, toolbar) => {
-        if (!bridge) return;
-        toolbar.querySelectorAll("button, input").forEach((control) => { control.disabled = true; });
-        listContainer.querySelectorAll("button, input").forEach((control) => { control.disabled = true; });
-        bridge.send({
-          type: "delete-category-mods",
-          category: window.__roseManageCategory,
-          mods: selectedMods.map((mod) => ({ modName: mod.name })),
-        });
-      }
-    );
-    mods.forEach((mod) => {
-      const key = mod.name;
-      renderModRow(
-        listContainer,
-        {
-          name: mod.name, displayName: mod.displayName, missing: mod.missing,
-          mirrored: mod.mirrored, hidden: mod.hidden, selected: selection.has(key),
+    renderManageModsList(listContainer, payload.mods || [], t("No custom mods installed in this category."), {
+      kind: "category",
+      owner: () => ({ category: window.__roseManageCategory }),
+      selection: window.__roseManageCategorySelectedMods || new Map(),
+      keyForMod: (mod) => mod.name,
+      modFields: (mod) => ({ modName: mod.name }),
+      rowFor: (mod) => ({
+        name: mod.name, displayName: mod.displayName, missing: mod.missing,
+        mirrored: mod.mirrored, hidden: mod.hidden,
+      }),
+      actionsFor: (mod, send) => ({
+        onHide: (hideButton) => {
+          hideButton.disabled = true;
+          send("hide-category-mod", { modName: mod.name, hidden: !mod.hidden });
         },
-        {
-          onDelete: (deleteButton) => {
-            deleteButton.disabled = true;
-            deleteButton.textContent = t("Deleting...");
-            if (bridge) bridge.send({
-              type: "delete-category-mod",
-              category: window.__roseManageCategory,
-              modName: mod.name,
-            });
-          },
-          onRename: (renameButton, row, newName) => {
-            renameButton.disabled = true;
-            renameButton.textContent = t("Saving...");
-            if (bridge) bridge.send({
-              type: "rename-category-mod",
-              category: window.__roseManageCategory,
-              modName: mod.name,
-              newName: newName,
-            });
-          },
-          onSelect: (selected) => {
-            if (selected) selection.set(key, mod);
-            else selection.delete(key);
-            updateSelection();
-          },
-          onHide: (hideButton) => {
-            hideButton.disabled = true;
-            if (bridge) bridge.send({
-              type: "hide-category-mod",
-              category: window.__roseManageCategory,
-              modName: mod.name,
-              hidden: !mod.hidden,
-            });
-          },
-        }
-      );
+      }),
     });
-    updateSelection();
   }
 
   function handleCategoryModsBulkDeleted(payload) {
@@ -4778,12 +4681,7 @@
       log("info", `Deleted ${payload.deletedCount} mod(s) from ${payload.category}`);
       requestManageCategories();
     }
-    if (
-      document.getElementById("category-mods-manage-dialog") &&
-      payload.category === window.__roseManageCategory
-    ) {
-      openCategoryModsList(payload.category);
-    }
+    reopenCategoryModsListIfShown(payload.category);
   }
 
   function handleCategoryModDeleted(payload) {
@@ -4793,24 +4691,14 @@
       log("info", `Category mod deleted: category=${payload.category}, mod=${payload.modName}`);
       requestManageCategories();
     }
-    if (
-      document.getElementById("category-mods-manage-dialog") &&
-      payload.category === window.__roseManageCategory
-    ) {
-      openCategoryModsList(payload.category);
-    }
+    reopenCategoryModsListIfShown(payload.category);
   }
 
   function handleCategoryModHidden(payload) {
     if (!payload.success) {
       log("error", `Failed to ${payload.hidden ? "hide" : "show"} category mod ${payload.modName || ""}`);
     }
-    if (
-      document.getElementById("category-mods-manage-dialog") &&
-      payload.category === window.__roseManageCategory
-    ) {
-      openCategoryModsList(payload.category);
-    }
+    reopenCategoryModsListIfShown(payload.category);
   }
 
   function handleCategoryModRenamed(payload) {
@@ -4819,12 +4707,7 @@
     } else {
       log("info", `Category mod renamed: category=${payload.category}, mod=${payload.modName} -> ${payload.displayName}`);
     }
-    if (
-      document.getElementById("category-mods-manage-dialog") &&
-      payload.category === window.__roseManageCategory
-    ) {
-      openCategoryModsList(payload.category);
-    }
+    reopenCategoryModsListIfShown(payload.category);
   }
 
   function handleChampionsListResponse(payload) {
