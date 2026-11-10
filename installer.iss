@@ -72,9 +72,11 @@ Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChang
 Filename: "{app}\_internal\Pengu Loader\Pengu Loader.exe"; Parameters: "--uninstall --silent"; Flags: runhidden waituntilterminated skipifdoesntexist; RunOnceId: "RosePenguDeactivate"
 
 [UninstallDelete]
-; Inno tracks installed files. A shared install root or a ZIP update can leave
-; untracked files in these folders, so remove the directories only when empty.
-Type: dirifempty; Name: "{app}\_internal"
+; _internal is Rose's runtime alone. An update swaps in a whole new tree, whose
+; files the uninstall log never recorded, so remove it with everything in it.
+Type: filesandordirs; Name: "{app}\_internal"
+; Inno tracks installed files. A shared install root can leave untracked files
+; in these folders, so remove the directories only when empty.
 Type: dirifempty; Name: "{app}\injection\overlay"
 Type: dirifempty; Name: "{app}\injection\mods"
 ; %LOCALAPPDATA%\Rose is not listed here: whether it survives is a checkbox on

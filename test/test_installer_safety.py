@@ -17,9 +17,10 @@ class InstallerSafetyTests(unittest.TestCase):
 
     def test_uninstall_keeps_untracked_files_in_install_subdirectories(self):
         section = re.search(r'(?s)\n\[UninstallDelete\](.*?)\n\[', self.script).group(1)
-        for directory in ('_internal', 'injection\\overlay', 'injection\\mods'):
+        for directory in ('injection\\overlay', 'injection\\mods'):
             self.assertIn(f'Type: dirifempty; Name: "{{app}}\\{directory}"', section)
-        self.assertNotIn('Type: filesandordirs', section)
+        # Only Rose's runtime, which an update replaces with files the uninstall log never saw
+        self.assertEqual(re.findall(r'Type: filesandordirs; Name: "([^"]+)"', section), ['{app}\\_internal'])
 
     def test_installer_upgrades_replace_legacy_uninstall_actions(self):
         self.assertRegex(self.script, r'(?m)^UninstallLogMode=overwrite$')
