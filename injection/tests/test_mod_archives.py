@@ -492,7 +492,8 @@ class ManifestListingTests(TempCase):
         self.assertEqual(listed["VO Korean"], {
             "id": "voiceover/VO Korean.fantome", "name": "VO Korean", "displayName": None,
             "path": "voiceover/VO Korean.fantome", "updatedAt": 0.0, "description": "Korean voices",
-            "ltkId": VOICE_ID, "missing": False, "pending": False, "facts": FACTS.to_manifest(),
+            "ltkId": VOICE_ID, "missing": False, "pending": False, "mirrored": False, "hidden": False,
+            "facts": FACTS.to_manifest(),
         })
         self.assertEqual((listed["VO Pending"]["pending"], listed["VO Pending"]["ltkId"]), (True, None))
         self.assertEqual(listed["VO Pending"]["facts"],

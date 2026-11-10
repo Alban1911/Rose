@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import itertools
 import json
 import threading
 import zipfile
@@ -34,6 +35,8 @@ LEGACY_TARGET_METADATA = "rose_wad_targets.json"
 CATEGORY_METADATA = "rose_category_mods.json"
 ARCHIVE_SUFFIX = ".fantome"
 PENDING_REMOVALS = "pendingRemovals"
+MIRRORED = "mirrored"
+HIDDEN = "hidden"
 SOURCE_HASHES = "sourceHashes"
 # A custom skin's: the sha256 of the file the user picked (party mode shares
 # it, and matches a friend's copy by it), and its archive's index
@@ -76,6 +79,17 @@ class SavedMod:
     target_skin_ids: tuple[int, ...]
     updated_at: float
     metadata: Mapping[str, object] = field(compare=False)
+
+    @property
+    def mirrored(self) -> bool:
+        """Whether the user added it in LTK Manager, not in Rose: Rose lists
+        it (ltk_mirror) and never removes it from LTK Manager."""
+        return bool(self.ltk_id) and self.metadata.get(MIRRORED) is True
+
+    @property
+    def hidden(self) -> bool:
+        """Whether the user hid it from Rose's lists of mods to pick."""
+        return self.metadata.get(HIDDEN) is True
 
     @property
     def registered(self) -> bool:
@@ -611,10 +625,12 @@ def leftover_copies(mods_root: Path) -> List[SavedMod]:
 
 
 def _ltk_ids_in(payload: Optional[dict]) -> set[str]:
+    """The LTK Manager entries Rose added for a manifest's mods: not those of
+    the user's own mods it lists (mirrored)."""
     raw = payload.get("mods") if isinstance(payload, dict) else None
     return {
         value["ltkId"] for value in (raw.values() if isinstance(raw, dict) else ())
-        if isinstance(value, dict) and is_ltk_id(value.get("ltkId"))
+        if isinstance(value, dict) and is_ltk_id(value.get("ltkId")) and value.get(MIRRORED) is not True
     }
 
 
@@ -639,8 +655,9 @@ def _manifest_ids(mods_root: Path) -> tuple[set[str], List[str]]:
 
 def manifest_ltk_ids(mods_root: Path) -> set[str]:
     """Every LTK Manager entry Rose added for a saved mod: each manifest's
-    ltkIds, the missing ones too, and those still to remove. Cleaning up
-    after a game must never take one of them for a leftover."""
+    ltkIds, the missing ones too, and those still to remove, but not the
+    user's own mods it lists (mirrored). Cleaning up after a game must never
+    take one of them for a leftover."""
     named, removals = _manifest_ids(mods_root)
     return named | set(removals)
 
@@ -696,12 +713,14 @@ def _set_pending_removals(payload: dict, ids: Iterable[object]) -> None:
 
 
 def _drop_entries(payload: dict, mods: dict, keys: Iterable[str]) -> None:
-    """Take these entries out of *mods*, their LTK Manager entries added to
-    the manifest's pendingRemovals in the same write: one no manifest named
-    any more would stay in LTK Manager for good, as Rose would never know it
-    again."""
+    """Take these entries out of *mods*, the LTK Manager entries Rose added
+    for them added to the manifest's pendingRemovals in the same write: one
+    no manifest named any more would stay in LTK Manager for good, as Rose
+    would never know it again. A mod the user added in LTK Manager stays
+    there (mirrored)."""
     keys = list(keys)
-    dropped = [mods[key].get("ltkId") for key in keys if isinstance(mods[key], dict)]
+    dropped = [mods[key].get("ltkId") for key in keys
+               if isinstance(mods[key], dict) and mods[key].get(MIRRORED) is not True]
     _set_pending_removals(payload, [*_pending_removals(payload), *dropped])
     for key in keys:
         del mods[key]
@@ -853,6 +872,29 @@ def add_saved_mod(mods_root: Path, archive: Path, facts: Optional[ModFacts], tar
         return True
 
     _change_manifest(directory, register)
+
+
+def add_mirrored_mod(mods_root: Path, category: str, ltk_id: str, name: str, fields: Mapping[str, object]) -> str:
+    """List in *category* the mod the user added to LTK Manager as entry
+    *ltk_id*, marked as the user's (mirrored), with *fields* (displayName,
+    facts...), under *name* or the first free "<name>-<n>": no other entry
+    nor stored mod of the category has that name. Returns the name it got.
+    Raises UnreadableManifest."""
+    directory = _Directory(category, Path(mods_root) / category, PurePosixPath(category))
+    directory.path.mkdir(parents=True, exist_ok=True)
+    stored = {(path.name if is_dir else path.stem).casefold() for path, is_dir in _stored_candidates(directory.path)}
+    chosen: List[str] = []
+
+    def register(_payload: dict, mods: dict) -> bool:
+        taken = stored | {_entry_name(directory, k, v if isinstance(v, dict) else {}).casefold() for k, v in mods.items()}
+        candidates = itertools.chain((name,), (f"{name}-{n}" for n in itertools.count(2)))
+        unique = next(candidate for candidate in candidates if candidate.casefold() not in taken)
+        mods[unique] = {**fields, "name": unique, "path": unique, "ltkId": ltk_id, MIRRORED: True}
+        chosen.append(unique)
+        return True
+
+    _change_manifest(directory, register)
+    return chosen[0]
 
 
 def set_targets(directory: Path, targets: Iterable[int], name: Optional[str] = None) -> None:

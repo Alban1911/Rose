@@ -4168,7 +4168,7 @@
     return { dialog, listContainer };
   }
 
-  function renderModRow(listContainer, mod, onDelete, onRename, onImage, onSelect) {
+  function renderModRow(listContainer, mod, onDelete, onRename, onImage, onSelect, onHide) {
     const row = document.createElement("div");
     row.className = "mod-manage-row";
     row.style.display = "flex";
@@ -4227,6 +4227,15 @@
       infoWrapper.appendChild(missingEl);
     }
 
+    // A mod the user added in LTK Manager: Rose lists it, and only hides it
+    if (mod.mirrored) {
+      if (mod.hidden) nameEl.style.opacity = "0.6";
+      const mirroredEl = document.createElement("div");
+      mirroredEl.textContent = t(mod.hidden ? "From LTK Manager - hidden" : "From LTK Manager");
+      mirroredEl.style.cssText = "color:#a09b8c;font-size:11px;font-style:italic;flex:0 0 auto;";
+      infoWrapper.appendChild(mirroredEl);
+    }
+
     row.appendChild(infoWrapper);
 
     const actions = document.createElement("div");
@@ -4257,6 +4266,18 @@
         onImage(imageButton, row);
       });
       actions.appendChild(imageButton);
+    }
+
+    if (onHide && mod.mirrored) {
+      const hideButton = document.createElement("button");
+      hideButton.type = "button";
+      hideButton.className = "mod-rename-button";
+      hideButton.textContent = t(mod.hidden ? "Show" : "Hide");
+      hideButton.addEventListener("click", (e) => {
+        e.stopPropagation();
+        onHide(hideButton);
+      });
+      actions.appendChild(hideButton);
     }
 
     const deleteButton = document.createElement("button");
@@ -4702,7 +4723,10 @@
       const key = mod.name;
       renderModRow(
         listContainer,
-        { name: mod.name, displayName: mod.displayName, missing: mod.missing, selected: selection.has(key) },
+        {
+          name: mod.name, displayName: mod.displayName, missing: mod.missing,
+          mirrored: mod.mirrored, hidden: mod.hidden, selected: selection.has(key),
+        },
         (deleteButton) => {
           deleteButton.disabled = true;
           deleteButton.textContent = t("Deleting...");
@@ -4727,6 +4751,15 @@
           if (selected) selection.set(key, mod);
           else selection.delete(key);
           updateSelection();
+        },
+        (hideButton) => {
+          hideButton.disabled = true;
+          if (bridge) bridge.send({
+            type: "hide-category-mod",
+            category: window.__roseManageCategory,
+            modName: mod.name,
+            hidden: !mod.hidden,
+          });
         }
       );
     });
@@ -4757,6 +4790,18 @@
     } else {
       log("info", `Category mod deleted: category=${payload.category}, mod=${payload.modName}`);
       requestManageCategories();
+    }
+    if (
+      document.getElementById("category-mods-manage-dialog") &&
+      payload.category === window.__roseManageCategory
+    ) {
+      openCategoryModsList(payload.category);
+    }
+  }
+
+  function handleCategoryModHidden(payload) {
+    if (!payload.success) {
+      log("error", `Failed to ${payload.hidden ? "hide" : "show"} category mod ${payload.modName || ""}`);
     }
     if (
       document.getElementById("category-mods-manage-dialog") &&
@@ -5972,6 +6017,7 @@
       bridge.subscribe("category-mod-deleted", handleCategoryModDeleted);
       bridge.subscribe("champion-mod-renamed", handleChampionModRenamed);
       bridge.subscribe("category-mod-renamed", handleCategoryModRenamed);
+      bridge.subscribe("category-mod-hidden", handleCategoryModHidden);
 
       // On every (re)connect, sync state
       bridge.onReady(() => {

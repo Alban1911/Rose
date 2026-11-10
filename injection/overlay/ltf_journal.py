@@ -12,6 +12,7 @@ from utils.core.logging import get_logger
 log = get_logger()
 
 LibraryId = str
+JOURNAL_FILE = "ltf_installed.json"
 LibraryNames = Dict[LibraryId, str]
 
 

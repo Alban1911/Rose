@@ -364,9 +364,9 @@ class ModStorageService:
     # Larger previews are not copied out of an archive (a broken or odd mod)
     MAX_SIDECAR_IMAGE_BYTES = 32 * 1024 * 1024
 
-    def _write_image_sidecar(self, archive: Path) -> Optional[Path]:
-        """Copy the archive's preview image beside it, for the mods UI, and
-        return it."""
+    def _write_image_sidecar(self, archive: Path, beside: Optional[Path] = None) -> Optional[Path]:
+        """Copy the archive's preview image beside it (beside *beside*, the
+        path of a mod Rose does not store), for the mods UI, and return it."""
         try:
             with ModFiles(archive) as files:
                 for member, suffix in _PREVIEW_IMAGES:
@@ -375,7 +375,7 @@ class ModStorageService:
                     data = files.read(member)
                     if not 0 < len(data) <= self.MAX_SIDECAR_IMAGE_BYTES:
                         return None
-                    image = archive.with_suffix(suffix)
+                    image = (beside or archive).with_suffix(suffix)
                     with atomic_write(image, "wb", durable=False) as handle:
                         handle.write(data)
                     return image
@@ -889,6 +889,17 @@ class ModStorageService:
             mod = self.saved_mod(f"{category}/{mod_name}")
             return mod is not None and self._delete_saved_mod(mod)
 
+    def set_category_mod_hidden(self, category: str, mod_name: str, hidden: bool) -> bool:
+        """Hide a mod the user added in LTK Manager (mirrored) from the lists
+        to pick a game's mods from, or show it again. False for any other
+        mod, or one not found."""
+        if category not in self.MOD_CATEGORIES:
+            raise ValueError(f"Unsupported mod category: {category}")
+        with self._storage_lock:
+            mod = self.saved_mod(f"{category}/{mod_name}") if mod_name else None
+            return (mod is not None and mod.mirrored
+                    and saved_manifest.update_listed_mod(mod, hidden=True if hidden else None))
+
     def import_category_mod_file(
         self,
         category: str,
@@ -962,8 +973,9 @@ class ModStorageService:
         """The mods saved in a category, as its manifest lists them (no mod
         file is opened): id and path (the mod's identity), name, displayName,
         updatedAt, description, where the mod is (its source's plugin_fields:
-        ltkId, missing, pending) and facts (ModFacts.to_manifest(), None when
-        unknown)."""
+        ltkId, missing, pending), whether the user added it in LTK Manager
+        (mirrored) and hid it from the lists to pick from (hidden), and facts
+        (ModFacts.to_manifest(), None when unknown)."""
         if category not in self.MOD_CATEGORIES:
             return []
         with self._storage_lock:
@@ -976,6 +988,8 @@ class ModStorageService:
                     "updatedAt": mod.updated_at,
                     "description": self._read_mod_description(mod),
                     **mod.source.plugin_fields(),
+                    "mirrored": mod.mirrored,
+                    "hidden": mod.hidden,
                     "facts": mod.facts.to_manifest() if mod.facts else None,
                 }
                 for mod in saved_manifest.iter_saved_mods(self.mods_root, category)

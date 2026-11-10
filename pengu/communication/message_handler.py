@@ -82,6 +82,7 @@ BACKGROUND_MESSAGE_TYPES = frozenset({
     "delete-champion-mods",
     "delete-category-mod",
     "delete-category-mods",
+    "hide-category-mod",
     "rename-champion-mod",
     "rename-category-mod",
 })
@@ -427,6 +428,8 @@ class MessageHandler:
             self._handle_delete_category_mod(payload)
         elif payload_type == "delete-category-mods":
             self._handle_delete_category_mods(payload)
+        elif payload_type == "hide-category-mod":
+            self._handle_hide_category_mod(payload)
         elif payload_type == "rename-champion-mod":
             self._handle_rename_champion_mod(payload)
         elif payload_type == "set-champion-mod-image":
@@ -2160,6 +2163,25 @@ class MessageHandler:
                 "error": str(exc),
             }))
 
+    def _handle_hide_category_mod(self, payload: dict) -> None:
+        """Hide a mod the user added in LTK Manager from the lists to pick a
+        game's mods from (no longer picked, if it was), or show it again."""
+        category, mod_name, hidden = payload.get("category"), payload.get("modName"), bool(payload.get("hidden"))
+        try:
+            changed = bool(self.mod_storage) and self.mod_storage.set_category_mod_hidden(category, mod_name, hidden)
+        except Exception as exc:
+            log.error("[HideMod] Failed to hide or show category mod: %s", exc)
+            changed = False
+        if changed and hidden:
+            self._clear_category_selection_if_matches(category, mod_name)
+        self._send_response(json.dumps({
+            "type": "category-mod-hidden",
+            "success": changed,
+            "category": category,
+            "modName": mod_name,
+            "hidden": hidden,
+        }))
+
     def _handle_delete_category_mods(self, payload: dict) -> None:
         """Delete selected category mods and report each result in one response."""
         category = payload.get("category")
@@ -2588,7 +2610,7 @@ class MessageHandler:
             return
 
         try:
-            mods = self.mod_storage.list_mods_for_category(category)
+            mods = [mod for mod in self.mod_storage.list_mods_for_category(category) if not mod.get("hidden")]
         except Exception as exc:
             log.error(f"[SkinMonitor] Failed to list category {category}: {exc}")
             mods = []

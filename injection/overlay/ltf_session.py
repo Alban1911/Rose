@@ -31,7 +31,7 @@ from ..tools.bridge import (
     find_bridge,
 )
 from ..tools.tools_manager import LTF_BRIDGE_DLL, LTF_LAUNCHER, ToolsManager
-from .ltf_journal import KeptRecord, LibraryId, LibraryNames, LtfJournal
+from .ltf_journal import JOURNAL_FILE, KeptRecord, LibraryId, LibraryNames, LtfJournal
 from .ltf_report import cdp_unreachable, report_ltf_failure
 from .ltk_data import LtkLogTail
 from .ltk_rose import RoseFolder, RoseProfile
@@ -271,7 +271,7 @@ class LtfHost:
         self.launcher_lock = threading.Lock()
         self.last_failure_reason: Optional[str] = None
         self.logged_manager_parent: Optional[str] = None
-        self.journal = LtfJournal(injection_dir / "ltf_installed.json")
+        self.journal = LtfJournal(injection_dir / JOURNAL_FILE)
         self.switches = SavedModSwitches(self)
         self.profile = RoseProfile(self)
         self.folder = RoseFolder()

@@ -17,6 +17,7 @@ log = get_logger()
 LTK_DATA_FOLDER = "dev.leaguetoolkit.manager"
 LIBRARY_INDEX = "library.json"
 LTK_SETTINGS = "settings.json"
+WAD_REPORTS = "wad-reports.json"
 # The index layout this reads (LTK Manager 1.33): {"version": 2, "mods": [{id,
 # format, storage, slug...}], "profiles": [{id, enabledMods...}], "activeProfileId"}.
 # Another layout is not guessed at: a misread index would mark mods missing
@@ -174,6 +175,28 @@ def read_library_index() -> Optional[Dict[str, IndexEntry]]:
             archive = root / f"{slug}{_archive_suffix(fmt)}"
         index[ltk_id] = IndexEntry(ltk_id, slug, fmt, storage, ltk_id in enabled, archive)
     return index
+
+
+def read_mod_analysis() -> Dict[str, dict]:
+    """What LTK Manager's own analysis found in each mod of its library, by
+    entry id: {"tags": ["champion-skin", "map-skin", "ui"...], "maps": [...],
+    "champions": [...]} (its wad-reports.json, written as it installs a mod).
+    A mod it has not analysed is left out; {} when it cannot be read."""
+    data_dir = ltk_data_dir()
+    if data_dir is None:
+        return {}
+    try:
+        document = json.loads((data_dir / WAD_REPORTS).read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return {}
+    except (OSError, ValueError) as e:
+        log.debug(f"[MODS] Could not read LTK Manager's mod analysis: {e}")
+        return {}
+    reports = document.get("reports") if isinstance(document, dict) else None
+    return {
+        str(mod_id): report["derived"] for mod_id, report in (reports.items() if isinstance(reports, dict) else ())
+        if isinstance(report, dict) and isinstance(report.get("derived"), dict)
+    }
 
 
 def entry_archive(entry: Mapping) -> Optional[Path]:

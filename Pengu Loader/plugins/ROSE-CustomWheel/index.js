@@ -294,8 +294,15 @@
   }
 
   // A category's mod LTK Manager lost (missing) is listed greyed, so the user
-  // adds it again or deletes it, and is never picked: no click, never auto-selected
+  // adds it again or deletes it, and is never picked: no click, never auto-selected.
+  // One the user added in LTK Manager says so
   function bindPick(listItem, nameRow, mod, pick) {
+    if (mod?.mirrored) {
+      const source = document.createElement("div");
+      source.className = "mod-source-note";
+      source.textContent = tr("From LTK Manager");
+      nameRow.appendChild(source);
+    }
     if (!mod?.missing) {
       listItem.addEventListener("click", pick);
       return;
@@ -878,7 +885,8 @@
       border-left-color: transparent;
     }
 
-    .${PANEL_CLASS} .mod-missing-note {
+    .${PANEL_CLASS} .mod-missing-note,
+    .${PANEL_CLASS} .mod-source-note {
       color: #a09b8c;
       font-size: 10px;
       font-style: italic;

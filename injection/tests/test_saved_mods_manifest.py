@@ -399,6 +399,32 @@ class RemovalTests(SavedModsTestCase):
             MOVED_ID, GONE_ID, NIGHT_ID, NEW_ID, "0f0f0f0f-0000-4000-8000-000000000000"})
 
 
+class MirroredEntryTests(SavedModsTestCase):
+    """A mod the user added in LTK Manager, listed in Rose: under a name no
+    other mod of its category has, and never one Rose removes from LTK Manager"""
+
+    def test_a_taken_name_and_its_next_one_give_the_one_after(self):
+        maps = json.loads((self.maps / manifest.CATEGORY_METADATA).read_text(encoding="utf-8"))
+        maps["mods"]["Rift-2"] = {"name": "Rift-2", "path": "Rift-2", "ltkId": GONE_ID, "mirrored": True}
+        write_json(self.maps / manifest.CATEGORY_METADATA, maps)
+
+        self.assertEqual(manifest.add_mirrored_mod(self.mods_root, "maps", NEW_ID, "Rift", {}), "Rift-3")
+        self.assertEqual(self.entry(self.maps, "Rift-3"),
+                         {"name": "Rift-3", "path": "Rift-3", "ltkId": NEW_ID, "mirrored": True})
+
+    def test_a_stored_mod_nobody_registered_keeps_its_name(self):
+        self.assertEqual(manifest.add_mirrored_mod(self.mods_root, "maps", NEW_ID, "Stray", {}), "Stray-2")
+
+    def test_it_is_not_rose_s_and_deleting_it_leaves_nothing_to_remove(self):
+        manifest.add_mirrored_mod(self.mods_root, "maps", NEW_ID, "Users Map", {})
+        mirrored = next(mod for mod in iter_saved_mods(self.mods_root, "maps") if mod.ltk_id == NEW_ID)
+
+        self.assertTrue(mirrored.mirrored)
+        self.assertNotIn(NEW_ID, manifest_ltk_ids(self.mods_root))
+        self.assertTrue(manifest.remove_saved_mod(self.mods_root, mirrored))
+        self.assertEqual(ltk_removals(self.mods_root), [])
+
+
 class SourceTests(unittest.TestCase):
     def test_a_file_is_available_while_it_is_there(self):
         with tempfile.TemporaryDirectory() as temp_dir:
