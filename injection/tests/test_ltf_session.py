@@ -579,7 +579,6 @@ class InjectionSessionTests(LtfSessionTestCase):
 
         self.overlay.mk_run_overlay(mods, stop_callback=lambda: True)
 
-        # One read for both imports and for turning the other mods off
         self.assertEqual(self.bridge.library_reads, 1)
         self.assertEqual(self.bridge.command_names().count("import"), 2)
         self.assertNotIn(("toggle", "user-mod", False), self.bridge.calls)
@@ -1035,7 +1034,7 @@ class StaleCleanupTests(LtfSessionTestCase):
 
 
 class KeptModsTests(LtfSessionTestCase):
-    """The user's saved category mods stay in LTK Manager, turned off, between games (#486)"""
+    """The user's saved category mods stay in LTK Manager, turned off in Rose's profile between games (#486)"""
 
     def setUp(self):
         super().setUp()

@@ -347,7 +347,6 @@ class MessageHandler:
                 log.exception("[SkinMonitor] Failed to handle %s: %s", payload_type, e)
 
     def _route(self, payload_type: Optional[str], payload: dict) -> None:
-        # Route to appropriate handler
         if payload_type in {"chroma-log", "plugin-log"}:
             self._handle_chroma_log(payload)
         elif payload_type == "request-local-preview":

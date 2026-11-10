@@ -4168,7 +4168,7 @@
     return { dialog, listContainer };
   }
 
-  function renderModRow(listContainer, mod, onDelete, onRename, onImage, onSelect, onHide) {
+  function renderModRow(listContainer, mod, { onDelete, onRename, onImage, onSelect, onHide }) {
     const row = document.createElement("div");
     row.className = "mod-manage-row";
     row.style.display = "flex";
@@ -4227,7 +4227,6 @@
       infoWrapper.appendChild(missingEl);
     }
 
-    // A mod the user added in LTK Manager: Rose lists it, and only hides it
     if (mod.mirrored) {
       if (mod.hidden) nameEl.style.opacity = "0.6";
       const mirroredEl = document.createElement("div");
@@ -4557,40 +4556,42 @@
           imageEditable: mod.imageEditable,
           selected: selection.has(key),
         },
-        (deleteButton, row) => {
-          deleteButton.disabled = true;
-          deleteButton.textContent = t("Deleting...");
-          if (bridge) bridge.send({
-            type: "delete-champion-mod",
-            championId: window.__roseManageChampionId,
-            modName: mod.modName,
-            relativePath: mod.relativePath,
-          });
-        },
-        (renameButton, row, newName) => {
-          renameButton.disabled = true;
-          renameButton.textContent = t("Saving...");
-          if (bridge) bridge.send({
-            type: "rename-champion-mod",
-            championId: window.__roseManageChampionId,
-            modName: mod.modName,
-            relativePath: mod.relativePath,
-            newName: newName,
-          });
-        },
-        (imageButton) => {
-          imageButton.disabled = true;
-          imageButton.textContent = t("Saving...");
-          if (bridge) bridge.send({
-            type: "set-champion-mod-image",
-            championId: window.__roseManageChampionId,
-            relativePath: mod.relativePath,
-          });
-        },
-        (selected) => {
-          if (selected) selection.set(key, mod);
-          else selection.delete(key);
-          updateSelection();
+        {
+          onDelete: (deleteButton, row) => {
+            deleteButton.disabled = true;
+            deleteButton.textContent = t("Deleting...");
+            if (bridge) bridge.send({
+              type: "delete-champion-mod",
+              championId: window.__roseManageChampionId,
+              modName: mod.modName,
+              relativePath: mod.relativePath,
+            });
+          },
+          onRename: (renameButton, row, newName) => {
+            renameButton.disabled = true;
+            renameButton.textContent = t("Saving...");
+            if (bridge) bridge.send({
+              type: "rename-champion-mod",
+              championId: window.__roseManageChampionId,
+              modName: mod.modName,
+              relativePath: mod.relativePath,
+              newName: newName,
+            });
+          },
+          onImage: (imageButton) => {
+            imageButton.disabled = true;
+            imageButton.textContent = t("Saving...");
+            if (bridge) bridge.send({
+              type: "set-champion-mod-image",
+              championId: window.__roseManageChampionId,
+              relativePath: mod.relativePath,
+            });
+          },
+          onSelect: (selected) => {
+            if (selected) selection.set(key, mod);
+            else selection.delete(key);
+            updateSelection();
+          },
         }
       );
     });
@@ -4727,39 +4728,40 @@
           name: mod.name, displayName: mod.displayName, missing: mod.missing,
           mirrored: mod.mirrored, hidden: mod.hidden, selected: selection.has(key),
         },
-        (deleteButton) => {
-          deleteButton.disabled = true;
-          deleteButton.textContent = t("Deleting...");
-          if (bridge) bridge.send({
-            type: "delete-category-mod",
-            category: window.__roseManageCategory,
-            modName: mod.name,
-          });
-        },
-        (renameButton, row, newName) => {
-          renameButton.disabled = true;
-          renameButton.textContent = t("Saving...");
-          if (bridge) bridge.send({
-            type: "rename-category-mod",
-            category: window.__roseManageCategory,
-            modName: mod.name,
-            newName: newName,
-          });
-        },
-        null, // category mods have no image
-        (selected) => {
-          if (selected) selection.set(key, mod);
-          else selection.delete(key);
-          updateSelection();
-        },
-        (hideButton) => {
-          hideButton.disabled = true;
-          if (bridge) bridge.send({
-            type: "hide-category-mod",
-            category: window.__roseManageCategory,
-            modName: mod.name,
-            hidden: !mod.hidden,
-          });
+        {
+          onDelete: (deleteButton) => {
+            deleteButton.disabled = true;
+            deleteButton.textContent = t("Deleting...");
+            if (bridge) bridge.send({
+              type: "delete-category-mod",
+              category: window.__roseManageCategory,
+              modName: mod.name,
+            });
+          },
+          onRename: (renameButton, row, newName) => {
+            renameButton.disabled = true;
+            renameButton.textContent = t("Saving...");
+            if (bridge) bridge.send({
+              type: "rename-category-mod",
+              category: window.__roseManageCategory,
+              modName: mod.name,
+              newName: newName,
+            });
+          },
+          onSelect: (selected) => {
+            if (selected) selection.set(key, mod);
+            else selection.delete(key);
+            updateSelection();
+          },
+          onHide: (hideButton) => {
+            hideButton.disabled = true;
+            if (bridge) bridge.send({
+              type: "hide-category-mod",
+              category: window.__roseManageCategory,
+              modName: mod.name,
+              hidden: !mod.hidden,
+            });
+          },
         }
       );
     });
@@ -5990,7 +5992,6 @@
       // Inject CSS after bridge is loaded (so it has the correct port number)
       injectCSS();
 
-      // Subscribe to all message types
       bridge.subscribe("settings-data", handleSettingsData);
       bridge.subscribe("settings-saved", handleSettingsSaved);
       bridge.subscribe("diagnostics-data", handleDiagnosticsData);

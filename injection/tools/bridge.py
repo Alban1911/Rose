@@ -444,7 +444,6 @@ class LtkBridge:
     def uninstall(self, target: str) -> Dict[str, Any]:
         return self._ok({"cmd": "uninstall", "target": target})
 
-    # -- profiles and folders ----------------------------------------------
     def _value(self, payload: Dict[str, Any]) -> Any:
         """What LTK Manager answered the command *payload* sends."""
         nested = self._ok(payload).get("response")

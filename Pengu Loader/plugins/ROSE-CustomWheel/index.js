@@ -2853,31 +2853,31 @@
     }
   }
 
-  // The mod manager deleted a mod: drop it from the selection right away
-  // (the backend already cleared its own), then refresh that list.
-  function handleCategoryModDeleted(data) {
+  // The mod manager deleted, hid or showed a mod: drop it from the selection
+  // right away, then refresh that list.
+  function handleCategoryModListChanged(data) {
     if (!data || !data.success) return;
     const category = String(data.category || "").trim();
     if (!category || !data.modName) return;
     const target = normalizePathLike(`${category}/${data.modName}`);
     // A mod LTK Manager holds is selected by its archive's path
-    const isDeleted = (id) => Boolean(id) && [target, `${target}.fantome`].includes(normalizePathLike(id));
+    const isThisMod = (id) => Boolean(id) && [target, `${target}.fantome`].includes(normalizePathLike(id));
 
     if (category === "maps") {
-      if (isDeleted(selectedMapId)) selectedMapId = null;
+      if (isThisMod(selectedMapId)) selectedMapId = null;
       requestMaps();
     } else if (category === "fonts") {
-      if (isDeleted(selectedFontId)) selectedFontId = null;
+      if (isThisMod(selectedFontId)) selectedFontId = null;
       requestFonts();
     } else if (category === "announcers") {
-      if (isDeleted(selectedAnnouncerId)) selectedAnnouncerId = null;
+      if (isThisMod(selectedAnnouncerId)) selectedAnnouncerId = null;
       requestAnnouncers();
     } else if (OTHER_CATEGORY_TABS.some((t) => t.id === category)) {
       const selected = getSelectedIdsForCategory(category);
-      for (const id of selected.filter(isDeleted)) {
+      for (const id of selected.filter(isThisMod)) {
         emittedHistoricSelectionKeys.delete(`${category}:${id}`);
       }
-      const kept = selected.filter((id) => !isDeleted(id));
+      const kept = selected.filter((id) => !isThisMod(id));
       selected.splice(0, selected.length, ...kept);
       requestCategoryMods(category);
     } else {
@@ -2985,7 +2985,6 @@
       passive: true,
     });
 
-    // Subscribe to bridge messages instead of window CustomEvents
     if (bridge) {
       bridge.subscribe("settings-data", (data) => handleSettingsData({ detail: data }));
       bridge.subscribe("skin-mods-response", (data) => handleModsResponse({ detail: data }));
@@ -2998,9 +2997,8 @@
       bridge.subscribe("announcers-response", (data) => handleAnnouncersResponse({ detail: data }));
       bridge.subscribe("category-mods-response", (data) => handleCategoryModsResponse({ detail: data }));
       bridge.subscribe("others-response", (data) => handleOthersResponse({ detail: data }));
-      bridge.subscribe("category-mod-deleted", handleCategoryModDeleted);
-      // One hidden leaves the pick lists as one deleted does; one shown comes back
-      bridge.subscribe("category-mod-hidden", handleCategoryModDeleted);
+      bridge.subscribe("category-mod-deleted", handleCategoryModListChanged);
+      bridge.subscribe("category-mod-hidden", handleCategoryModListChanged);
       bridge.subscribe("champion-mod-deleted", handleChampionModDeleted);
       bridge.subscribe("champion-locked", (data) => handleChampionLocked({ detail: data }));
       bridge.subscribe("custom-mod-state", (data) => {

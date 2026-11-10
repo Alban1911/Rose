@@ -67,7 +67,6 @@ class LtfJournal:
             "manager": manager if isinstance(manager, dict) else None,
             "kept": kept_for_next_game,
             "switched": switched_on,
-            # The user's LTK Manager profile while a session has Rose's active
             "users_profile": users_profile if isinstance(users_profile, str) and users_profile else None,
         }
 
