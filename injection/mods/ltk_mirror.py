@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import zipfile
+from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Mapping, Optional
@@ -21,9 +22,9 @@ from .manifest import (
     MIRRORED,
     SavedMod,
     add_saved_mod,
+    listed_now,
     ltk_library_mods,
     manifest_ltk_ids,
-    still_listed,
 )
 from .mod_facts import read_mod_facts, stamp_of
 from .mod_placement import DESCRIPTION_SIDECAR_SUFFIX, choose_archive_destination, write_image_sidecar
@@ -40,6 +41,7 @@ class MirrorReport:
     """What a mirror changed in Rose's lists, by the mods' names."""
 
     listed: List[str] = field(default_factory=list)
+    moved: List[str] = field(default_factory=list)
     dropped: List[str] = field(default_factory=list)
 
 
@@ -72,26 +74,25 @@ def mirror_users_mods(storage: ModStorageService, index: Mapping[str, IndexEntry
     rose_ids = _journal_ids(storage.mods_root) | manifest_ltk_ids(storage.mods_root)
     analysis = read_mod_analysis()
     wanted = {ltk_id: category_of(analysis.get(ltk_id)) for ltk_id in index if ltk_id not in rose_ids}
-    report = MirrorReport()
-    listed = set()
-    kept = {}
+    listings = defaultdict(list)
     for mod in ltk_library_mods(storage.mods_root):
-        if not mod.mirrored:
-            continue
-        if wanted.get(mod.ltk_id) == mod.kind and mod.ltk_id not in listed:
-            listed.add(mod.ltk_id)
-        elif _drop(storage, mod):
-            report.dropped.append(mod.display_name or mod.name)
-            kept[mod.ltk_id] = {key: mod.metadata[key] for key in KEPT_WHEN_MOVED if key in mod.metadata}
-    for ltk_id, category in wanted.items():
-        if category and ltk_id not in listed:
+        if mod.mirrored:
+            listings[mod.ltk_id].append(mod)
+    report = MirrorReport()
+    for ltk_id in dict.fromkeys([*wanted, *listings]):
+        category, mods = wanted.get(ltk_id), listings[ltk_id]
+        keep = next((mod for mod in mods if mod.kind == category), mods[0] if mods else None) if category else None
+        for mod in mods:
+            if mod is not keep and _drop(storage, mod):
+                report.dropped.append(mod.display_name or mod.name)
+        if category and (keep is None or keep.kind != category):
             try:
-                report.listed.append(_list(storage, index[ltk_id], category, kept.get(ltk_id, {})))
+                (report.moved if keep else report.listed).append(_list(storage, index[ltk_id], category, keep))
             except (OSError, ValueError) as e:
-                log.warning(f"[MODS] Could not list the LTK Manager mod {ltk_id} in Rose: {e}")
-    if report.listed or report.dropped:
+                log.warning(f"[MODS] Could not list the LTK Manager mod {ltk_id} in Rose's {category}: {e}")
+    if report.listed or report.moved or report.dropped:
         log.info(f"[MODS] Mods added in LTK Manager: {len(report.listed)} now listed in Rose, "
-                 f"{len(report.dropped)} no longer")
+                 f"{len(report.moved)} moved, {len(report.dropped)} no longer")
     return report
 
 
@@ -106,15 +107,17 @@ def _drop(storage: ModStorageService, mod: SavedMod) -> bool:
     """Take a mod the user added in LTK Manager out of Rose's lists, while
     its manifest entry is still the one *mod* was read from."""
     with MANIFEST_WRITERS_LOCK:
-        return still_listed(storage.mods_root, mod) and storage.delete_category_mod(mod.kind, mod.name)
+        return listed_now(storage.mods_root, mod) is not None and storage.delete_category_mod(mod.kind, mod.name)
 
 
-def _list(storage: ModStorageService, entry: IndexEntry, category: str, kept: Mapping) -> str:
+def _list(storage: ModStorageService, entry: IndexEntry, category: str, source: Optional[SavedMod]) -> str:
     """List the user's LTK Manager mod *entry* in *category*, with its name,
     description, preview image and facts read from its archive (an entry
-    without one is listed under its slug) and *kept* (what the user set on
-    it in the category it moved from), and return its name. Nothing it
-    wrote stays when a step fails: the next mirror tries again."""
+    without one is listed under its slug), and return its name. *source*,
+    its listing in another category, moves there: the name and hide the
+    user gave it come along, as they are now, and it leaves once the new
+    one is listed. Nothing it wrote stays when a step fails, and *source*
+    stays as it is: the next mirror tries again."""
     archive = entry.archive if entry.archive is not None and entry.archive.is_file() else None
     info = read_info(archive) if archive is not None else {}
     fields: dict = {"ltkId": entry.ltk_id, MIRRORED: True}
@@ -128,14 +131,18 @@ def _list(storage: ModStorageService, entry: IndexEntry, category: str, kept: Ma
             fields.update(ltkStamp=stamp_of(archive), updatedAt=archive.stat().st_mtime)
         except (OSError, ValueError, zipfile.BadZipFile) as e:
             log.debug(f"[MODS] Could not read the LTK Manager mod {archive.name}: {e}")
-    fields.update(kept)
     description = str(info.get("Description") or "").strip()
     folder = storage.mods_root / category
     folder.mkdir(parents=True, exist_ok=True)
     with MANIFEST_WRITERS_LOCK:
+        source = listed_now(storage.mods_root, source) if source is not None else None
+        if source is not None:
+            fields.update({key: source.metadata[key] for key in KEPT_WHEN_MOVED if key in source.metadata})
         name, destination = choose_archive_destination(storage.mods_root, folder, entry.slug or entry.ltk_id)
-        written = [write_image_sidecar(archive, beside=destination) if archive is not None else None]
+        written = []
         try:
+            if archive is not None:
+                written.append(write_image_sidecar(archive, beside=destination))
             if description:
                 written.append(destination.with_suffix(DESCRIPTION_SIDECAR_SUFFIX))
                 with atomic_write(written[-1], "w", encoding="utf-8") as handle:
@@ -145,4 +152,6 @@ def _list(storage: ModStorageService, entry: IndexEntry, category: str, kept: Ma
             for path in filter(None, written):
                 safe_remove_entry(path)
             raise
+        if source is not None:
+            storage.delete_category_mod(source.kind, source.name)
     return fields.get("displayName") or name

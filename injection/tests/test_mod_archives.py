@@ -10,7 +10,7 @@ import zipfile
 from pathlib import Path
 from unittest.mock import patch
 
-from injection.mods import conversion
+from injection.mods import conversion, mod_placement
 from injection.mods.fantome import fantome_display_name, read_info, write_fantome_zip
 from injection.mods.fingerprint import mod_fingerprint
 from injection.mods.manifest import ltk_removals
@@ -316,6 +316,12 @@ class AddTests(TempCase):
         self.assertEqual((name, stored.name), ("Rift (2)", "Rift (2).fantome"))
         self.assertEqual(self.entries(self.maps_manifest)["Rift"]["ltkId"], MOVED_ID)
         self.assertEqual(ltk_removals(self.service.mods_root), [])
+
+    def test_a_mod_whose_image_cannot_be_written_is_not_added(self):
+        with patch.object(mod_placement, "atomic_write", side_effect=PermissionError("in use")):
+            self.assertRaises(PermissionError, self.add_map)
+
+        self.assertEqual(list(self.maps.iterdir()), [])
 
     def test_a_name_an_image_or_a_description_holds_is_not_taken(self):
         (self.maps / "Rift.txt").write_text("Somebody's description", encoding="utf-8")

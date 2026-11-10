@@ -2,7 +2,7 @@ import json
 import unittest
 from unittest.mock import patch
 
-from injection.mods import ltk_mirror
+from injection.mods import ltk_mirror, mod_placement
 from injection.mods.ltk_mirror import category_of
 from injection.mods.manifest import ltk_library_mods, ltk_removals, set_hidden
 from injection.mods.mod_facts import compute_mod_facts
@@ -158,6 +158,47 @@ class MirrorTests(unittest.TestCase):
         moved = self.listed("ui")["dark-hud"]
         self.assertEqual((moved.ltk_id, moved.display_name, moved.hidden), (NEW_ID, "My HUD", True))
         self.assertEqual(moved.sidecar(".txt").read_text(encoding="utf-8"), "A darker HUD")
+
+    def test_a_move_that_fails_leaves_it_where_it_was_as_the_user_left_it(self):
+        self.ltk_archive("dark-hud", USERS_HUD)
+        self.write_index((NEW_ID, "dark-hud"))
+        self.sync()
+        self.assertTrue(set_hidden(self.mods_root, "others/dark-hud", True))
+        self.storage.set_category_mod_display_name("others", "dark-hud", "My HUD")
+        self.analysed(**{NEW_ID: {"tags": ["ui"]}})
+
+        with patch.object(ltk_mirror, "atomic_write", side_effect=OSError("disk full")):
+            self.sync()
+
+        stayed = self.listed("others")["dark-hud"]
+        self.assertEqual((stayed.display_name, stayed.hidden, self.listed("ui")), ("My HUD", True, {}))
+        self.sync()
+        moved = self.listed("ui")["dark-hud"]
+        self.assertEqual((moved.display_name, moved.hidden, self.listed("others")), ("My HUD", True, {}))
+
+    def test_a_hide_made_while_the_mirror_runs_moves_with_it(self):
+        self.ltk_archive("dark-hud", USERS_HUD)
+        self.write_index((NEW_ID, "dark-hud"))
+        self.sync()
+        read_before = ltk_library_mods(self.mods_root)
+        self.assertTrue(set_hidden(self.mods_root, "others/dark-hud", True))
+        self.analysed(**{NEW_ID: {"tags": ["ui"]}})
+
+        with patch.object(ltk_mirror, "ltk_library_mods", return_value=read_before):
+            self.sync()
+
+        self.assertTrue(self.listed("ui")["dark-hud"].hidden)
+
+    def test_one_whose_image_cannot_be_written_is_listed_once_it_can_be(self):
+        self.ltk_archive("dark-hud", USERS_HUD)
+        self.write_index((NEW_ID, "dark-hud"))
+
+        with patch.object(mod_placement, "atomic_write", side_effect=PermissionError("in use")):
+            self.sync()
+
+        self.assertEqual((self.listed(), list((self.mods_root / "others").iterdir())), ({}, []))
+        self.sync()
+        self.assertEqual(self.listed()["dark-hud"].image_paths()[0].read_bytes(), PNG)
 
     def test_one_that_cannot_be_listed_whole_leaves_nothing_behind_and_is_listed_at_the_next_sync(self):
         self.ltk_archive("dark-hud", USERS_HUD)

@@ -579,12 +579,13 @@ def _find(mods_root: Path, relative_path: object,
     return None
 
 
-def still_listed(mods_root: Path, mod: SavedMod) -> bool:
-    """Whether the manifest entry *mod* came from is still under its name,
-    with the same LTK Manager entry: one deleted and added again under that
-    name is another mod, whatever was read of the first."""
+def listed_now(mods_root: Path, mod: SavedMod) -> Optional[SavedMod]:
+    """*mod* as its manifest lists it now, while its entry is still under its
+    name with the same LTK Manager entry; None once it is not: one deleted
+    and added again under that name is another mod, whatever was read of
+    the first."""
     current = find_saved_mod(mods_root, mod.identity, match_content=False)
-    return current is not None and (current.key, current.ltk_id) == (mod.key, mod.ltk_id)
+    return current if current is not None and (current.key, current.ltk_id) == (mod.key, mod.ltk_id) else None
 
 
 def find_saved_mod(mods_root: Path, relative_path: object, *, match_content: bool = True) -> Optional[SavedMod]:

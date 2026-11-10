@@ -210,8 +210,9 @@ class ModStorageService:
             temporary.replace(target)
         finally:
             safe_remove_entry(temporary)
-        image = write_image_sidecar(target)
+        image = None
         try:
+            image = write_image_sidecar(target)
             saved_manifest.add_saved_mod(self.mods_root, target, facts, targets,
                                          source_hash=picked_file_hash, index_hash=index_hash)
         except Exception:

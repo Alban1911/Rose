@@ -103,19 +103,27 @@ def choose_archive_destination(mods_root: Path, parent_dir: Path, base_name: str
 
 def write_image_sidecar(archive: Path, beside: Optional[Path] = None) -> Optional[Path]:
     """Copy the archive's preview image beside it (beside *beside*, the
-    path of a mod Rose does not store), for the mods UI, and return it."""
+    path of a mod Rose does not store), for the mods UI, and return it: None
+    when it has none to copy. Raises OSError when it cannot be written."""
+    preview = _preview_image(archive)
+    if preview is None:
+        return None
+    data, suffix = preview
+    image = (beside or archive).with_suffix(suffix)
+    with atomic_write(image, "wb", durable=False) as handle:
+        handle.write(data)
+    return image
+
+
+def _preview_image(archive: Path) -> Optional[tuple[bytes, str]]:
+    """The archive's preview image and its suffix; None when it has none,
+    one too large, or cannot be read."""
     try:
         with ModFiles(archive) as files:
             for member, suffix in PREVIEW_IMAGES:
-                if not files.is_file(member):
-                    continue
-                data = files.read(member)
-                if not 0 < len(data) <= MAX_SIDECAR_IMAGE_BYTES:
-                    return None
-                image = (beside or archive).with_suffix(suffix)
-                with atomic_write(image, "wb", durable=False) as handle:
-                    handle.write(data)
-                return image
+                if files.is_file(member):
+                    data = files.read(member)
+                    return (data, suffix) if 0 < len(data) <= MAX_SIDECAR_IMAGE_BYTES else None
     except (OSError, zipfile.BadZipFile) as exc:
         log.debug(f"[MODS] No preview image for {archive.name}: {exc}")
     return None

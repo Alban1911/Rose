@@ -12,7 +12,7 @@ from utils.core.logging import get_logger
 from utils.threading.thread_manager import create_daemon_thread
 
 from ..overlay.ltk_data import IndexEntry, library_index_mtime, read_library_index
-from .manifest import MANIFEST_WRITERS_LOCK, SavedMod, ltk_library_mods, still_listed, update_saved_mod
+from .manifest import MANIFEST_WRITERS_LOCK, SavedMod, listed_now, ltk_library_mods, update_saved_mod
 from .ltk_mirror import mirror_users_mods
 from .migration import delete_copy
 from .mod_facts import read_mod_facts, stamp_of
@@ -107,7 +107,7 @@ def _sync_mod(storage: ModStorageService, mod: SavedMod, entry: Optional[IndexEn
     if entry is not None:
         fields.update(_changed_facts(mod, entry))
     with MANIFEST_WRITERS_LOCK:
-        if not still_listed(storage.mods_root, mod):
+        if listed_now(storage.mods_root, mod) is None:
             log.debug(f"[MODS] {mod.name} was deleted or added again during the sync: left to the next one")
             return
         if fields and not update_saved_mod(storage.mods_root, mod.identity, **fields):
