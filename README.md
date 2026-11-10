@@ -40,8 +40,8 @@ Rose consists of three main components:
 Rose sends a pseudonymous, randomly generated installation ID and the app version
 to `https://analytics.rosekeys.site/` when analytics are enabled. The ID is not derived
 from the Windows Machine GUID. Analytics are on by default: turn them off or back on
-with **Send usage statistics** in Rose's Settings, in the League client or from the
-tray icon. The choice applies without restarting Rose.
+with **Send usage statistics** in Rose's Settings in the League client. The choice
+applies without restarting Rose.
 
 The analytics API and dashboard are maintained separately from this public
 client repository. Only aggregate usage metrics are exposed through the

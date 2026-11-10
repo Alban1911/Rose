@@ -17,7 +17,6 @@ try:
 except ImportError:  # pragma: no cover - optional dependency
     Image = None  # type: ignore
 
-from analytics import analytics_opted_in, set_analytics_opted_in
 from config import get_config_float, get_config_option, set_config_option
 from utils.system.admin_utils import (
     is_admin,
@@ -85,7 +84,6 @@ class InjectionSettingsWindow(Win32Window):
     GAME_PATH_EDIT_ID = 3107
     GAME_PATH_LABEL_ID = 3108
     GAME_PATH_STATUS_ID = 3109
-    ANALYTICS_ID = 3110
 
     def __init__(self, initial_threshold: float) -> None:
         super().__init__(
@@ -100,18 +98,15 @@ class InjectionSettingsWindow(Win32Window):
         self.trackbar_hwnd: Optional[int] = None
         self.value_label_hwnd: Optional[int] = None
         self.autostart_checkbox_hwnd: Optional[int] = None
-        self.analytics_checkbox_hwnd: Optional[int] = None
         self.game_path_edit_hwnd: Optional[int] = None
         self.game_path_status_hwnd: Optional[int] = None
         self.result: Optional[float] = None
         self.autostart_result: Optional[bool] = None
-        self.analytics_result: Optional[bool] = None
         self.game_path_result: Optional[str] = None
         self._done = threading.Event()
         self._icon_temp_path: Optional[str] = None
         self._icon_source_path: Optional[str] = self._prepare_window_icon()
         self._autostart_initial, self._autostart_enabled = self._load_autostart_status()
-        self._analytics_enabled = analytics_opted_in()
         self._initial_game_path = self._load_game_path()
         init_common_controls()
 
@@ -296,23 +291,8 @@ class InjectionSettingsWindow(Win32Window):
         if self._autostart_enabled:
             self.send_message(autostart_checkbox, BM_SETCHECK, BST_CHECKED, 0)
 
-        analytics_checkbox = self.create_control(
-            "BUTTON",
-            "Send usage statistics",
-            WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
-            0,
-            margin_x,
-            margin_y + 146,
-            content_width,
-            20,
-            self.ANALYTICS_ID,
-        )
-        self.analytics_checkbox_hwnd = analytics_checkbox
-        if self._analytics_enabled:
-            self.send_message(analytics_checkbox, BM_SETCHECK, BST_CHECKED, 0)
-
         # Game path section
-        game_path_y = margin_y + 186
+        game_path_y = margin_y + 162
         self.create_control(
             "STATIC",
             "League of Legends Game Path:",
@@ -360,7 +340,7 @@ class InjectionSettingsWindow(Win32Window):
             if self._icon_source_path:
                 self.set_window_icon(self._icon_source_path)
 
-        button_y = margin_y + 242
+        button_y = margin_y + 218
         self.create_control(
             "BUTTON",
             "Save",
@@ -390,7 +370,6 @@ class InjectionSettingsWindow(Win32Window):
             self._update_threshold_from_trackbar()
             self.result = self.current_threshold
             self.autostart_result = self._autostart_enabled
-            self.analytics_result = self._analytics_enabled
             # Get game path from edit control
             if self.game_path_edit_hwnd:
                 length = self.send_message(self.game_path_edit_hwnd, WM_GETTEXTLENGTH, 0, 0)
@@ -406,7 +385,6 @@ class InjectionSettingsWindow(Win32Window):
         if command_id == self.CANCEL_ID and notification_code == 0:
             self.result = None
             self.autostart_result = None
-            self.analytics_result = None
             self.game_path_result = None
             self._done.set()
             user32.DestroyWindow(self.hwnd)
@@ -416,10 +394,6 @@ class InjectionSettingsWindow(Win32Window):
             return 0
         if command_id == self.AUTOSTART_ID and notification_code == 0:
             self._handle_autostart_toggle()
-            return 0
-        if command_id == self.ANALYTICS_ID and notification_code == 0:
-            state = self.send_message(self.analytics_checkbox_hwnd, BM_GETCHECK, 0, 0)
-            self._analytics_enabled = state == BST_CHECKED
             return 0
         if command_id == self.GAME_PATH_EDIT_ID and notification_code == EN_CHANGE:
             # Path changed, update validation status
@@ -473,7 +447,6 @@ def show_injection_settings_dialog() -> None:
         "threshold": None,
         "autostart": None,
         "autostart_initial": None,
-        "analytics": None,
         "game_path": None,
     }
     done_event = threading.Event()
@@ -496,7 +469,6 @@ def show_injection_settings_dialog() -> None:
                 result_holder["threshold"] = window.result
                 result_holder["autostart"] = window.autostart_result
                 result_holder["autostart_initial"] = window.autostart_initial
-                result_holder["analytics"] = window.analytics_result
                 result_holder["game_path"] = window.game_path_result
         finally:
             done_event.set()
@@ -521,11 +493,6 @@ def show_injection_settings_dialog() -> None:
             MB_OK | MB_ICONERROR | MB_TOPMOST,
         )
         # Even if threshold save fails, fall through to process auto-start changes.
-
-    analytics_enabled = result_holder["analytics"]
-    if isinstance(analytics_enabled, bool) and analytics_enabled != analytics_opted_in():
-        set_analytics_opted_in(analytics_enabled)
-        log.info(f"[TraySettings] Analytics {'enabled' if analytics_enabled else 'disabled'} via settings dialog")
 
     # Save game path if provided
     game_path = result_holder["game_path"]
