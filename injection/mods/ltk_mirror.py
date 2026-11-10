@@ -17,6 +17,7 @@ from ..overlay.ltf_journal import JOURNAL_FILE, LtfJournal
 from ..overlay.ltk_data import IndexEntry, read_mod_analysis
 from .fantome import read_info
 from .manifest import (
+    UnreadableManifest,
     HIDDEN,
     MANIFEST_WRITERS_LOCK,
     MIRRORED,
@@ -75,8 +76,13 @@ def mirror_users_mods(storage: ModStorageService, index: Mapping[str, IndexEntry
     Rose's own entries are read after *index*: one Rose adds meanwhile is in
     the index first, and should it be listed as the user's, the next mirror
     drops it."""
+    try:
+        analysis = read_mod_analysis()
+    except (OSError, ValueError) as e:
+        log.warning(f"[MODS] LTK Manager's analysis of its mods cannot be read now: the mods added there stay "
+                    f"listed as they are ({e})")
+        return MirrorReport(failed=list(index))
     rose_ids = _journal_ids(storage.mods_root) | manifest_ltk_ids(storage.mods_root)
-    analysis = read_mod_analysis()
     wanted = {ltk_id: category_of(analysis.get(ltk_id)) for ltk_id in index if ltk_id not in rose_ids}
     listings = defaultdict(list)
     for mod in ltk_library_mods(storage.mods_root):
@@ -161,6 +167,6 @@ def _list(storage: ModStorageService, entry: IndexEntry, category: str, source: 
             for path in filter(None, written):
                 safe_remove_entry(path)
             raise
-        if source is not None:
-            storage.delete_category_mod(source.kind, source.name)
+        if source is not None and not storage.delete_category_mod(source.kind, source.name):
+            raise UnreadableManifest(f"{source.name} stays listed in {source.kind} too, until the next mirror")
     return fields.get("displayName") or name

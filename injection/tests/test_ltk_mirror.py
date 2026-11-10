@@ -2,10 +2,11 @@ import json
 import unittest
 from unittest.mock import patch
 
-from injection.mods import ltk_mirror, mod_placement
+from injection.mods import ltk_mirror, ltk_sync, mod_placement
 from injection.mods.ltk_mirror import category_of
 from injection.mods.manifest import ltk_library_mods, ltk_removals, set_hidden
 from injection.mods.mod_facts import compute_mod_facts
+from injection.overlay import ltk_data
 from injection.tests import test_ltk_sync
 from injection.tests.test_ltk_sync import MAP, MAP_ID, NEW_ID, VO_ID
 from injection.tests.test_mod_archives import PNG, VOICEOVER
@@ -220,6 +221,30 @@ class MirrorTests(unittest.TestCase):
         self.sync(only_if_changed=True)
 
         self.assertEqual(list(self.listed()), ["dark-hud"])
+
+    def test_a_move_whose_old_listing_cannot_be_taken_out_is_finished_at_the_next_champion_select(self):
+        self.ltk_archive("dark-hud", USERS_HUD)
+        self.write_index((NEW_ID, "dark-hud"))
+        self.sync()
+        self.analysed(**{NEW_ID: {"tags": ["ui"]}})
+        with patch.object(self.storage, "delete_category_mod", return_value=False):
+            self.sync(only_if_changed=True)
+
+        self.sync(only_if_changed=True)
+
+        self.assertEqual((list(self.listed("ui")), self.listed("others")), (["dark-hud"], {}))
+
+    def test_an_analysis_that_cannot_be_read_leaves_the_lists_as_they_are_until_it_can_be(self):
+        self.ltk_archive("dark-hud", USERS_HUD)
+        self.write_index((NEW_ID, "dark-hud"))
+        self.analysed(**{NEW_ID: {"tags": ["ui"]}})
+        self.sync(only_if_changed=True)
+        (self.data / "wad-reports.json").write_text('{"version": 1, "rep', encoding="utf-8")
+
+        self.sync(only_if_changed=True)
+
+        self.assertEqual((list(self.listed("ui")), self.listed("others")), (["dark-hud"], {}))
+        self.assertNotEqual(ltk_sync._last_synced_version, ltk_data.library_version(), "synced again next time")
 
     def test_one_that_cannot_be_listed_whole_leaves_nothing_behind_and_is_listed_at_the_next_sync(self):
         self.ltk_archive("dark-hud", USERS_HUD)

@@ -187,7 +187,9 @@ def read_mod_analysis() -> Dict[str, dict]:
     """What LTK Manager's own analysis found in each mod of its library, by
     entry id: {"tags": ["champion-skin", "map-skin", "ui"...], "maps": [...],
     "champions": [...]} (its wad-reports.json, written as it installs a mod).
-    A mod it has not analysed is left out; {} when it cannot be read."""
+    A mod it has not analysed is left out; {} when it analysed none. Raises
+    OSError or ValueError when it cannot be read (LTK Manager writing it,
+    another layout): never read that as "no mod is analysed"."""
     data_dir = ltk_data_dir()
     if data_dir is None:
         return {}
@@ -195,12 +197,11 @@ def read_mod_analysis() -> Dict[str, dict]:
         document = json.loads((data_dir / WAD_REPORTS).read_text(encoding="utf-8"))
     except FileNotFoundError:
         return {}
-    except (OSError, ValueError) as e:
-        log.debug(f"[MODS] Could not read LTK Manager's mod analysis: {e}")
-        return {}
     reports = document.get("reports") if isinstance(document, dict) else None
+    if not isinstance(reports, dict):
+        raise ValueError(f"{WAD_REPORTS} holds no reports")
     return {
-        str(mod_id): report["derived"] for mod_id, report in (reports.items() if isinstance(reports, dict) else ())
+        str(mod_id): report["derived"] for mod_id, report in reports.items()
         if isinstance(report, dict) and isinstance(report.get("derived"), dict)
     }
 
