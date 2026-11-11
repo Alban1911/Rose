@@ -24,7 +24,8 @@ from injection.baseskin.audio import AudioBanks, MergeContext, SharedUnit
 from injection.baseskin.bnk import Bank, wwise_hash
 from injection.baseskin.package import character_names, split_wad_name
 from injection.baseskin.propbin import (
-    EMBED, HASH, LIST, POINTER, STRING, Bin, Embed, Entry, Field, Value, build, entry_types, fnv1a_lower,
+    EMBED, HASH, LIST, NONE, POINTER, STRING, U8, Bin, Embed, Entry, Field, PropError, Value, build, entry_types,
+    fnv1a_lower,
 )
 from injection.baseskin.wad import BytesSource, FileSource, GameWad, ModWad, WadError, path_hash
 from injection.mods.mod_facts import archive_index_hash
@@ -183,6 +184,36 @@ class PropBinTests(unittest.TestCase):
     def test_a_file_that_is_not_a_bin_lists_no_types(self):
         self.assertEqual(entry_types(b"RW\x03\x04"), [])
         self.assertEqual(entry_types(build([skin_entry()])), [SKIN_DATA])
+
+    def test_a_list_of_nones_is_refused_whatever_count_it_gives(self):
+        # NONE values take no bytes: the count alone would have the reader build billions
+        data = _skin_bin_of(struct.pack("<H", 1) + struct.pack("<IBBII", 1, LIST, NONE, 4, 0xFFFFFFFF))
+        with self.assertRaises(PropError):
+            Bin(data).find_entry(SKIN_DATA)
+
+    def test_a_container_whose_size_disagrees_with_its_values_is_refused(self):
+        items = struct.pack("<I", 1) + b"\x07"
+        for size in (len(items) - 1, len(items) + 1, 0xFFFFFF00):
+            fields = struct.pack("<H", 2) + struct.pack("<IBBI", 1, LIST, U8, size) + items
+            fields += struct.pack("<IB", 2, U8) + b"\x08"
+            with self.subTest(size=size), self.assertRaises(PropError):
+                Bin(_skin_bin_of(fields)).find_entry(SKIN_DATA)
+
+    def test_a_bin_nested_too_deep_comes_back_as_it_came(self):
+        fields = struct.pack("<H", 0)
+        for _ in range(2000):
+            fields = struct.pack("<H", 1) + struct.pack("<IBII", 7, EMBED, 9, len(fields)) + fields
+        data = _skin_bin_of(fields)
+        with self.assertRaises(PropError):
+            Bin(data).find_entry(SKIN_DATA)
+        runner = steps.BaseSkinSteps(None, Path("Aatrox.wad.client"))
+        self.assertIs(runner.apply_all([("aatrox", data)])[0], data)
+
+
+def _skin_bin_of(fields):
+    """A bin whose one SkinCharacterDataProperties entry holds *fields* (raw bytes, count first)."""
+    body = struct.pack("<I", H("Characters/Aatrox/Skins/Skin0")) + fields
+    return b"PROP" + struct.pack("<IIII", 3, 0, 1, SKIN_DATA) + struct.pack("<I", len(body)) + body
 
 
 def _rewritten(data):
