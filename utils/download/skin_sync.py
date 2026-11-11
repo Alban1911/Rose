@@ -431,10 +431,29 @@ class SkinSync:
             log.info(f"[SKINS] Removed {removed} files no longer in the library")
         return removed
 
+    # -- temp files a killed sync left behind -----------------------------------
+    def _remove_stale_temps(self) -> None:
+        """Delete atomic_write temp files (.<name>.<random>.tmp) from an interrupted sync.
+
+        A hard kill skips atomic_write's cleanup, and remove_obsolete ignores
+        dot-files, so a partial download would stay on disk forever.
+        """
+        folders = [(root, True) for root in self.roots] + [(self.state_path.parent, False)]
+        for folder, recursive in folders:
+            if not folder.is_dir():
+                continue
+            for local in list(folder.rglob(".*.tmp") if recursive else folder.glob(".*.tmp")):
+                try:
+                    if local.is_file():
+                        local.unlink()
+                except OSError as e:
+                    log.debug(f"[SKINS] Could not remove stale temp file {local}: {e}")
+
     # -- all of it --------------------------------------------------------------
     def run(self) -> Optional[SyncResult]:
         """Sync the library; None when no listing could be read (nothing changed)."""
         self._emit(0, "Checking for skin updates...", force=True)
+        self._remove_stale_temps()
         state = self._load_state()
         manifest = self.fetch_manifest(state)
         if manifest is None:
