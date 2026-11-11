@@ -104,6 +104,17 @@ class ConnectionTests(unittest.TestCase):
         connection.refresh_if_needed()
         self.assertIs(connection.session, session)
 
+    def test_forced_refresh_with_same_credentials_keeps_connection(self):
+        connection = LCUConnection()
+        session = connection.session
+        with patch('lcu.core.lcu_connection.log_section') as log_section, \
+             patch.object(LCUConnection, '_check_client_elevation') as elevation:
+            connection.refresh_if_needed(force=True)
+        self.proc.assert_called()
+        self.assertIs(connection.session, session)
+        log_section.assert_not_called()
+        elevation.assert_not_called()
+
     def test_restart_rotates_credentials(self):
         connection = LCUConnection()
         self.proc.return_value = lockfile.Lockfile('LeagueClientUx', 43, 23456, 'b', 'https')

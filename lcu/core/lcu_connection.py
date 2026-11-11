@@ -51,7 +51,7 @@ class LCUConnection:
         })  # explicit None keeps Requests from re-reading env vars later
         return session
     
-    def _init_from_lockfile(self, force: bool = False):
+    def _init_from_lockfile(self):
         """Initialize from lockfile or a running regional client's arguments."""
         previous_path = self.lf_path
         lf = find_lockfile(self._explicit_lockfile)
@@ -72,8 +72,7 @@ class LCUConnection:
             new_credentials = (lockfile_data.port, lockfile_data.password)
             current_credentials = (self.port, self.pw)
             same_connection = (
-                not force
-                and self.ok
+                self.ok
                 and previous_path == lf
                 and current_credentials == new_credentials
             )
@@ -84,9 +83,11 @@ class LCUConnection:
                 log.debug(f"Failed to get lockfile mtime: {e}")
                 self.lf_mtime = time.time()
 
-            # League may touch the lockfile without changing its endpoint.
-            # Do not rebuild the HTTP session or report a false reconnect in
-            # that case; several threads call refresh_if_needed().
+            # League may touch the lockfile without changing its endpoint, and
+            # every failed request forces a re-read. Do not rebuild the HTTP
+            # session or report a false reconnect in that case; several threads
+            # call refresh_if_needed(). urllib3 already drops a broken pooled
+            # connection, so the retry does not need a new session.
             if same_connection:
                 return
 
@@ -133,7 +134,7 @@ class LCUConnection:
             if not force and time.monotonic() < self._next_credentials_check:
                 return
             old = (self.port, self.pw)
-            self._init_from_lockfile(force=force)
+            self._init_from_lockfile()
             new = (self.port, self.pw)
             if self.ok and old != new:
                 log_success(log, f"LCU reloaded (port={self.port})", "")
