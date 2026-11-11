@@ -3017,6 +3017,8 @@
 
       // Request initial data on every (re)connect
       bridge.onReady(() => {
+        // A restarted Rose has no category mod selected: send the saved ones again
+        emittedHistoricSelectionKeys.clear();
         requestSettings();
         requestMaps();
         requestFonts();
