@@ -2063,13 +2063,27 @@ class MessageHandler:
             response["error"] = error
         self._send_response(json.dumps(response))
 
-    def _clear_category_selection_if_matches(self, category: object, mod_name: object) -> None:
+    def _saved_category_identity(self, category: object, mod_name: object) -> Optional[str]:
+        """Identity of the saved category mod about to be deleted (None if unknown)."""
+        try:
+            mod = self.mod_storage.saved_mod(f"{category}/{mod_name}")
+        except Exception:
+            return None
+        identity = getattr(mod, "identity", None)
+        return identity if isinstance(identity, str) else None
+
+    def _clear_category_selection_if_matches(
+        self, category: object, mod_name: object, identity: Optional[str] = None
+    ) -> None:
         """Clear live selection and mod historic if they point at the deleted category mod."""
         if not category or not mod_name:
             return
         target = f"{category}/{mod_name}".replace("\\", "/")
-        # An archive mod is selected by its path, extension included
+        # An archive mod is selected by its path, extension included. A mod
+        # LTK Manager has not taken yet keeps its own (e.g. .modpkg) identity.
         targets = {target, f"{target}.fantome"}
+        if identity:
+            targets.add(identity.replace("\\", "/"))
 
         def _same_path(value: object) -> bool:
             return bool(value) and str(value).replace("\\", "/") in targets
@@ -2133,9 +2147,10 @@ class MessageHandler:
             }))
             return
         try:
+            identity = self._saved_category_identity(category, mod_name)
             deleted = self.mod_storage.delete_category_mod(category, mod_name)
             if deleted:
-                self._clear_category_selection_if_matches(category, mod_name)
+                self._clear_category_selection_if_matches(category, mod_name, identity)
                 log.info(
                     "[DeleteMod] Deleted category mod: category=%s, mod=%s",
                     category,
@@ -2179,9 +2194,10 @@ class MessageHandler:
                     continue
                 mod_name = mod.get("modName")
                 try:
+                    identity = self._saved_category_identity(category, mod_name)
                     deleted = self.mod_storage.delete_category_mod(category, mod_name)
                     if deleted:
-                        self._clear_category_selection_if_matches(category, mod_name)
+                        self._clear_category_selection_if_matches(category, mod_name, identity)
                         results.append({"success": True, "modName": mod_name})
                     else:
                         results.append({
