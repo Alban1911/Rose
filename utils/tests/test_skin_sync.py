@@ -216,6 +216,32 @@ class SkinSyncTests(unittest.TestCase):
         self.assertFalse(self.local("skins/1/1001/1002/1002.fantome").exists())
         self.assertTrue((self.skins / skin_sync.STATE_FILE).exists())  # Rose's own files stay
 
+    def test_folders_left_empty_are_removed_up_to_the_library(self):
+        self.sync()
+        old = self.local("skins/9/9001/9002/9002.fantome")
+        old.parent.mkdir(parents=True)
+        old.write_bytes(b"removed upstream")
+        left_empty = self.skins / "8" / "8001" / "8002"  # by an interrupted sync
+        left_empty.mkdir(parents=True)
+        del self.github.files["classic/1/1001/1001.fantome"]
+        self.github.etag = '"manifest-2"'
+
+        self.sync()
+
+        self.assertFalse((self.skins / "9").exists())
+        self.assertFalse((self.skins / "8").exists())
+        self.assertEqual(list(self.downloader.classic_dir.iterdir()), [])  # the library's own folder stays
+        self.assertTrue(self.local("skins/1/1001/1002/1002.fantome").exists())
+
+    def test_a_path_leaving_the_library_is_not_written(self):
+        self.github.files["skins/../../outside.fantome"] = b"outside"
+
+        result = self.sync()
+
+        self.assertTrue(result.complete)
+        self.assertFalse((self.root.parent / "outside.fantome").exists())
+        self.assertEqual([url for url in self.github.downloads() if "outside" in url], [])
+
     def test_a_rewritten_commit_falls_back_to_main(self):
         self.github.commit_gone = True
 

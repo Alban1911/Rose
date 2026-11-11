@@ -251,10 +251,42 @@ class SkinSync:
         self._last_progress = now
         self.progress(max(0.0, min(percent, 100.0)), message)
 
+    # -- what is on disk --------------------------------------------------------
+    def scan(self) -> Tuple[Dict[str, os.stat_result], List[str]]:
+        """The files under the synced folders (case-normalized path -> size and
+        times) and the folders that hold nothing.
+
+        One walk: a folder's listing gives the size and times of its files, so
+        no file is opened (looking each one up took 4s of every start, and
+        walking the folders again for the files to remove 4s more)."""
+        files: Dict[str, os.stat_result] = {}
+        empty: List[str] = []
+        folders = [str(root) for root in self.roots if root.is_dir()]
+        while folders:
+            folder = folders.pop()
+            try:
+                with os.scandir(folder) as entries:
+                    listing = list(entries)
+            except OSError:
+                continue
+            if not listing:
+                empty.append(folder)
+            for entry in listing:
+                try:
+                    if entry.is_dir(follow_symlinks=False):
+                        folders.append(entry.path)
+                    elif entry.is_file():
+                        files[os.path.normcase(entry.path)] = entry.stat()
+                except OSError:
+                    continue
+        return files, empty
+
     # -- what to download -------------------------------------------------------
-    def plan(self, manifest: Manifest, state: dict) -> List[Tuple[str, Path, str, int]]:
-        """The files to download: missing, of another size, or whose content
-        differs (hashed once when nothing was recorded for them)."""
+    def plan(self, manifest: Manifest, state: dict,
+             on_disk: Dict[str, os.stat_result]) -> List[Tuple[str, Path, str, int]]:
+        """The files to download: missing from *on_disk* (scan), of another
+        size, or whose content differs (hashed once when nothing was recorded
+        for them)."""
         known: Dict[str, list] = state["files"]
         todo: List[Tuple[str, Path, str, int]] = []
         to_hash: List[Tuple[str, Path, str, int, os.stat_result]] = []
@@ -262,9 +294,8 @@ class SkinSync:
             local = self.resolve(path)
             if local is None:
                 continue
-            try:
-                stat = local.stat()
-            except OSError:
+            stat = on_disk.get(os.path.normcase(str(local)))
+            if stat is None:
                 todo.append((path, local, sha, size))
                 continue
             record = known.get(path)
@@ -397,33 +428,36 @@ class SkinSync:
         return result
 
     # -- files no longer in the library -----------------------------------------
-    def remove_obsolete(self, manifest: Manifest, state: dict) -> int:
-        """Delete files under the synced folders that the manifest no longer lists."""
+    def remove_obsolete(self, manifest: Manifest, state: dict,
+                        on_disk: Dict[str, os.stat_result], empty: List[str]) -> int:
+        """Delete the files of *on_disk* (scan) that the manifest no longer
+        lists, then the folders that leaves empty and those of *empty*."""
         expected = set()
         for path in manifest.files:
             local = self.resolve(path)
             if local is not None:
                 expected.add(os.path.normcase(str(local)))
         removed = 0
-        for root in self.roots:
-            if not root.is_dir():
+        emptied = set(empty)
+        for local in on_disk:
+            # Rose's own state and temporary files start with a dot
+            if local in expected or os.path.basename(local).startswith("."):
                 continue
-            for local in list(root.rglob("*")):
-                # Rose's own state and temporary files start with a dot
-                if not local.is_file() or local.name.startswith("."):
-                    continue
-                if os.path.normcase(str(local)) in expected:
-                    continue
+            try:
+                os.unlink(local)
+                removed += 1
+                emptied.add(os.path.dirname(local))
+            except OSError as e:
+                log.debug(f"[SKINS] Could not remove {local}: {e}")
+        roots = {os.path.normcase(str(root)) for root in self.roots}
+        for folder in emptied:
+            # Up the tree while a folder goes: only an empty one does
+            while os.path.normcase(folder) not in roots:
                 try:
-                    local.unlink()
-                    removed += 1
-                except OSError as e:
-                    log.debug(f"[SKINS] Could not remove {local}: {e}")
-            for folder in sorted((p for p in root.rglob("*") if p.is_dir()), key=lambda p: len(p.parts), reverse=True):
-                try:
-                    folder.rmdir()  # only empty ones
+                    os.rmdir(folder)
                 except OSError:
-                    pass
+                    break
+                folder = os.path.dirname(folder)
         known = state["files"]
         for path in [p for p in known if p not in manifest.files]:
             del known[path]
@@ -440,10 +474,11 @@ class SkinSync:
         if manifest is None:
             return None
         self._emit(5, "Checking skin library...", force=True)
-        todo = self.plan(manifest, state)
+        on_disk, empty = self.scan()
+        todo = self.plan(manifest, state, on_disk)
         result = self.download(manifest, state, todo)
         self._emit(95, "Cleaning up removed skins...", force=True)
-        result.removed = self.remove_obsolete(manifest, state)
+        result.removed = self.remove_obsolete(manifest, state, on_disk, empty)
         state["manifest_etag"] = manifest.etag if manifest.source == "manifest" else None
         state["commit"] = manifest.commit
         state["complete"] = result.complete
