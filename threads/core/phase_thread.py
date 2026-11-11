@@ -78,16 +78,18 @@ class PhaseThread(threading.Thread):
                 ph = None
             
             # If phase is unknown (None), skip handling.
-            # Use a grace period to avoid wiping Swiftplay state on transient
-            # API hiccups (the LCU can briefly return None during transitions).
+            # Use a grace period to avoid wiping the phase and Swiftplay state on
+            # transient API hiccups (the LCU can briefly return None during
+            # transitions): one missed poll in the countdown would end the
+            # loadout ticker and the match would get no skin
             if ph is None:
-                from threads.handlers.champ_select_reset import note_phase_for_reset
-                note_phase_for_reset(self.state, None)
-                self.state.phase = None
                 self._null_phase_streak += 1
 
                 # Only clean up after several consecutive None polls (~1.5-2.5 s)
                 if self._null_phase_streak >= 3:
+                    from threads.handlers.champ_select_reset import note_phase_for_reset
+                    note_phase_for_reset(self.state, None)
+                    self.state.phase = None
                     if self.state.is_swiftplay_mode:
                         # Swiftplay flag is still set but LCU returned None for
                         # several polls — the session is gone.  Full cleanup.
