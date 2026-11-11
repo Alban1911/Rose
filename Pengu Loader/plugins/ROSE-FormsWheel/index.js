@@ -4585,6 +4585,12 @@
 
     // Add click outside handler to close
     const closeHandler = function closePanelOnOutsideClick(e) {
+      // Panel was already removed by another path (chroma selected, button
+      // toggle...): drop this listener so it doesn't leak with the old panel
+      if (!panel.isConnected) {
+        document.removeEventListener("click", closeHandler);
+        return;
+      }
       if (
         panel &&
         panel.parentNode &&
