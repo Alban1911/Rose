@@ -73,6 +73,17 @@ class PhaseThread(threading.Thread):
                 if ph in ("None", "Lobby", "EndOfGame"):
                     from utils.integration import pengu_loader
                     pengu_loader.retry_deferred_restart()
+                if ph == "None":
+                    # The home screen never reaches the phase handler (an
+                    # unknown phase is skipped below): start the base-skin fix
+                    # of the stored skins from here. The shared phase is the
+                    # home screen's already, or the pass stops on the last one
+                    self.state.phase = None
+                    try:
+                        from injection.baseskin.library import on_phase as fix_stored_skins_when_idle
+                        fix_stored_skins_when_idle(ph, self.injection_manager, self.state)
+                    except Exception as e:  # noqa: BLE001 - phase handling goes on
+                        log.warning(f"[phase] Could not start checking the stored skins against the base skin: {e}")
 
             if ph == "None":
                 ph = None
