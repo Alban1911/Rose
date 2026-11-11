@@ -555,12 +555,13 @@
     }
   `;
 
-  function emitBridgeLog(event, data = {}) {
+  function emitBridgeLog(event, data = {}, level) {
     try {
       const payload = {
         type: "chroma-log",
         source: "FormsWheel",
         event,
+        level,
         data,
         timestamp: Date.now(),
       };
@@ -1532,15 +1533,15 @@
   const log = {
     info: (msg, extra) => {
       console.log(`${LOG_PREFIX} ${msg}`, extra ?? "");
-      emitBridgeLog("info", { message: msg, data: extra });
+      emitBridgeLog("info", { message: msg, data: extra }, "info");
     },
     warn: (msg, extra) => {
       console.warn(`${LOG_PREFIX} ${msg}`, extra ?? "");
-      emitBridgeLog("warn", { message: msg, data: extra });
+      emitBridgeLog("warn", { message: msg, data: extra }, "warn");
     },
     debug: (msg, extra) => {
       console.debug(`${LOG_PREFIX} ${msg}`, extra ?? "");
-      emitBridgeLog("debug", { message: msg, data: extra });
+      emitBridgeLog("debug", { message: msg, data: extra }, "debug");
     },
   };
 

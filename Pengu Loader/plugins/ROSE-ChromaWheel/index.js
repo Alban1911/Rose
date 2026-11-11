@@ -467,13 +467,14 @@
     }
   `;
 
-  function emitBridgeLog(event, data = {}) {
+  function emitBridgeLog(event, data = {}, level) {
     try {
       if (bridge) {
         bridge.send({
           type: "chroma-log",
           source: "LU-ChromaWheel",
           event,
+          level,
           data,
           timestamp: Date.now(),
         });
@@ -900,19 +901,19 @@
   const log = {
     info: (msg, extra) => {
       console.log(`${LOG_PREFIX} ${msg}`, extra ?? "");
-      emitBridgeLog("info", { message: msg, data: extra });
+      emitBridgeLog("info", { message: msg, data: extra }, "info");
     },
     warn: (msg, extra) => {
       console.warn(`${LOG_PREFIX} ${msg}`, extra ?? "");
-      emitBridgeLog("warn", { message: msg, data: extra });
+      emitBridgeLog("warn", { message: msg, data: extra }, "warn");
     },
     debug: (msg, extra) => {
       console.debug(`${LOG_PREFIX} ${msg}`, extra ?? "");
-      emitBridgeLog("debug", { message: msg, data: extra });
+      emitBridgeLog("debug", { message: msg, data: extra }, "debug");
     },
     error: (msg, extra) => {
       console.error(`${LOG_PREFIX} ${msg}`, extra ?? "");
-      emitBridgeLog("error", { message: msg, data: extra });
+      emitBridgeLog("error", { message: msg, data: extra }, "error");
     },
   };
 
