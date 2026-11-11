@@ -238,7 +238,7 @@ async function settle() {
 
 // ─── Plugin under test ───────────────────────────────────────────────────
 
-async function loadPlugin() {
+async function loadPlugin({ open = true } = {}) {
   FakeWebSocket.instances = [];
   const document = new FakeDocument();
   // The social bar the party button goes into
@@ -271,6 +271,7 @@ async function loadPlugin() {
 
   const ui = {
     document,
+    window: context,
     get socket() { return FakeWebSocket.instances[FakeWebSocket.instances.length - 1]; },
     get sockets() { return FakeWebSocket.instances; },
     el: (id) => document.getElementById(id),
@@ -288,7 +289,7 @@ async function loadPlugin() {
       this.socket.receive({ type: "party-state", enabled, connection: enabled ? "online" : "offline", my_token: enabled ? "ROSE:mine" : null, peers: [], ...extra });
     },
   };
-  ui.socket.open();
+  if (open) ui.socket.open();
   return ui;
 }
 
@@ -402,4 +403,18 @@ test("Rose's party state settles a request whose answer was lost", async () => {
   ui.state(false); // party mode went off: no friend is being added any more
   assert.ok(ui.dialog().hasAttribute("close-button"));
   assert.equal(ui.el("party-toggle-btn").disabled, false);
+});
+
+test("a socket that never opened follows the port Skin Monitor found", async () => {
+  const ui = await loadPlugin({ open: false });
+  assert.equal(ui.socket.url, "ws://127.0.0.1:50000");
+
+  ui.socket.drop(); // Rose is not running yet
+  ui.reconnect();
+  assert.equal(ui.socket.url, "ws://127.0.0.1:50000");
+
+  ui.window.__roseBridge = { port: 50060 }; // Rose started on another port
+  ui.socket.drop();
+  ui.reconnect();
+  assert.equal(ui.socket.url, "ws://127.0.0.1:50060");
 });
