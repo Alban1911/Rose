@@ -89,14 +89,31 @@ class SavedLtkModSelectionTests(unittest.TestCase):
         })
         return self.sent[-1]
 
-    def test_a_custom_skin_is_linked_from_its_file(self):
+    def test_a_custom_skin_is_selected_from_its_file(self):
         result = self.select_skin("Arcane Ezreal")
 
         self.assertTrue(result["success"])
         selected = self.handler.shared_state.selected_custom_mod
         self.assertEqual(selected["source"], RoseFile(self.skin, "Arcane Ezreal"))
         self.assertEqual(selected["relative_path"], "skins/81000/Arcane Ezreal.fantome")
-        self.assertEqual(self.linked, ["Arcane Ezreal.fantome"])
+
+    def test_a_late_pick_leaves_the_running_injection_mods_alone(self):
+        """The injection links its mods itself: a pick or unpick made while
+        it runs must not empty or change its mods folder"""
+        carrier = self.mods_dir / "Ezreal carrier"
+        carrier.mkdir()
+        (self.mods_dir / "Arcane Ezreal").write_bytes(b"linked")
+
+        self.select_skin("Arcane Ezreal")
+        self.handler._handle_select_skin_mod({"championId": 81, "skinId": 81020, "modId": None})
+        self.select_skin("Arcane Ezreal")
+        self.handler._handle_dismiss_custom_mod({})
+
+        self.injector._clean_mods_dir.assert_not_called()
+        self.assertEqual(self.linked, [])
+        self.assertEqual(sorted(p.name for p in self.mods_dir.iterdir()), ["Arcane Ezreal", "Ezreal carrier"])
+        self.assertIsNone(self.handler.shared_state.selected_custom_mod)
+        self.assertEqual([m["success"] for m in self.sent], [True, True, True])
 
     def test_a_map_ltk_manager_holds_is_selected_as_its_reference(self):
         self.handler.handle_message(json.dumps({
