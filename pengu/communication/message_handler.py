@@ -756,8 +756,8 @@ class MessageHandler:
 
             # Refresh the live threshold if injection manager is available
             try:
-                if hasattr(self, '_injection_manager') and self._injection_manager:
-                    self._injection_manager.refresh_injection_threshold()
+                if getattr(self, 'injection_manager', None):
+                    self.injection_manager.refresh_injection_threshold()
             except Exception as e:
                 log.warning('[SkinMonitor] Recommended threshold saved but not applied to the running injector: %s', e)
 
@@ -2670,7 +2670,14 @@ class MessageHandler:
 
             set_config_option("General", "injection_threshold", f"{threshold:.2f}")
             log.info(f"[SkinMonitor] Injection threshold updated to {threshold:.2f}s")
-            
+
+            # Apply it to the running injector too, or a champ select in progress keeps the old countdown
+            try:
+                if getattr(self, 'injection_manager', None):
+                    self.injection_manager.refresh_injection_threshold()
+            except Exception as e:
+                log.warning('[SkinMonitor] Threshold saved but not applied to the running injector: %s', e)
+
             set_config_option("General", "monitor_auto_resume_timeout", str(monitor_auto_resume_timeout))
             log.info(f"[SkinMonitor] Monitor auto-resume timeout updated to {monitor_auto_resume_timeout}s")
 
