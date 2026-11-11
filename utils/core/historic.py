@@ -41,14 +41,18 @@ def _historic_target_file_path() -> Path:
     return data_dir / "historic_targets.json"
 
 
-def load_historic_target_map() -> Dict[str, int]:
-    """Load the exact last skin/chroma target for custom history entries."""
+def _load_historic_target_map(strict: bool = False) -> Dict[str, int]:
+    # strict: raise when the file exists but cannot be read (OSError), so a
+    # writer never replaces a healthy file with a map built from nothing
     try:
         p = _historic_target_file_path()
         if not p.exists():
             return {}
         with p.open("r", encoding="utf-8") as f:
-            data = json.load(f)
+            raw = f.read()
+        if not raw.strip():
+            return {}
+        data = json.loads(raw)
         if not isinstance(data, dict):
             return {}
 
@@ -62,8 +66,15 @@ def load_historic_target_map() -> Dict[str, int]:
                 continue
         return result
     except Exception as e:
+        if strict and isinstance(e, OSError):
+            raise
         log.warning(f"[HISTORIC] Could not read the saved custom mod targets: {e}")
         return {}
+
+
+def load_historic_target_map() -> Dict[str, int]:
+    """Load the exact last skin/chroma target for custom history entries."""
+    return _load_historic_target_map()
 
 
 def get_historic_target_for_champion(champion_id: int) -> Optional[int]:
@@ -78,7 +89,7 @@ def write_historic_target(champion_id: int, target_skin_id: int) -> None:
         if target_id <= 0:
             return
         with _write_lock:
-            targets = load_historic_target_map()
+            targets = _load_historic_target_map(strict=True)
             targets[str(int(champion_id))] = target_id
             _write_json(_historic_target_file_path(), targets)
     except Exception as e:
@@ -89,7 +100,7 @@ def clear_historic_target(champion_id: int) -> None:
     """Remove the exact last selected skin/chroma target for a champion."""
     try:
         with _write_lock:
-            targets = load_historic_target_map()
+            targets = _load_historic_target_map(strict=True)
             if str(int(champion_id)) not in targets:
                 return
             targets.pop(str(int(champion_id)), None)
@@ -98,18 +109,18 @@ def clear_historic_target(champion_id: int) -> None:
         log.warning(f"[HISTORIC] Could not clear target for champion {champion_id}: {e}")
 
 
-def load_historic_map() -> Dict[str, Union[int, str]]:
-    """Load the historic mapping. Returns empty dict if missing or invalid.
-    
-    Returns:
-        Dict mapping champion IDs to either skin/chroma IDs (int) or custom mod paths (str with "path:" prefix)
-    """
+def _load_historic_map(strict: bool = False) -> Dict[str, Union[int, str]]:
+    # strict: raise when the file exists but cannot be read (OSError), so a
+    # writer never replaces a healthy file with a map built from nothing
     try:
         p = _historic_file_path()
         if not p.exists():
             return {}
         with p.open("r", encoding="utf-8") as f:
-            data = json.load(f)
+            raw = f.read()
+        if not raw.strip():
+            return {}
+        data = json.loads(raw)
         if isinstance(data, dict):
             result: Dict[str, Union[int, str]] = {}
             for k, v in data.items():
@@ -125,9 +136,20 @@ def load_historic_map() -> Dict[str, Union[int, str]]:
             return result
         return {}
     except Exception as e:
+        if strict and isinstance(e, OSError):
+            raise
         # Historic mode would silently forget every saved skin
         log.warning(f"[HISTORIC] Could not read the saved skins: {e}")
         return {}
+
+
+def load_historic_map() -> Dict[str, Union[int, str]]:
+    """Load the historic mapping. Returns empty dict if missing or invalid.
+
+    Returns:
+        Dict mapping champion IDs to either skin/chroma IDs (int) or custom mod paths (str with "path:" prefix)
+    """
+    return _load_historic_map()
 
 
 def get_historic_skin_for_champion(champion_id: int) -> Optional[Union[int, str]]:
@@ -149,9 +171,9 @@ def write_historic_entry(champion_id: int, skin_or_chroma_id: Union[int, str]) -
         skin_or_chroma_id: Either an integer skin/chroma ID, or a string custom mod path (with "path:" prefix)
     """
     with _write_lock:
-        m = load_historic_map()
-        m[str(int(champion_id))] = skin_or_chroma_id
         try:
+            m = _load_historic_map(strict=True)
+            m[str(int(champion_id))] = skin_or_chroma_id
             _write_json(_historic_file_path(), m)
         except Exception as e:
             log.warning(f"[HISTORIC] Could not save entry for champion {champion_id}: {e}")
@@ -161,7 +183,7 @@ def clear_historic_entry(champion_id: int) -> None:
     """Remove the historic entry for a champion if it exists."""
     try:
         with _write_lock:
-            m = load_historic_map()
+            m = _load_historic_map(strict=True)
             key = str(int(champion_id))
             if key in m:
                 m.pop(key, None)
@@ -179,7 +201,7 @@ def rename_mod_paths(renamed: Dict[str, str]) -> int:
     if not wanted:
         return 0
     with _write_lock:
-        m = load_historic_map()
+        m = _load_historic_map(strict=True)
         changed = 0
         for key, value in m.items():
             path = get_custom_mod_path(value)
