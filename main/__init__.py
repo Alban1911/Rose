@@ -773,6 +773,9 @@ def run_league_unlock(args: Optional[argparse.Namespace] = None,
             timeout_thread.start()
 
         tray_manager.restart_callback = updated_tray_restart_callback
+
+        # A Quit or Restart clicked while Rose was starting runs now
+        tray_manager.run_pending_request()
     
     # Initialize threads (this starts the WebSocket server)
     thread_manager, t_phase, t_ui, t_ws, t_lcu_monitor = initialize_threads(

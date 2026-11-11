@@ -91,12 +91,9 @@ def convert_stored_mods(tray_manager: Optional[TrayManager]) -> None:
 def initialize_tray_manager(args: argparse.Namespace) -> Optional[TrayManager]:
     """Initialize the system tray manager"""
     try:
-        def tray_quit_callback():
-            """Callback for tray quit - will be updated with state reference later"""
-            log.info("Setting stop flag from tray quit")
-            # Callback will be updated later when state is initialized
-        
-        tray_manager = TrayManager(quit_callback=tray_quit_callback)
+        # No callbacks yet: run_league_unlock sets them once the state exists
+        # and replays a Quit or Restart clicked before
+        tray_manager = TrayManager()
         tray_manager.start()
         log_success(log, "System tray icon initialized - console hidden", "")
         
