@@ -55,6 +55,8 @@ jobs:
         run: git ls-files -z 'Pengu Loader/plugins/*.js' | xargs -0 -n1 node --check
       - name: Party Mode reconnect regression tests
         run: node --test test/party_ui_reconnect.test.cjs
+      - name: Custom Wheel bulk delete regression tests
+        run: node --test test/custom_wheel_bulk_delete.test.cjs
 
   python:
     name: Python (errors lint, unit tests)

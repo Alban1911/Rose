@@ -2991,6 +2991,18 @@
       bridge.subscribe("others-response", (data) => handleOthersResponse({ detail: data }));
       bridge.subscribe("category-mod-deleted", handleCategoryModDeleted);
       bridge.subscribe("champion-mod-deleted", handleChampionModDeleted);
+      // The mod manager's multi-select delete sends one bulk message per batch,
+      // not one single-delete message per mod.
+      bridge.subscribe("category-mods-bulk-deleted", (data) => {
+        for (const r of (data && data.results) || []) {
+          handleCategoryModDeleted({ success: r && r.success, category: data.category, modName: r && r.modName });
+        }
+      });
+      bridge.subscribe("champion-mods-bulk-deleted", (data) => {
+        for (const r of (data && data.results) || []) {
+          handleChampionModDeleted({ success: r && r.success, relativePath: r && r.relativePath });
+        }
+      });
       bridge.subscribe("champion-locked", (data) => handleChampionLocked({ detail: data }));
       bridge.subscribe("custom-mod-state", (data) => {
         if (!data) return;
