@@ -213,6 +213,44 @@ class OverlayStagingTests(LtfSessionTestCase):
         self.assertEqual(self.state()["installed"], {})
         self.assertEqual(self.state()["disabled"], [])
 
+    def test_an_import_finishing_after_a_discard_is_removed(self):
+        mod = self.make_mod(where=self.stage_dir)
+        original = FakeBridge.import_fantome
+
+        def import_while_discarded(bridge_self, path, name=None):
+            self.overlay.discard_early_patcher()  # a dodge while LTK Manager installs
+            return original(bridge_self, path, name=name)
+
+        with patch.object(FakeBridge, "import_fantome", import_while_discarded):
+            staged = self.overlay.stage_mods(self.stage_dir, [mod])
+
+        self.assertFalse(staged)
+        self.assertEqual(self.bridge.library_entries, [])
+        self.assertEqual(self.state()["installed"], {})
+        self.assertNotIn("start_patcher", self.bridge.command_names())
+
+    def test_a_discard_survives_an_import_completing_while_it_removes_the_mods(self):
+        user_mod = {"id": "user-mod", "name": "Map", "displayName": "Map", "enabled": True}
+        FakeBridge.initial_library = [user_mod]
+        self.stage()
+        ltf = self.overlay._early_session["ltf"]
+        original = FakeBridge.uninstall
+        late = []
+
+        def uninstall_as_an_import_completes(bridge_self, target):
+            if not late:
+                # The stager's next import completes while the session's end removes the mods
+                late.append(bridge_self._install("late.fantome", "Late", b"")["response"]["value"]["id"])
+                self.host._track(ltf, late[0], "Late")
+            return original(bridge_self, target)
+
+        with patch.object(FakeBridge, "uninstall", uninstall_as_an_import_completes):
+            self.overlay.discard_early_patcher()
+
+        self.assertEqual(self.bridge.library_entries, [user_mod])
+        self.assertEqual(self.state()["installed"], {})
+        self.assertEqual(self.state()["disabled"], [])
+
     def test_a_failed_staging_reports_nothing(self):
         mod = self.make_mod(where=self.stage_dir)
 

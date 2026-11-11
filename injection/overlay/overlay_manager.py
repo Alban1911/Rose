@@ -472,8 +472,14 @@ class OverlayManager:
                     entry = self.host.import_archive(ltf, Path(archive), folder, display_name, fingerprint,
                                                      before_ids=before_ids)
                     shared_library_read.append(entry)
-                    if not entry.get("enabled"):
-                        bridge.toggle(str(entry.get("id")), True)
+                    # Under the session's lock, as SavedModSwitches.switch: one that
+                    # ended during the import removed it (LtfHost._track)
+                    with ltf.lock:
+                        if ltf.ended:
+                            log.info("[INJECT] Stopped while the mods were being installed")
+                            return False
+                        if not entry.get("enabled"):
+                            bridge.toggle(str(entry.get("id")), True)
                     log.info(f"[INJECT] Installed {display_name} into LTK Manager")
                 except (OSError, BridgeUnavailable, BridgeCommandError) as e:
                     log.error(f"[INJECT] Could not install {display_name}: {e}")
@@ -777,12 +783,16 @@ class OverlayManager:
                 except (BridgeUnavailable, BridgeCommandError) as e:
                     log.warning(f"[INJECT] Could not turn off {entry_name(entry)} - it may apply too: {e}")
                 continue
-            self.host.track_disabled(ltf, mod_id)
-            try:
-                bridge.toggle(mod_id, False)
-                log.info(f"[INJECT] Turned off {entry_name(entry)} in LTK Manager for this game")
-            except (BridgeUnavailable, BridgeCommandError) as e:
-                log.warning(f"[INJECT] Could not turn off {entry_name(entry)} - it may apply too: {e}")
+            # Under the session's lock: one that ended turns back on only what it found off
+            with ltf.lock:
+                if ltf.ended:
+                    return
+                self.host.track_disabled(ltf, mod_id)
+                try:
+                    bridge.toggle(mod_id, False)
+                    log.info(f"[INJECT] Turned off {entry_name(entry)} in LTK Manager for this game")
+                except (BridgeUnavailable, BridgeCommandError) as e:
+                    log.warning(f"[INJECT] Could not turn off {entry_name(entry)} - it may apply too: {e}")
         self._disable_broken_entries(session, library)
 
     def _disable_broken_entries(self, session: dict, library: List[dict]) -> None:

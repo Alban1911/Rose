@@ -381,6 +381,8 @@ class LtfHost:
             if session.ended:
                 return
             session.ended = True
+            # The stager may still be installing: what it adds from here it undoes itself (_track)
+            imports, turned_off = list(session.imports.items()), list(session.user_mods_turned_off)
         if ending is not None:
             ending()
 
@@ -396,7 +398,7 @@ class LtfHost:
             log.debug(f"[INJECT] Could not stop the LTK patcher: {e}")
 
         removed = []
-        for mod_id, tracked in session.imports.items():
+        for mod_id, tracked in imports:
             if self._park(session, mod_id):
                 log.debug(f"[INJECT] Turned off {tracked.source_folder} in LTK Manager, kept for the next game")
                 continue
@@ -408,7 +410,7 @@ class LtfHost:
                 log.debug(f"[INJECT] Could not remove {tracked.source_folder} from LTK Manager: {e}")
         self.switches.switch_off_all(session)
         restored = []
-        for mod_id in session.user_mods_turned_off:
+        for mod_id in turned_off:
             try:
                 bridge.toggle(mod_id, True)
                 restored.append(mod_id)
@@ -482,8 +484,23 @@ class LtfHost:
 
     def _track(self, session: LtfSession, mod_id: str, folder: str,
                fingerprint: Optional[str] = None) -> TrackedImport:
-        tracked = session.imports[mod_id] = TrackedImport(folder, fingerprint)
+        tracked = TrackedImport(folder, fingerprint)
         self.journal.update(lambda state: state["installed"].__setitem__(mod_id, folder))
+        with session.lock:
+            ended = session.ended
+            if not ended:
+                session.imports[mod_id] = tracked
+        if ended:
+            # An import that completed after the session ended (a discard while
+            # LTK Manager installed it): its end no longer removes it
+            try:
+                session.bridge.uninstall(mod_id)
+            except (BridgeUnavailable, BridgeCommandError) as e:
+                # Still journaled: the next session removes it
+                self._turn_off_instead(session.bridge, mod_id, tracked, e)
+                return tracked
+            self.journal.untrack(removed=[mod_id])
+            log.debug(f"[INJECT] Removed {folder} from LTK Manager: the session ended while it was installed")
         return tracked
 
     def remove_unwanted(self, session: LtfSession, mod_ids: List[str]) -> bool:
