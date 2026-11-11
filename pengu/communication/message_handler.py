@@ -776,55 +776,21 @@ class MessageHandler:
                 log.debug('[SkinMonitor] Could not send diagnostics failure response: %s', send_error)
 
     def _clear_issues_categories(self, categories: set[str]) -> bool:
-        """Remove matching diagnostics entries from rose_diagnostics.txt (best-effort)."""
+        """Remove the diagnostics entries Troubleshooting shows under these categories (best-effort)."""
         try:
-            if not categories:
+            # The summaries _compute_diagnostics_errors gives each category's
+            # reports: matching the message text again would also take reports
+            # Troubleshooting shows apart (an LTK patcher refusal names a
+            # "verification failed" too)
+            summaries = {
+                "injection_threshold": "Injection Threshold → increase",
+                "monitor_timeout": "Monitor Auto-Resume Timeout → increase",
+                "disk_space": "Low Disk Space -> free up space",
+            }
+            keys = {summaries[c] for c in categories if c in summaries}
+            if not keys:
                 return False
-            p = get_user_data_dir() / "rose_diagnostics.txt"
-            if not p.exists():
-                return True
-
-            txt = p.read_text(encoding="utf-8", errors="ignore").splitlines()
-
-            # Parse file into entry blocks: ["ts | msg", optional "Fix: ..."]
-            blocks: list[tuple[str, str]] = []
-            i = 0
-            while i < len(txt):
-                line = (txt[i] or "").rstrip()
-                if " | " in line:
-                    msg = line
-                    fix = ""
-                    if i + 1 < len(txt):
-                        nxt = (txt[i + 1] or "").rstrip()
-                        if nxt.startswith("Fix:"):
-                            fix = nxt
-                            i += 1
-                    blocks.append((msg, fix))
-                i += 1
-
-            def _cat_for(msg_line: str, fix_line: str) -> str:
-                ml = (msg_line or "").lower()
-                fl = (fix_line or "").lower()
-                # Match the same categories we summarize
-                if 'not enough disk space' in ml or ('disk space' in ml and 'injection failed' in ml):
-                    return 'disk_space'
-                if "auto-resume safety" in ml or "monitor auto-resume timeout" in fl:
-                    return "monitor_timeout"
-                if "base skin forcing took longer" in ml or "injection threshold" in ml or "injection threshold" in fl or "base skin force time" in fl or "base skin confirmation" in fl or "verification failed" in ml:
-                    return "injection_threshold"
-                return "other"
-
-            kept_lines: list[str] = []
-            for msg_line, fix_line in blocks:
-                cat = _cat_for(msg_line, fix_line)
-                if cat in categories:
-                    continue
-                kept_lines.append(msg_line)
-                if fix_line:
-                    kept_lines.append(fix_line)
-
-            # Preserve trailing newline style expected by the reader
-            p.write_text("\n".join(kept_lines) + ("\n" if kept_lines else ""), encoding="utf-8", errors="ignore")
+            self._compute_diagnostics_errors(delete_keys=keys)
             return True
         except Exception as e:
             log.warning(f"[SkinMonitor] Could not clear diagnostics categories {categories}: {e}")
