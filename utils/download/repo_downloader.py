@@ -7,6 +7,7 @@ only the files that differ are downloaded, from raw.githubusercontent.com, with
 no GitHub API call.
 """
 
+import os
 from pathlib import Path
 from typing import Callable, Optional, Dict
 from utils.core.logging import get_logger
@@ -27,14 +28,15 @@ class RepoDownloader:
         progress_callback: Optional[ProgressCallback] = None,
     ):
         # Use user data directory for skins to avoid permission issues
-        # (the folders are resolved once: _resolve_local_path checks the library's paths against them)
-        self.target_dir = (target_dir or get_skins_dir()).resolve()
+        # (made absolute without the disk, so a folder keeps the spelling it was
+        # given: _resolve_local_path checks the library's paths against it)
+        self.target_dir = Path(os.path.abspath(target_dir or get_skins_dir()))
         self.progress_callback = progress_callback
 
         # Rift Classic skins (the repository's classic/ folder) and the resources
         # folder sit next to the skins (a library given its own folder keeps them there)
-        self.classic_dir = (get_classic_skins_dir() if target_dir is None else self.target_dir.parent / "classic").resolve()
-        self.resources_dir = ((get_user_data_dir() if target_dir is None else self.target_dir.parent) / "resources").resolve()
+        self.classic_dir = Path(os.path.abspath(get_classic_skins_dir() if target_dir is None else self.target_dir.parent / "classic"))
+        self.resources_dir = Path(os.path.abspath((get_user_data_dir() if target_dir is None else self.target_dir.parent) / "resources"))
     
     def _emit_progress(self, percent: float, message: Optional[str] = None):
         if not self.progress_callback:
