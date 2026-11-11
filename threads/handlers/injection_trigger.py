@@ -18,7 +18,11 @@ from utils.core.logging import get_logger, log_action
 from utils.core.junction import is_junction
 from utils.core.utilities import is_default_skin, is_selectable_owned
 from injection.classic import is_classic_game_mode
-from injection.config.base_skin_tracker import start_tracking as _start_skin_tracking
+from injection.config.base_skin_tracker import (
+    cancel_tracking as _cancel_skin_tracking,
+    on_skin_confirmed as _on_skin_confirmed,
+    start_tracking as _start_skin_tracking,
+)
 from injection.core.stage_plan import (
     PARTY_SKINS_LABEL,
     CarrierStep,
@@ -1303,7 +1307,13 @@ class InjectionTrigger:
             sess = self.lcu.session or {}
             actions = sess.get("actions") or []
             my_cell = self.state.local_cell_id
-            
+
+            # Time the confirmation from before the request: the client's
+            # session update can arrive before its answer, and tracked from
+            # after it, the next update to confirm the skin was the one that
+            # ends champion select
+            _start_skin_tracking(base_skin_id)
+
             action_found = False
             is_action_completed = False
             
@@ -1333,9 +1343,8 @@ class InjectionTrigger:
                 else:
                     log.warning(f"[INJECT] Failed to force base skin")
 
-            # Log timing and start tracking for WebSocket confirmation.
-            # The real benchmark is how long until the server confirms the skin
-            # change via a session event — not just the API call duration.
+            # Log the request's timing. The real benchmark is how long until
+            # the client confirms the skin change, which the tracker times.
             dt_force_s = None
             threshold_s = None
             if base_skin_set_successfully:
@@ -1348,11 +1357,8 @@ class InjectionTrigger:
 
                     dt_force_s = float(time.perf_counter() - t_force0)
                     log.info(f"[INJECT] Base skin force time: {dt_force_s:.3f}s (threshold: {threshold_s:.3f}s)")
-
-                    # Start tracking for WebSocket confirmation
-                    _start_skin_tracking(base_skin_id)
                 except Exception as e:
-                    log.warning("[INJECT] Could not start base skin confirmation tracking: %s", e, exc_info=True)
+                    log.warning("[INJECT] Could not log the base skin force time: %s", e, exc_info=True)
             
             # Verify the change
             if base_skin_set_successfully:
@@ -1398,10 +1404,13 @@ class InjectionTrigger:
                                     log.debug("[INJECT] Could not report base skin verification issue: %s", e)
                             else:
                                 log.info(f"[INJECT] Base skin verified: {current_skin}")
+                                # Confirms it when no session update did
+                                _on_skin_confirmed(current_skin)
                             break
                 else:
                     log.info(f"[INJECT] Skipping base skin verification wait in random mode")
             else:
+                _cancel_skin_tracking()
                 log.warning(f"[INJECT] Failed to force base skin - injection may fail")
         
         except Exception as e:

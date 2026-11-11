@@ -25,6 +25,10 @@ log = get_logger()
 _LOCK = threading.Lock()
 _MAX_SAMPLES = 50  # Keep last N samples
 _MAX_CONFIRMATION_S = 10.0  # Discard confirmations longer than this (likely stale tracking)
+# Samples without it were timed from after the client's answer, which its
+# confirmation precedes: they lasted until the end of champion select, about
+# the injection threshold itself
+_SAMPLE_VERSION = 2
 
 # Singleton state
 _pending_skin_id: Optional[int] = None
@@ -41,7 +45,7 @@ def _load_samples() -> list[dict]:
         if p.exists():
             data = json.loads(p.read_text(encoding="utf-8"))
             if isinstance(data, list):
-                return data[-_MAX_SAMPLES:]
+                return [s for s in data if s.get("v") == _SAMPLE_VERSION][-_MAX_SAMPLES:]
     except Exception as e:
         log.warning("[TRACKER] Could not load base skin samples: %s", e)
     return []
@@ -57,7 +61,8 @@ def _save_samples(samples: list[dict]) -> None:
 
 
 def start_tracking(target_skin_id: int) -> None:
-    """Call after PATCHing the base skin. Records what we're waiting for."""
+    """Call before PATCHing the base skin: the client's confirmation can
+    arrive before its answer to the request. Records what we're waiting for."""
     global _pending_skin_id, _pending_start
     with _LOCK:
         _pending_skin_id = target_skin_id
@@ -65,8 +70,17 @@ def start_tracking(target_skin_id: int) -> None:
     log.debug(f"[TRACKER] Tracking base skin confirmation for skinId={target_skin_id}")
 
 
+def cancel_tracking() -> None:
+    """Call when the base skin could not be forced: nothing will confirm it."""
+    global _pending_skin_id, _pending_start
+    with _LOCK:
+        _pending_skin_id = None
+        _pending_start = 0.0
+
+
 def on_skin_confirmed(skin_id: int) -> Optional[float]:
-    """Call from WebSocket session handler when selectedSkinId updates.
+    """Call when the client shows a selected skin: from the WebSocket session
+    handler, and from the check that follows the request.
 
     Returns the elapsed time in seconds if this was the pending confirmation,
     otherwise None.
@@ -92,6 +106,7 @@ def on_skin_confirmed(skin_id: int) -> Optional[float]:
         "elapsed_ms": round(elapsed_s * 1000),
         "confirmed": True,
         "ts": int(time.time()),
+        "v": _SAMPLE_VERSION,
     }
     try:
         samples = _load_samples()
@@ -124,6 +139,7 @@ def on_champ_select_exit() -> Optional[float]:
         "elapsed_ms": round(elapsed_s * 1000),
         "confirmed": False,
         "ts": int(time.time()),
+        "v": _SAMPLE_VERSION,
     }
     try:
         samples = _load_samples()

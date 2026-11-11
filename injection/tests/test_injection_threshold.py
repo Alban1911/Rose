@@ -1,10 +1,15 @@
+import json
+import tempfile
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import config
 from injection.config import base_skin_tracker, threshold_manager
 from injection.config.threshold_manager import ThresholdManager
+from threads.handlers import injection_trigger
+from threads.handlers.injection_trigger import InjectionTrigger
 
 
 class InjectionThresholdRangeTests(unittest.TestCase):
@@ -42,6 +47,68 @@ class InjectionThresholdRangeTests(unittest.TestCase):
             stats = base_skin_tracker.get_stats()
 
         self.assertEqual(stats["recommended_threshold_ms"], 1000)
+
+
+class BaseSkinConfirmationTests(unittest.TestCase):
+    """The recommended threshold comes from how long the client takes to show
+    a forced base skin. Timed from after the client's answer, each sample
+    lasted until the end of champion select: about the threshold itself, so
+    the recommendation always ended at the maximum"""
+
+    BASE_SKIN = 55000
+
+    def setUp(self):
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        self.samples = Path(folder.name) / "base_skin_samples.json"
+        for patcher in (
+            patch.object(base_skin_tracker, "_data_path", return_value=self.samples),
+            patch.object(injection_trigger, "log"),
+            patch.object(injection_trigger, "report_issue"),
+            patch.object(injection_trigger.time, "sleep"),
+            patch("ui.core.user_interface.get_user_interface", return_value=MagicMock()),
+        ):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        self.addCleanup(base_skin_tracker.cancel_tracking)
+
+    def force_base_skin(self, request):
+        """Force the base skin: *request* stands for the client's answer to it."""
+        trigger = object.__new__(InjectionTrigger)
+        session = {"actions": [], "myTeam": [{"cellId": 0, "selectedSkinId": self.BASE_SKIN}]}
+        trigger.lcu = SimpleNamespace(session=session, set_my_selection_skin=request)
+        trigger.state = SimpleNamespace(local_cell_id=0, random_mode_active=False, ui_skin_thread=MagicMock())
+        trigger.skin_scraper = None
+        trigger.injection_manager = None
+        trigger._force_base_skin(self.BASE_SKIN)
+
+    def test_a_confirmation_that_precedes_the_clients_answer_is_timed(self):
+        def request(skin_id):
+            base_skin_tracker.on_skin_confirmed(skin_id)  # the session update
+            return True
+
+        self.force_base_skin(request)
+
+        stats = base_skin_tracker.get_stats()
+        self.assertEqual(stats["confirmed_count"], 1)
+        self.assertLess(stats["max_ms"], 500)
+        self.assertIsNone(base_skin_tracker.on_champ_select_exit())
+
+    def test_the_check_after_the_request_confirms_a_skin_no_update_showed(self):
+        self.force_base_skin(lambda skin_id: True)
+
+        self.assertEqual(base_skin_tracker.get_stats()["confirmed_count"], 1)
+        self.assertIsNone(base_skin_tracker.on_champ_select_exit())
+
+    def test_a_base_skin_that_could_not_be_forced_is_not_awaited(self):
+        self.force_base_skin(lambda skin_id: False)
+
+        self.assertIsNone(base_skin_tracker.on_champ_select_exit())
+
+    def test_samples_timed_until_the_end_of_champion_select_are_dropped(self):
+        self.samples.write_text(json.dumps([{"elapsed_ms": 1986, "confirmed": True, "ts": 1}] * 10))
+
+        self.assertEqual(base_skin_tracker.get_stats()["total_samples"], 0)
 
 
 if __name__ == "__main__":
