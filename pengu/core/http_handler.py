@@ -11,7 +11,7 @@ from pathlib import Path
 from urllib.parse import urlparse, unquote
 
 from utils.core.paths import get_skins_dir, get_asset_path, get_state_dir, get_user_data_dir
-from utils.core.security import cors_headers_for_origin, is_loopback_origin
+from utils.core.security import cors_headers_for_origin, is_loopback_host, is_loopback_origin
 
 log = logging.getLogger(__name__)
 
@@ -20,6 +20,7 @@ class HTTPHandler:
     """Handles HTTP requests for file serving
 
     Security Note:
+        - Requests with a Host header are only allowed for loopback hosts (DNS rebinding).
         - Browser requests with an Origin header are only allowed from loopback origins.
         - File-serving routes resolve paths under explicit Rose-owned directories.
     """
@@ -60,6 +61,13 @@ class HTTPHandler:
         except AttributeError:
             return None
 
+    def _get_host(self, request_headers: dict) -> Optional[str]:
+        """Read Host from a dict-like headers object."""
+        try:
+            return request_headers.get("Host") or request_headers.get("host")
+        except AttributeError:
+            return None
+
     def _forbidden(self) -> tuple:
         """Return a generic forbidden response."""
         return (403, {"Content-Type": "text/plain"}, b"Forbidden")
@@ -79,6 +87,11 @@ class HTTPHandler:
             parsed_path = urlparse(path)
             path_clean = unquote(parsed_path.path)
             origin = self._get_origin(request_headers)
+            # A page on a rebound domain is same-origin and sends no Origin
+            host = self._get_host(request_headers)
+            if host and not is_loopback_host(host):
+                log.warning("[SkinMonitor] Blocked HTTP request for host: %s", host)
+                return self._forbidden()
             if origin and not is_loopback_origin(origin):
                 log.warning("[SkinMonitor] Blocked HTTP request from origin: %s", origin)
                 return self._forbidden()
