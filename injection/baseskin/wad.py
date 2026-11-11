@@ -26,6 +26,9 @@ _KINDS = (KIND_RAW, KIND_GZIP, KIND_ZSTD, KIND_ZSTD_CHUNKED)
 _NO_CHUNKING = bytes(3)
 _ZSTD_MAGIC = b"\x28\xb5\x2f\xfd"
 _COPY_CHUNK = 1024 * 1024
+# How much compressed input is fed to a zstd frame at a time when the output is
+# capped: a few bytes can inflate to 128 KB, so the cap is checked often.
+_FRAME_STEP = 64
 
 
 class WadError(ValueError):
@@ -37,44 +40,78 @@ def path_hash(path: str) -> int:
     return xxhash.xxh64_intdigest(path.replace("\\", "/").encode("utf-8", "surrogateescape").lower())
 
 
-def _decompress_chunked(payload: bytes) -> bytes:
+def _too_big(size: int) -> WadError:
+    return WadError(f"a file decompresses to more than the {size} bytes its table says")
+
+
+def _decompress_chunked(payload: bytes, size: Optional[int] = None) -> bytes:
     """A type 4 file: sub-chunks one after the other, each a zstd frame or, where
     compressing did not pay, the sub-chunk's raw bytes (a texture often starts
-    with one: League's tools copy it through)."""
+    with one: League's tools copy it through). Stops once the output passes
+    *size*, so a payload that inflates far beyond its table is never built."""
     view = memoryview(payload)
     out = bytearray()
     at = 0
     while at < len(payload):
         if payload.startswith(_ZSTD_MAGIC, at):
             frame = zstandard.ZstdDecompressor().decompressobj()
-            out += frame.decompress(view[at:])
+            used = at
+            if size is None:
+                out += frame.decompress(view[at:])
+                used = len(payload)
+            else:
+                while not frame.eof and used < len(payload):
+                    step = min(_FRAME_STEP, len(payload) - used)
+                    out += frame.decompress(view[used:used + step])
+                    used += step
+                    if len(out) > size:
+                        raise _too_big(size)
             if not frame.eof:
                 raise WadError("a compressed sub-chunk is cut short")
-            at = len(payload) - len(frame.unused_data)
+            at = used - len(frame.unused_data)
         else:
             following = payload.find(_ZSTD_MAGIC, at)
             end = len(payload) if following < 0 else following
             out += view[at:end]
             at = end
+        if size is not None and len(out) > size:
+            raise _too_big(size)
     return bytes(out)
 
 
 def _decompress(kind: int, payload: bytes, size: Optional[int] = None) -> bytes:
     """A file's content. Raises WadError (a ValueError) for bytes that do not
-    decompress, whatever the codec's own error."""
+    decompress, whatever the codec's own error, or that inflate past *size*
+    (the table's): the output is cut there rather than built whole."""
     try:
         if kind == KIND_RAW:
             data = bytes(payload)
         elif kind == KIND_ZSTD:
-            data = zstandard.ZstdDecompressor().stream_reader(io.BytesIO(payload), read_across_frames=True).read()
+            reader = zstandard.ZstdDecompressor().stream_reader(io.BytesIO(payload), read_across_frames=True)
+            if size is None:
+                data = reader.read()
+            else:
+                parts, total = [], 0
+                while total <= size:
+                    part = reader.read(min(_COPY_CHUNK, size + 1 - total))
+                    if not part:
+                        break
+                    parts.append(part)
+                    total += len(part)
+                data = b"".join(parts)
         elif kind == KIND_ZSTD_CHUNKED:
-            data = _decompress_chunked(bytes(payload))
+            data = _decompress_chunked(bytes(payload), size)
         elif kind == KIND_GZIP:
-            data = zlib.decompress(payload, 31)
+            inflater = zlib.decompressobj(31)
+            data = inflater.decompress(payload, 0 if size is None else size + 1)
+            if (size is None or len(data) <= size) and not inflater.eof:
+                raise zlib.error("incomplete or truncated stream")
         else:
             raise WadError(f"unsupported WAD compression type {kind}")
     except (zstandard.ZstdError, zlib.error) as e:
         raise WadError(f"a file does not decompress: {e}") from e
+    if size is not None and len(data) > size:
+        raise _too_big(size)
     if size is not None and len(data) != size:
         raise WadError(f"a file decompresses to {len(data)} bytes, its table says {size}")
     return data

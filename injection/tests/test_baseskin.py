@@ -10,8 +10,10 @@ import os
 import shutil
 import struct
 import tempfile
+import tracemalloc
 import unittest
 import zipfile
+import zlib
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -611,6 +613,26 @@ class WadTests(unittest.TestCase):
         with self.assertRaises(WadError):
             wad.get(path_hash(TEX)).data
         self.assertTrue(issubclass(WadError, ValueError))
+
+    def test_a_file_that_inflates_far_past_its_table_is_cut_off_not_built(self):
+        zeros = bytes(24 * 1024 * 1024)
+        bombs = {
+            "gzip": (0x01, zlib.compress(zeros, 9, wbits=31)),
+            "zstd": (0x03, zstandard.ZstdCompressor().compress(zeros)),
+            "chunked": (0x14, b"RAW!" + zstandard.ZstdCompressor().compress(zeros)),
+        }
+        del zeros
+        for name, (type_byte, payload) in bombs.items():
+            with self.subTest(name):
+                wad = ModWad(hand_written_wad([(TEX, type_byte, payload, 64)]))
+                tracemalloc.start()
+                try:
+                    with self.assertRaises(WadError):
+                        wad.get(path_hash(TEX)).data
+                    peak = tracemalloc.get_traced_memory()[1]
+                finally:
+                    tracemalloc.stop()
+                self.assertLess(peak, 8 * 1024 * 1024)
 
     def test_the_games_wad_reads_sub_chunked_files(self):
         with tempfile.TemporaryDirectory() as temp:
