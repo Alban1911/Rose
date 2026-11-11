@@ -84,13 +84,23 @@ class ChromaSelectionHandler:
             import traceback
             log.error(traceback.format_exc())
     
+    def _current_base_skin_id(self) -> Optional[int]:
+        """Base skin of the skin currently shown
+        
+        Once a form is picked the panel is shown again for that form, so the
+        next pick has to be matched against the form's base skin.
+        """
+        if self.current_skin_id is None:
+            return None
+        return ChromaSpecialCases.get_base_skin_id_for_special(self.current_skin_id) or self.current_skin_id
+    
     def _handle_elementalist_form_selection(self, chroma_id: int, chroma_name: str):
         """Handle Elementalist Lux form selection"""
         log.info(f"[CHROMA] Form selected: {chroma_name} (Fake ID: {chroma_id})")
         
         # Find the Form data to get the form_path
         form_data = None
-        if self.current_skin_id == 99007:  # Elementalist Lux
+        if self._current_base_skin_id() == 99007:  # Elementalist Lux
             forms = ChromaSpecialCases.get_elementalist_forms()
             for form in forms:
                 if form['id'] == chroma_id:
@@ -129,7 +139,7 @@ class ChromaSelectionHandler:
         
         # Find the Form data to get the form_path
         form_data = None
-        if self.current_skin_id == 82054:  # Sahn Uzal Mordekaiser
+        if self._current_base_skin_id() == 82054:  # Sahn Uzal Mordekaiser
             forms = ChromaSpecialCases.get_mordekaiser_forms()
             for form in forms:
                 if form['id'] == chroma_id:
@@ -168,7 +178,7 @@ class ChromaSelectionHandler:
         
         # Find the Form data to get the form_path
         form_data = None
-        if self.current_skin_id == 25080:  # Spirit Blossom Morgana
+        if self._current_base_skin_id() == 25080:  # Spirit Blossom Morgana
             forms = ChromaSpecialCases.get_morgana_forms()
             for form in forms:
                 if form['id'] == chroma_id:
@@ -207,7 +217,7 @@ class ChromaSelectionHandler:
         
         # Find the Form data to get the form_path
         form_data = None
-        if self.current_skin_id == 875066:  # Radiant Sett
+        if self._current_base_skin_id() == 875066:  # Radiant Sett
             forms = ChromaSpecialCases.get_sett_forms()
             for form in forms:
                 if form['id'] == chroma_id:
@@ -246,7 +256,7 @@ class ChromaSelectionHandler:
         
         # Find the Form data to get the form_path
         form_data = None
-        if self.current_skin_id == 147001:  # KDA Seraphine
+        if self._current_base_skin_id() == 147001:  # KDA Seraphine
             forms = ChromaSpecialCases.get_seraphine_forms()
             for form in forms:
                 if form['id'] == chroma_id:
@@ -285,7 +295,7 @@ class ChromaSelectionHandler:
         
         # Find the Form data to get the form_path
         form_data = None
-        if self.current_skin_id == 234043:  # Viego
+        if self._current_base_skin_id() == 234043:  # Viego
             forms = ChromaSpecialCases.get_viego_forms()
             for form in forms:
                 if form['id'] == chroma_id:
@@ -324,7 +334,7 @@ class ChromaSelectionHandler:
         
         # Find the Form data to get the form_path
         form_data = None
-        if self.current_skin_id == 21016:  # Gun Goddess Miss Fortune
+        if self._current_base_skin_id() == 21016:  # Gun Goddess Miss Fortune
             forms = ChromaSpecialCases.get_missfortune_forms()
             for form in forms:
                 if form['id'] == chroma_id:
