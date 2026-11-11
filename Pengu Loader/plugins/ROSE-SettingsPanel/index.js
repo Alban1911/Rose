@@ -5721,11 +5721,14 @@
     const recS = typeof recMs === "number" ? (recMs / 1000).toFixed(2) : null;
     const curThresholdVal = typeof currentSettings?.threshold === "number" ? currentSettings.threshold : null;
     const needsIncrease = recS !== null && curThresholdVal !== null && curThresholdVal < parseFloat(recS) - 0.001;
+    // A lower value only when Rose has enough games to back it (base_skin_tracker.py)
+    const canDecrease = recS !== null && curThresholdVal !== null && stats.can_recommend_lower === true &&
+      curThresholdVal > parseFloat(recS) + 0.001;
     const games = stats.confirmed_count;
     const label = games > 1 ? t("{count} games", { count: games }) : t("{count} game", { count: games });
 
     let html;
-    if (needsIncrease) {
+    if (needsIncrease || canDecrease) {
       const recommended = `<span style="color:#c89b3c; font-weight:700;">${recS}s</span>`;
       html = `<span style="color:#c8aa6e;">${escapeHtml(t("Based on {games}, we recommend {value}", { games: label })).replace("{value}", recommended)}</span>`;
       html += ` <button id="rose-apply-recommended-btn" style="

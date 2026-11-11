@@ -29,6 +29,10 @@ _MAX_CONFIRMATION_S = 10.0  # Discard confirmations longer than this (likely sta
 # confirmation precedes: they lasted until the end of champion select, about
 # the injection threshold itself
 _SAMPLE_VERSION = 2
+# A threshold lower than the current one is only recommended from this many
+# confirmations, none of them missing: a higher one costs nothing to suggest,
+# a lower one must not come from a game or two
+_MIN_SAMPLES_TO_LOWER = 10
 
 # Singleton state
 _pending_skin_id: Optional[int] = None
@@ -156,7 +160,8 @@ def get_stats() -> dict:
     Returns dict with keys:
         total_samples, confirmed_count, timeout_count,
         avg_ms, p90_ms, max_ms, recommended_threshold_ms,
-        samples (raw list for frontend display)
+        can_recommend_lower (whether the samples are enough to recommend
+        a threshold lower than the current one)
     """
     samples = _load_samples()
     confirmed = [s for s in samples if s.get("confirmed")]
@@ -191,6 +196,7 @@ def get_stats() -> dict:
         "p90_ms": p90,
         "max_ms": max_ms,
         "recommended_threshold_ms": recommended,
+        "can_recommend_lower": len(confirmed) >= _MIN_SAMPLES_TO_LOWER and not timeouts,
     }
 
 
