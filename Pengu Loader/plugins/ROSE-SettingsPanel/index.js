@@ -1804,6 +1804,9 @@
       bridge.send({ type: "stop-injection" });
       button.setAttribute("disabled", "true");
       labelStopInjectionButton(button);
+      // The stop also tears down a swapped skin
+      _skinSwapButtons.forEach(resetSkinSwapButton);
+      closeSkinSwapMenu();
     });
     container.appendChild(button);
   }
@@ -1955,9 +1958,11 @@
         labelSkinSwapButton(button);
       } else {
         resetSkinSwapButton(button);
-        button.title = t("Rose could not change the skin; reconnect keeps the previous one");
+        button.title = t("Rose could not change the skin. Pick one again to retry");
       }
     });
+    // A swap injects again, so Rose's mods are back on
+    if (payload.success) _stopInjectionButtons.forEach(resetStopInjectionButton);
   }
 
   // Menus on screen follow a language change
