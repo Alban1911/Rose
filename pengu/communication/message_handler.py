@@ -24,6 +24,7 @@ from typing import NamedTuple, Optional, Sequence, TypedDict
 from urllib.parse import quote
 
 from config import get_config_float, get_config_option, set_config_option
+from injection.game.game_monitor import make_game_ended_callback
 from injection.mods.mod_source import LtkEntry, ModSource
 from injection.mods.storage import ModStorageService
 from injection.overlay.ltf_report import has_ltf_logs_hint, ltk_failure_cause
@@ -707,16 +708,16 @@ class MessageHandler:
             self._send_response(json.dumps({"type": "skin-swap-result", "skinId": skin_id, "success": False}))
             return
 
-        state = self.shared_state
-
-        def game_over() -> bool:
-            # The swap happens out of the game, so a reconnect is still this game
-            return state.phase not in ("Reconnect", "GameStart", "InProgress")
-
         def swap_skin():
             success = False
             try:
-                success = self.injection_manager.swap_skin_for_reconnect(skin_id, swap["champion_id"], game_over)
+                # Only a skin the reconnect screen offered: nothing is stopped for another
+                offered = self.injection_manager.injector.zip_resolver.skin_ids_on_disk(swap["champion_id"])
+                if skin_id in offered:
+                    success = self.injection_manager.swap_skin_for_reconnect(
+                        skin_id, swap["champion_id"],
+                        make_game_ended_callback(self.shared_state, game_started=True),
+                    )
             except Exception as e:
                 log.error(f"[SkinMonitor] Skin swap failed: {e}")
             self._send_response(json.dumps({"type": "skin-swap-result", "skinId": skin_id, "success": success}))

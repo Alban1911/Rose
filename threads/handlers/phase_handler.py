@@ -11,6 +11,7 @@ from lcu.core.lockfile import SWIFTPLAY_QUEUE_IDS
 from state import SharedState
 from ui.chroma.selector import get_chroma_selector
 from utils.core.logging import get_logger, log_action
+from injection.classic import is_classic_game_mode
 from utils.core.utilities import is_default_skin
 
 log = get_logger()
@@ -188,9 +189,13 @@ class PhaseHandler:
         Taken at game start: the locked champion is cleared on Reconnect. An
         injected skin replaces the default one, so a swap only shows if the
         game loaded the default skin, not an owned one the server knows about.
+        Not in Rift Classic: its skins come from another library, keyed by
+        other champion IDs.
         """
         if phase in ("GameStart", "InProgress"):
-            if self.state.game_skin_swap is None and self.state.locked_champ_id and not self.state.is_swiftplay_mode:
+            if (self.state.game_skin_swap is None and self.state.locked_champ_id
+                    and not self.state.is_swiftplay_mode
+                    and not is_classic_game_mode(getattr(self.state, "current_game_mode", None))):
                 selected = self.state.selected_skin_id
                 self.state.game_skin_swap = {
                     "champion_id": self.state.locked_champ_id,

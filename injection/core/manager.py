@@ -51,6 +51,7 @@ class InjectionManager:
         self._initialized = False
         self.current_champion = None
         self._injection_in_progress = False  # Track if injection is running
+        self._swap_lock = threading.Lock()  # One reconnect skin swap applies at a time
         self._cleanup_in_progress = False  # Track if cleanup is running
         self._cleanup_lock = threading.Lock()  # Lock for cleanup operations
         
@@ -626,11 +627,12 @@ class InjectionManager:
             # The injection took the countdown's session over: staging ends.
             # Before the release, or it could stop the patcher of an injection
             # waiting for it (a skin swap).
-            self.discard_early_patcher()
-
-            self._injection_in_progress = False
-            self.injection_lock.release()
-            log.debug(f"[INJECT] Injection completed - lock released")
+            try:
+                self.discard_early_patcher()
+            finally:
+                self._injection_in_progress = False
+                self.injection_lock.release()
+                log.debug(f"[INJECT] Injection completed - lock released")
     
     def inject_skin_for_testing(self, skin_name: str) -> bool:
         """Inject a skin for testing purposes - stops overlay immediately after mkoverlay"""
@@ -750,26 +752,39 @@ class InjectionManager:
     def swap_skin_for_reconnect(self, skin_id: int, champion_id: int, stop_callback=None) -> bool:
         """Rebuild the overlay with another skin while the player is out of the game.
 
-        Returns once the injection has started. A reconnect before the overlay
-        is ready is handled as at a normal game start.
+        Returns True once the new overlay is ready, False if it failed or
+        another swap is still applying. The injection then keeps serving the
+        overlay until the game ends, so its own result never comes back here.
         """
-        self.stop_injection_by_user()
-        # The champ select injection serves its overlay until the game ends
-        deadline = time.monotonic() + SKIN_SWAP_STOP_TIMEOUT_S
-        while self._injection_in_progress:
-            if time.monotonic() > deadline:
-                log.warning("[INJECT] Skin swap: the previous injection did not stop")
-                return False
-            time.sleep(0.05)
-        threading.Thread(
-            target=self.inject_skin_immediately,
-            args=(f"skin_{skin_id}",),
-            kwargs={"stop_callback": stop_callback, "champion_id": champion_id},
-            daemon=True,
-            name="SkinSwapInjection",
-        ).start()
-        log.info(f"[INJECT] Skin swap for the reconnect: skin {skin_id}")
-        return True
+        if not self._swap_lock.acquire(blocking=False):
+            log.info("[INJECT] Skin swap: another swap is still applying")
+            return False
+        try:
+            self.stop_injection_by_user()
+            # The champ select injection serves its overlay until the game ends
+            deadline = time.monotonic() + SKIN_SWAP_STOP_TIMEOUT_S
+            while self._injection_in_progress:
+                if time.monotonic() > deadline:
+                    log.warning("[INJECT] Skin swap: the previous injection did not stop")
+                    return False
+                time.sleep(0.05)
+            overlay = self.injector.overlay_manager
+            ready_before = overlay.ready_count
+            thread = threading.Thread(
+                target=self.inject_skin_immediately,
+                args=(f"skin_{skin_id}",),
+                kwargs={"stop_callback": stop_callback, "champion_id": champion_id},
+                daemon=True,
+                name="SkinSwapInjection",
+            )
+            thread.start()
+            log.info(f"[INJECT] Skin swap for the reconnect: skin {skin_id}")
+            # An injection that ends before its patcher is ready failed (or was stopped)
+            while thread.is_alive() and overlay.ready_count == ready_before:
+                time.sleep(0.05)
+            return overlay.ready_count != ready_before
+        finally:
+            self._swap_lock.release()
 
     def kill_all_modtools_processes(self):
         """Kill all LTK Manager processes (for application shutdown)"""
