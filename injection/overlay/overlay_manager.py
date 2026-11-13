@@ -186,6 +186,8 @@ class OverlayManager:
         # takes it over
         self._early_session: Optional[dict] = None
         self._early_session_lock = threading.Lock()
+        # Sessions whose patcher became ready: a skin swap waits for it to move
+        self.ready_count = 0
         self._early_session_unwanted = False
         self._countdown_staging_open = False
         self.host = LtfHost(tools_dir, mods_dir.parent, process_manager, in_use=self._holds_ltk_manager)
@@ -883,6 +885,7 @@ class OverlayManager:
             log_event(log, "Mods installed - the game resumed before the LTK patcher was ready", "")
         else:
             log_event(log, "Mods installed - the LTK patcher is ready", "")
+        self.ready_count += 1
         self._restart_early_game(session)
         return self._run_session(session, stop_callback)
 

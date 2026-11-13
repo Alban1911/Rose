@@ -41,17 +41,23 @@ _GAME_PROCESS_NAMES = frozenset(name.lower() for name in GAME_EXECUTABLE_NAMES)
 CLIENT_OUTAGE_GRACE_S = 180.0
 
 
-def make_game_ended_callback(state, clock: Callable[[], float] = time.monotonic) -> Callable[[], bool]:
+def make_game_ended_callback(
+    state, clock: Callable[[], float] = time.monotonic, game_started: bool = False
+) -> Callable[[], bool]:
     """Stop callback for an injection: True once the game it was made for is over.
 
     The LTK patcher keeps running through reconnects, so every injection must
-    pass one: without it the patcher runs until a later cleanup kills it.
+    pass one: without it the patcher runs until a later cleanup kills it. It
+    is made here, never as a phase check of its own: one that reads a missing
+    phase as the end tears the overlay down on a client outage (#413).
 
     Args:
         state: Shared application state (its phase is polled)
         clock: monotonic seconds, for the client outage's deadline
+        game_started: the game is already under way (an injection made on the
+            reconnect screen), so it ends without passing InProgress again
     """
-    has_been_in_progress = False
+    has_been_in_progress = game_started
     outage_since = None
 
     def game_ended_callback() -> bool:

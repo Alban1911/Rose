@@ -37,6 +37,7 @@ class SharedState:
     last_hovered_skin_id: Optional[int] = None
     last_hovered_skin_slug: Optional[str] = None
     selected_skin_id: Optional[int] = None  # Skin ID selected in LCU (owned skin)
+    game_skin_swap: Optional[dict] = None  # {champion_id, swappable} of the game the player can reconnect to
     owned_skin_ids: set = field(default_factory=set)  # All owned skin IDs from LCU inventory
     processed_action_ids: set = field(default_factory=set)
     stop: bool = False

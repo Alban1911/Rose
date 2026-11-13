@@ -24,6 +24,7 @@ from typing import NamedTuple, Optional, Sequence, TypedDict
 from urllib.parse import quote
 
 from config import get_config_float, get_config_option, set_config_option
+from injection.game.game_monitor import make_game_ended_callback
 from injection.mods.mod_source import LtkEntry, ModSource
 from injection.mods.storage import ModStorageService
 from injection.overlay.ltf_report import has_ltf_logs_hint, ltk_failure_cause
@@ -395,6 +396,10 @@ class MessageHandler:
             self._handle_diagnostics_clear(payload)
         elif payload_type == "stop-injection":
             self._handle_stop_injection(payload)
+        elif payload_type == "skin-swap-request":
+            self._handle_skin_swap_request(payload)
+        elif payload_type == "skin-swap-select":
+            self._handle_skin_swap_select(payload)
         elif payload_type == "diagnostics-delete":
             self._handle_diagnostics_delete(payload)
         elif payload_type == "diagnostics-clear-category":
@@ -673,6 +678,51 @@ class MessageHandler:
         except Exception as e:
             log.error(f"[SkinMonitor] Failed to stop injection: {e}")
         self._send_response(json.dumps({"type": "injection-stopped", "success": stopped}))
+
+    def _handle_skin_swap_request(self, payload: dict) -> None:
+        """Send the reconnect screen the skins it can swap to, or why it can't."""
+        swap = self.shared_state.game_skin_swap
+        response = {"type": "skin-swap-options", "championId": None, "skinIds": [], "reason": None}
+        if self.shared_state.phase != "Reconnect" or not swap or not self.injection_manager:
+            response["reason"] = "unavailable"
+        elif not swap["swappable"]:
+            response["reason"] = "owned"
+        else:
+            response["championId"] = swap["champion_id"]
+            try:
+                response["skinIds"] = self.injection_manager.injector.zip_resolver.skin_ids_on_disk(swap["champion_id"])
+            except Exception as e:
+                log.warning(f"[SkinMonitor] Could not list skins for the skin swap: {e}")
+                response["reason"] = "unavailable"
+        self._send_response(json.dumps(response))
+
+    def _handle_skin_swap_select(self, payload: dict) -> None:
+        """Rebuild the overlay with the skin picked on the reconnect screen."""
+        swap = self.shared_state.game_skin_swap
+        try:
+            skin_id = int(payload.get("skinId"))
+        except (TypeError, ValueError):
+            skin_id = None
+        if (skin_id is None or self.shared_state.phase != "Reconnect" or not swap
+                or not swap["swappable"] or not self.injection_manager):
+            self._send_response(json.dumps({"type": "skin-swap-result", "skinId": skin_id, "success": False}))
+            return
+
+        def swap_skin():
+            success = False
+            try:
+                # Only a skin the reconnect screen offered: nothing is stopped for another
+                offered = self.injection_manager.injector.zip_resolver.skin_ids_on_disk(swap["champion_id"])
+                if skin_id in offered:
+                    success = self.injection_manager.swap_skin_for_reconnect(
+                        skin_id, swap["champion_id"],
+                        make_game_ended_callback(self.shared_state, game_started=True),
+                    )
+            except Exception as e:
+                log.error(f"[SkinMonitor] Skin swap failed: {e}")
+            self._send_response(json.dumps({"type": "skin-swap-result", "skinId": skin_id, "success": success}))
+
+        threading.Thread(target=swap_skin, daemon=True, name="SkinSwap").start()
 
     def _handle_diagnostics_delete(self, payload: dict) -> None:
         """Delete the Troubleshooting entries the user dismissed, then resend the list."""

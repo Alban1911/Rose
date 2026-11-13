@@ -1790,7 +1790,9 @@
   const _stopInjectionButtons = new Set();
   function addStopInjectionButton() {
     const container = document.querySelector(".reconnect-button-container");
-    if (!container || container.querySelector(".rose-stop-injection")) return;
+    if (!container) return;
+    addSkinSwapButton(container);
+    if (container.querySelector(".rose-stop-injection")) return;
 
     const button = document.createElement("lol-uikit-flat-button");
     button.className = "rose-stop-injection";
@@ -1802,6 +1804,9 @@
       bridge.send({ type: "stop-injection" });
       button.setAttribute("disabled", "true");
       labelStopInjectionButton(button);
+      // The stop also tears down a swapped skin
+      _skinSwapButtons.forEach(resetSkinSwapButton);
+      closeSkinSwapMenu();
     });
     container.appendChild(button);
   }
@@ -1816,9 +1821,154 @@
     labelStopInjectionButton(button);
   }
 
+  // Reconnect screen: pick another skin for the reconnect. Rose's skins replace the
+  // default one, so this only shows when the game loaded the default skin.
+  const _skinSwapButtons = new Set();
+  let _skinSwapAnchor = null;
+  let _skinSwapMenu = null;
+
+  function addSkinSwapButton(container) {
+    if (container.querySelector(".rose-skin-swap")) return;
+    const button = document.createElement("lol-uikit-flat-button");
+    button.className = "rose-skin-swap";
+    button.setAttribute("margin-right", "10px");
+    resetSkinSwapButton(button);
+    _skinSwapButtons.add(button);
+    button.addEventListener("click", () => {
+      if (!bridge || button.hasAttribute("disabled")) return;
+      if (_skinSwapMenu) {
+        closeSkinSwapMenu();
+        return;
+      }
+      _skinSwapAnchor = button;
+      bridge.send({ type: "skin-swap-request" });
+    });
+    container.appendChild(button);
+  }
+
+  function labelSkinSwapButton(button) {
+    const name = button.dataset.skinName;
+    if (button.dataset.state === "applying") {
+      button.textContent = t("Applying {name}...", { name });
+    } else if (button.dataset.state === "applied") {
+      button.textContent = t("Skin: {name}", { name });
+    } else {
+      button.textContent = t("Change skin");
+    }
+    button.title = t("Pick the skin your champion has when you reconnect");
+  }
+
+  function resetSkinSwapButton(button) {
+    button.removeAttribute("disabled");
+    delete button.dataset.state;
+    delete button.dataset.skinName;
+    labelSkinSwapButton(button);
+  }
+
+  function closeSkinSwapMenu() {
+    if (_skinSwapMenu) _skinSwapMenu.remove();
+    _skinSwapMenu = null;
+    document.removeEventListener("mousedown", closeSkinSwapMenuOutside, true);
+  }
+
+  function closeSkinSwapMenuOutside(event) {
+    if (_skinSwapMenu && !_skinSwapMenu.contains(event.target) && event.target !== _skinSwapAnchor) {
+      closeSkinSwapMenu();
+    }
+  }
+
+  // A list above the button: skins to click, or a single line explaining why there are none
+  function openSkinSwapMenu(items, message) {
+    closeSkinSwapMenu();
+    if (!_skinSwapAnchor || !_skinSwapAnchor.isConnected) return;
+    const rect = _skinSwapAnchor.getBoundingClientRect();
+    const menu = document.createElement("div");
+    Object.assign(menu.style, {
+      position: "fixed",
+      left: `${rect.left}px`,
+      bottom: `${window.innerHeight - rect.top + 6}px`,
+      minWidth: `${Math.max(rect.width, 220)}px`,
+      maxHeight: "300px",
+      overflowY: "auto",
+      background: "#010a13",
+      border: "1px solid #785a28",
+      color: "#cdbe91",
+      fontSize: "13px",
+      zIndex: "10000",
+    });
+    if (message) {
+      const line = document.createElement("div");
+      line.style.padding = "8px 12px";
+      line.textContent = message;
+      menu.appendChild(line);
+    }
+    for (const item of items) {
+      const row = document.createElement("div");
+      Object.assign(row.style, { padding: "6px 12px", cursor: "pointer" });
+      row.textContent = item.name;
+      row.addEventListener("mouseenter", () => (row.style.background = "#1e2328"));
+      row.addEventListener("mouseleave", () => (row.style.background = ""));
+      row.addEventListener("click", () => selectSwapSkin(item));
+      menu.appendChild(row);
+    }
+    document.body.appendChild(menu);
+    _skinSwapMenu = menu;
+    document.addEventListener("mousedown", closeSkinSwapMenuOutside, true);
+  }
+
+  async function handleSkinSwapOptions(payload) {
+    if (!_skinSwapAnchor) return;
+    if (payload.reason === "owned") {
+      openSkinSwapMenu([], t("You went in with a skin you own, so a changed skin would not show"));
+      return;
+    }
+    if (payload.reason || !payload.skinIds?.length) {
+      openSkinSwapMenu([], t("No skins to change to for this game"));
+      return;
+    }
+    // Names in the client's language, from the client itself
+    const names = {};
+    try {
+      const response = await fetch(`/lol-game-data/assets/v1/champions/${payload.championId}.json`);
+      const champion = await response.json();
+      for (const skin of champion.skins || []) names[skin.id] = skin.name;
+    } catch (e) {
+      log("warn", "Could not load the skin names for the skin swap", { error: e?.message });
+    }
+    openSkinSwapMenu(payload.skinIds.map((id) => ({ id, name: names[id] || t("Skin {id}", { id }) })));
+  }
+
+  function selectSwapSkin(item) {
+    closeSkinSwapMenu();
+    const button = _skinSwapAnchor;
+    if (!bridge || !button) return;
+    bridge.send({ type: "skin-swap-select", skinId: item.id });
+    button.setAttribute("disabled", "true");
+    button.dataset.state = "applying";
+    button.dataset.skinName = item.name;
+    labelSkinSwapButton(button);
+  }
+
+  function handleSkinSwapResult(payload) {
+    _skinSwapButtons.forEach((button) => {
+      if (button.dataset.state !== "applying") return;
+      button.removeAttribute("disabled");
+      if (payload.success) {
+        button.dataset.state = "applied";
+        labelSkinSwapButton(button);
+      } else {
+        resetSkinSwapButton(button);
+        button.title = t("Rose could not change the skin. Pick one again to retry");
+      }
+    });
+    // A swap injects again, so Rose's mods are back on
+    if (payload.success) _stopInjectionButtons.forEach(resetStopInjectionButton);
+  }
+
   // Menus on screen follow a language change
   window.addEventListener("rose-i18n-changed", () => {
     _stopInjectionButtons.forEach(labelStopInjectionButton);
+    _skinSwapButtons.forEach(labelSkinSwapButton);
     const navItem = document.querySelector("lol-uikit-navigation-item.menu_item_Golden.Rose");
     if (settingsPanel && document.getElementById(PANEL_ID) && navItem) {
       createSettingsFlyout(navItem);
@@ -1835,6 +1985,8 @@
     // Keep it disabled only while the same game is running or reconnecting
     if (["InProgress", "Reconnect", "GameStart"].includes(payload?.phase)) return;
     _stopInjectionButtons.forEach(resetStopInjectionButton);
+    _skinSwapButtons.forEach(resetSkinSwapButton);
+    closeSkinSwapMenu();
   }
 
   function startReconnectObserver() {
@@ -5952,6 +6104,8 @@
       bridge.subscribe("diagnostics-cleared-category", () => requestDiagnostics());
       bridge.subscribe("diagnostics-cleared", () => requestDiagnostics());
       bridge.subscribe("phase-change", handleReconnectPhaseChange);
+      bridge.subscribe("skin-swap-options", handleSkinSwapOptions);
+      bridge.subscribe("skin-swap-result", handleSkinSwapResult);
       bridge.subscribe("diagnostics-tracker-cleared", () => requestDiagnostics());
       bridge.subscribe("diagnostics-applied-recommended", () => requestDiagnostics());
       bridge.subscribe("path-validation-result", handlePathValidationResult);

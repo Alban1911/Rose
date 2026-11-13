@@ -286,6 +286,7 @@ PROCESS_TERMINATE_WAIT_S = 0.3          # Short timeout for process wait after t
 THREAD_JOIN_TIMEOUT_S = 2               # Timeout for thread.join() on shutdown (increased from 1.0s)
 THREAD_FORCE_EXIT_TIMEOUT_S = 4         # Total timeout before forcing app exit
 INJECTION_LOCK_TIMEOUT_S = 2.0          # Timeout for acquiring injection lock
+SKIN_SWAP_STOP_TIMEOUT_S = 5.0          # Max wait for the running injection to stop before a skin swap
 
 # Main loop watchdog timeouts (seconds)
 MAIN_LOOP_STALL_THRESHOLD_S = 5.0       # Threshold for detecting main loop stalls
