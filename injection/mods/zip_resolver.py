@@ -38,6 +38,7 @@ class ZipResolver:
     
     def __init__(self, zips_dir: Path):
         self.zips_dir = zips_dir
+        self.zips_dir.mkdir(parents=True, exist_ok=True)
 
     def skin_ids_on_disk(self, champion_id: int) -> list[int]:
         """IDs of a champion's skins (not chromas) in the library, default skin excluded"""
@@ -49,7 +50,6 @@ class ZipResolver:
             if d.is_dir() and d.name.isdigit() and int(d.name) % 1000 != 0
             and _find_by_extensions(d, d.name)
         )
-        self.zips_dir.mkdir(parents=True, exist_ok=True)
     
     def resolve_zip(self, zip_arg: str, chroma_id: int = None, skin_name: str = None, champion_name: str = None, champion_id: int = None) -> Optional[Path]:
         """Resolve a ZIP by name or path with fuzzy matching, supporting new merged structure
