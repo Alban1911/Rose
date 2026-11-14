@@ -48,16 +48,19 @@ class GameEndedCallbackTests(unittest.TestCase):
         self.assertTrue(callback())
 
     def test_a_client_closed_in_champ_select_ends_it(self):
-        state = SimpleNamespace(phase='ChampSelect')
-        now = [0.0]
-        callback = make_game_ended_callback(state, clock=lambda: now[0])
-        self.assertFalse(callback())
-        state.phase = None
-        self.assertFalse(callback())
-        now[0] = game_monitor.CHAMP_SELECT_OUTAGE_GRACE_S - 1
-        self.assertFalse(callback())
-        now[0] = game_monitor.CHAMP_SELECT_OUTAGE_GRACE_S
-        self.assertTrue(callback())
+        # The poller writes the home screen as None, the WebSocket as "None"
+        for home in (None, "None"):
+            with self.subTest(home=home):
+                state = SimpleNamespace(phase='ChampSelect')
+                now = [0.0]
+                callback = make_game_ended_callback(state, clock=lambda: now[0])
+                self.assertFalse(callback())
+                state.phase = home
+                self.assertFalse(callback())
+                now[0] = game_monitor.CHAMP_SELECT_OUTAGE_GRACE_S - 1
+                self.assertFalse(callback())
+                now[0] = game_monitor.CHAMP_SELECT_OUTAGE_GRACE_S
+                self.assertTrue(callback())
 
     def test_a_brief_gap_before_the_game_is_not_the_end(self):
         self.assertEqual(

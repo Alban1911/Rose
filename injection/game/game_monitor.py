@@ -82,8 +82,9 @@ def make_game_ended_callback(state, clock: Callable[[], float] = time.monotonic)
             if not in_champ_select:
                 return False
             # Champion select ended without a game (a dodge, the client closed):
-            # no later cleanup ends the session, and it holds the next injection
-            if phase is None:
+            # no later cleanup ends the session, and it holds the next injection.
+            # The poller writes the home screen as None, the WebSocket as "None"
+            if phase in (None, "None"):
                 if outage_since is None:
                     outage_since = clock()
                 return clock() - outage_since >= CHAMP_SELECT_OUTAGE_GRACE_S
