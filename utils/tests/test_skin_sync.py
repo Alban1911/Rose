@@ -248,6 +248,35 @@ class SkinSyncTests(unittest.TestCase):
         self.assertFalse(self.local(retired).exists())
         self.assertEqual(self.local(new).read_bytes(), b"new skin")
 
+    def test_a_file_an_incomplete_sync_downloaded_is_retired_once_dropped(self):
+        self.sync()
+        brief = "skins/2/2001/2001.fantome"
+        blocked = "skins/3/3001/3001.fantome"
+        self.github.files[brief] = b"briefly listed"
+        self.github.files[blocked] = b"blocked"
+        self.github.wrong_content.add(blocked)
+        self.github.etag = '"manifest-2"'
+        self.assertFalse(self.sync().complete)
+        self.assertTrue(self.local(brief).is_file())
+
+        del self.github.files[brief]
+        self.github.wrong_content.clear()
+        self.github.etag = '"manifest-3"'
+        result = self.sync()
+
+        self.assertTrue(result.complete)
+        self.assertFalse(self.local(brief).exists())
+        self.assertEqual(self.local(blocked).read_bytes(), b"blocked")
+
+    def test_a_listed_folder_rose_does_not_sync_is_skipped(self):
+        self.github.files["tools/readme.txt"] = b"not Rose's"
+
+        result = self.sync()
+
+        self.assertTrue(result.complete)
+        self.assertEqual(self.local("skins/1/1001/1001.fantome").read_bytes(), b"skin 1001")
+        self.assertNotIn(f"{RAW_BASE}/{COMMIT}/tools/readme.txt", self.github.calls)
+
     def test_an_interrupted_manifest_fetch_cannot_reuse_the_wrong_listing(self):
         self.sync()
         synchronizer = self.synchronizer()
@@ -284,8 +313,15 @@ class SkinSyncTests(unittest.TestCase):
         self.assertEqual(result.pending, [new])
         self.assertTrue(self.local(retired).is_file())
 
+    def mark_download_killed(self):
+        state_path = self.skins / skin_sync.STATE_FILE
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        state["downloading"] = True  # what a sync killed mid-download leaves
+        state_path.write_text(json.dumps(state), encoding="utf-8")
+
     def test_temp_files_left_by_a_killed_sync_are_swept(self):
         self.sync()
+        self.mark_download_killed()
         partial = self.local("skins/1/1001/.1001.fantome.abc123.tmp")
         state_temp = self.skins / ".skin_sync_state.json.x1y2z3.tmp"
         partial.write_bytes(b"half a skin")
@@ -299,6 +335,18 @@ class SkinSyncTests(unittest.TestCase):
         self.assertTrue((self.skins / skin_sync.STATE_FILE).exists())
         self.assertTrue((self.skins / skin_sync.MANIFEST_COPY).exists())
         self.assertEqual(self.local("skins/1/1001/1001.fantome").read_bytes(), b"skin 1001")
+
+    def test_a_finished_sync_does_not_walk_the_library_for_temps(self):
+        self.sync()
+        stray = self.local("skins/1/1001/.1001.fantome.abc123.tmp")
+        state_temp = self.skins / ".skin_sync_state.json.x1y2z3.tmp"
+        stray.write_bytes(b"not from a killed download")
+        state_temp.write_bytes(b"{")
+
+        self.sync()
+
+        self.assertTrue(stray.exists())
+        self.assertFalse(state_temp.exists())
 
     def test_a_rewritten_commit_falls_back_to_main(self):
         self.github.commit_gone = True

@@ -174,8 +174,9 @@ class SkinSync:
             if not isinstance(path, str) or "\\" in path or ":" in path:
                 return None
             parts = path.split("/")
-            if (len(parts) < 2 or parts[0] not in SYNCED_FOLDERS
-                    or any(not part or part.endswith((".", " ")) for part in parts)):
+            if parts[0] not in SYNCED_FOLDERS:
+                continue  # a folder Rose does not sync
+            if len(parts) < 2 or any(not part or part.endswith((".", " ")) for part in parts):
                 return None
             key = os.path.normcase(path)
             if (key in seen or not isinstance(sha, str) or not re.fullmatch(r"[0-9a-f]{40}", sha)
@@ -379,6 +380,9 @@ class SkinSync:
         total_bytes = sum(size for _, _, _, size in todo) or 1
         done_bytes = 0
         log.info(f"[SKINS] Downloading {len(todo)} files ({_format_size(total_bytes)})")
+        # A kill from here on can leave partial downloads: the next start sweeps them
+        state["downloading"] = True
+        self._save_state(state)
         self._emit(15, f"Downloading {len(todo)} skin files...", force=True)
         last_flush = time.monotonic()
         with ThreadPoolExecutor(max_workers=self.workers, thread_name_prefix="SkinSync") as pool:
@@ -438,7 +442,14 @@ class SkinSync:
         expected = {os.path.normcase(path) for path in manifest.files}
         completed = {path: sha for path, (sha, _) in manifest.files.items()}
         removed = 0
-        for path, sha in self._completed_files(state).items():
+        # Files an incomplete sync downloaded are not in completed_files yet.
+        # Still only an unmodified file (same blob) is removed
+        candidates = {
+            path: record[0] for path, record in state["files"].items()
+            if isinstance(record, list) and record and isinstance(record[0], str)
+        }
+        candidates.update(self._completed_files(state))
+        for path, sha in candidates.items():
             if os.path.normcase(os.path.normpath(path)) in expected:
                 continue
             local = self.resolve(path)
@@ -477,13 +488,17 @@ class SkinSync:
         return removed
 
     # -- temp files a killed sync left behind -----------------------------------
-    def _remove_stale_temps(self) -> None:
+    def _remove_stale_temps(self, state: dict) -> None:
         """Delete atomic_write temp files (.<name>.<random>.tmp) from an interrupted sync.
 
-        A hard kill skips atomic_write's cleanup, and remove_obsolete ignores
-        dot-files, so a partial download would stay on disk forever.
+        A hard kill skips atomic_write's cleanup, and _finish_sync only retires
+        files a sync recorded, so a partial download would stay on disk forever.
+        The library is only walked after a sync that was downloading did not
+        finish (or once, for a state from before this was recorded).
         """
-        folders = [(root, True) for root in self.roots] + [(self.state_path.parent, False)]
+        folders = [(self.state_path.parent, False)]
+        if state.get("downloading", True):
+            folders += [(root, True) for root in self.roots]
         for folder, recursive in folders:
             if not folder.is_dir():
                 continue
@@ -498,8 +513,8 @@ class SkinSync:
     def run(self) -> Optional[SyncResult]:
         """Sync the library; None when no listing could be read (nothing changed)."""
         self._emit(0, "Checking for skin updates...", force=True)
-        self._remove_stale_temps()
         state = self._load_state()
+        self._remove_stale_temps(state)
         manifest = self.fetch_manifest(state)
         if manifest is None:
             return None
@@ -517,6 +532,7 @@ class SkinSync:
         state["manifest_etag"] = manifest.etag if manifest.source == "manifest" else None
         state["commit"] = manifest.commit
         state["complete"] = result.complete
+        state["downloading"] = False
         self._save_state(state)
         if result.complete:
             self._emit(100, "Skins ready" if result.downloaded else "Skins already up to date", force=True)
