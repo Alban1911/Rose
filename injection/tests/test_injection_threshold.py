@@ -52,7 +52,8 @@ class InjectionThresholdRangeTests(unittest.TestCase):
         confirmed = {"confirmed": True, "elapsed_ms": 120}
         missing = {"confirmed": False, "elapsed_ms": 900}
         for samples, enough in (([confirmed] * 9, False), ([confirmed] * 10, True), ([confirmed] * 10 + [missing], False)):
-            with self.subTest(samples=len(samples)),                     patch.object(base_skin_tracker, "_load_samples", return_value=samples):
+            with self.subTest(samples=len(samples)), \
+                    patch.object(base_skin_tracker, "_load_samples", return_value=samples):
                 self.assertEqual(base_skin_tracker.get_stats()["can_recommend_lower"], enough)
 
 

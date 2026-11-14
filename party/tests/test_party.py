@@ -103,14 +103,16 @@ class PartyStorageTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             path = Path(temp_dir) / party_storage.PARTY_IDENTITY_KEYS_FILE
             path.write_text('{"1":"%s"}' % ("ab" * party_storage.KEY_SIZE), encoding="utf-8")
-            with patch.object(party_storage, "get_user_data_dir", return_value=Path(temp_dir)),                     patch.object(Path, "read_text", side_effect=PermissionError("locked")):
+            with patch.object(party_storage, "get_user_data_dir", return_value=Path(temp_dir)), \
+                    patch.object(Path, "read_text", side_effect=PermissionError("locked")):
                 with self.assertRaisesRegex(RuntimeError, "Couldn't read"):
                     party_storage.load_party_identity_key(1)
             self.assertEqual(path.read_text(encoding="utf-8"), '{"1":"%s"}' % ("ab" * party_storage.KEY_SIZE))
 
     def test_an_unsaved_identity_is_still_used(self):
         with tempfile.TemporaryDirectory() as temp_dir:
-            with patch.object(party_storage, "get_user_data_dir", return_value=Path(temp_dir)),                     patch.object(party_storage, "write_text_atomic", side_effect=OSError("disk is full")):
+            with patch.object(party_storage, "get_user_data_dir", return_value=Path(temp_dir)), \
+                    patch.object(party_storage, "write_text_atomic", side_effect=OSError("disk is full")):
                 self.assertEqual(len(party_storage.load_party_identity_key(1)), party_storage.KEY_SIZE)
 
 
