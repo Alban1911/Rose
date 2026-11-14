@@ -103,12 +103,9 @@ class SkinMapping:
         normalized = skin_name.strip().lower()
         if normalized in self.skin_id_mapping:
             return self.skin_id_mapping[normalized]
-        
-        # Try partial matching
-        for mapped_name, skin_id in self.skin_id_mapping.items():
-            if normalized in mapped_name or mapped_name in normalized:
-                return skin_id
-        
+
+        # No partial matching: names are in skin ID order, so a substring match
+        # picks short base names first ("Dimension Breaker Jinx" -> "Sion")
         return None
     def find_skin_name_by_skin_id(self, skin_id: int) -> Optional[str]:
         """Find skin name by id using mapping
