@@ -22,6 +22,9 @@ log = get_logger()
 
 def perform_cleanup(state: SharedState, thread_manager: ThreadManager, tray_manager: TrayManager, injection_manager=None) -> None:
     """Perform application cleanup"""
+    # The main loop is done: the tray's force-quit timeout stands down, or it
+    # ends the cleanup halfway (restoring the client alone takes seconds)
+    get_app_state().shutting_down = True
     log_section(log, "Cleanup", "")
 
     # A game held for the patcher outlives Rose: resume it first, or quitting
