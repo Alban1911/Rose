@@ -91,7 +91,7 @@ class ModMigrationSequence:
         self._storage = storage
         self._library = library
 
-    def perform(self, dialog) -> Optional[MigrationReport]:
+    def perform(self, dialog, *, holds_instance_lock: bool = False) -> Optional[MigrationReport]:
         """Run the migration in *dialog*; its MigrationReport, or None when
         it failed."""
         try:
@@ -103,7 +103,7 @@ class ModMigrationSequence:
 
             storage = self._storage or ModStorageService()
             library = self._library or LtkLibrary(LtfHost(get_tools_dir(), get_injection_dir()))
-            report = migrate_saved_mods(storage, library, _DialogUi(dialog))
+            report = migrate_saved_mods(storage, library, _DialogUi(dialog), holds_instance_lock=holds_instance_lock)
         except Exception as exc:
             log.error(f"[MIGRATE] Could not move the saved mods into LTK Manager: {exc}", exc_info=True)
             return None
