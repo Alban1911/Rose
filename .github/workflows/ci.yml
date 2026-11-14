@@ -63,6 +63,8 @@ jobs:
         run: node --test test/custom_skin_selector_ingame.test.cjs
       - name: Skin Monitor port rediscovery regression tests
         run: node --test test/skinmonitor_port_rediscovery.test.cjs
+      - name: Custom Wheel bulk delete regression tests
+        run: node --test test/custom_wheel_bulk_delete.test.cjs
 
   python:
     name: Python (errors lint, unit tests)
