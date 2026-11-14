@@ -39,6 +39,13 @@ _GAME_PROCESS_NAMES = frozenset(name.lower() for name in GAME_EXECUTABLE_NAMES)
 # for good or reopened on its home screen, and the session ends (a game still
 # running is served until it exits, see OverlayManager._run_session)
 CLIENT_OUTAGE_GRACE_S = 180.0
+# How long champion select may read no phase before it counts as left. The
+# client can stall for seconds while the game launches, and a client restarted
+# in champion select comes back to it, so this is far longer than the brief
+# gaps between phases; a client closed for good shows its home screen (no phase)
+CHAMP_SELECT_OUTAGE_GRACE_S = 60.0
+# The countdown keeps "FINALIZATION" while the client still reads ChampSelect
+_CHAMP_SELECT_PHASES = ("ChampSelect", "FINALIZATION")
 
 
 def make_game_ended_callback(state, clock: Callable[[], float] = time.monotonic) -> Callable[[], bool]:
@@ -52,10 +59,12 @@ def make_game_ended_callback(state, clock: Callable[[], float] = time.monotonic)
         clock: monotonic seconds, for the client outage's deadline
     """
     has_been_in_progress = False
+    # Made in champion select: a dodge before the session polls still counts
+    in_champ_select = getattr(state, "phase", None) in _CHAMP_SELECT_PHASES
     outage_since = None
 
     def game_ended_callback() -> bool:
-        nonlocal has_been_in_progress, outage_since
+        nonlocal has_been_in_progress, in_champ_select, outage_since
         if getattr(state, "stop", False):
             return True
         phase = state.phase
@@ -64,7 +73,21 @@ def make_game_ended_callback(state, clock: Callable[[], float] = time.monotonic)
             outage_since = None
             return False
         if not has_been_in_progress:
-            return False
+            if phase in _CHAMP_SELECT_PHASES:
+                in_champ_select = True
+                outage_since = None
+                return False
+            if phase in ("GameStart", "Reconnect"):
+                in_champ_select = False  # the game launches
+            if not in_champ_select:
+                return False
+            # Champion select ended without a game (a dodge, the client closed):
+            # no later cleanup ends the session, and it holds the next injection
+            if phase is None:
+                if outage_since is None:
+                    outage_since = clock()
+                return clock() - outage_since >= CHAMP_SELECT_OUTAGE_GRACE_S
+            return True
         if phase is None:
             # No phase: the client is gone (or on its home screen). It can close
             # and come back to Reconnect the match, which needs the patcher still
