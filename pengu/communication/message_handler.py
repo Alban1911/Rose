@@ -1576,8 +1576,8 @@ class MessageHandler:
 
         # Handle deselection (mod_id is null)
         if mod_id is None:
-            # Clear selected mod if it matches this skin, and remove extracted files so it
-            # doesn't keep injecting after being unchecked.
+            # Clear selected mod if it matches this skin. Its files stay in the mods folder:
+            # the injection links its mods from the selection itself, maybe while this runs.
             selected_custom_mod = getattr(self.shared_state, "selected_custom_mod", None)
             selected_target_skin_ids = set()
             if selected_custom_mod:
@@ -1637,7 +1637,6 @@ class MessageHandler:
                 except Exception as exc:
                     log.debug("[HISTORIC] Failed to clear saved custom mod on deselect: %s", exc)
 
-                self._take_back_custom_mod("SkinMonitor")
                 self.shared_state.selected_custom_mod = None
                 log.info(f"[SkinMonitor] Custom mod deselected for skin {skin_id}")
 
@@ -1751,33 +1750,9 @@ class MessageHandler:
                 )
                 return
 
-            # Extract/copy mod to injection mods directory immediately
-            # Check if other mods (map/font/announcer/other) are already selected
-            # If so, don't clean - just extract the skin mod alongside them
-            selected_other_mods = getattr(self.shared_state, 'selected_other_mods', None)
-            if not selected_other_mods:
-                # Fallback to legacy single mod
-                selected_other_mod = getattr(self.shared_state, 'selected_other_mod', None)
-                if selected_other_mod:
-                    selected_other_mods = [selected_other_mod]
-            has_other_mods = (
-                (hasattr(self.shared_state, 'selected_map_mod') and self.shared_state.selected_map_mod) or
-                (hasattr(self.shared_state, 'selected_font_mod') and self.shared_state.selected_font_mod) or
-                (hasattr(self.shared_state, 'selected_announcer_mod') and self.shared_state.selected_announcer_mod) or
-                (selected_other_mods and len(selected_other_mods) > 0)
-            )
-            
-            # Only clean mods directory if no other mods are selected
-            if not has_other_mods:
-                injector._clean_mods_dir()
-            else:
-                log.info("[SkinMonitor] Other mods selected - keeping existing mods and adding skin mod")
-            
-            prepared = source.put(injector.mods_dir)
-            if prepared is None:
-                raise RuntimeError("The mod could not be linked or extracted into the injection folder")
-            log.info(f"[SkinMonitor] Prepared mod for the injection: {prepared}")
-
+            # Nothing goes into the mods folder on a pick: the injection cleans it
+            # and links the mods picked itself, and a pick made while it runs (past
+            # the threshold) would empty its folder under it
             self.shared_state.selected_custom_mod = {
                 "skin_id": int(skin_id),
                 "storage_skin_id": selected_mod.skin_id,
@@ -1803,7 +1778,7 @@ class MessageHandler:
                     log.debug(f"[SkinMonitor] Failed to broadcast historic state on custom mod selection: {e}")
             
             log.info(
-                "[SkinMonitor] Custom mod selected and extracted: %s "
+                "[SkinMonitor] Custom mod selected: %s "
                 "(target skin %s; storage skin %s)",
                 selected_mod.mod_name,
                 skin_id,
@@ -1842,8 +1817,6 @@ class MessageHandler:
         if not getattr(self.shared_state, "selected_custom_mod", None):
             return
 
-        self._take_back_custom_mod("Dismiss")
-
         # Clear historic entry so it doesn't auto-reselect
         try:
             from utils.core.historic import (
@@ -1873,18 +1846,6 @@ class MessageHandler:
                 self.shared_state.ui_skin_thread._broadcast_custom_mod_state()
         except Exception as exc:
             log.debug("[Dismiss] Failed to broadcast custom mod state: %s", exc)
-
-    def _take_back_custom_mod(self, tag: str) -> None:
-        """Take the selected custom mod back out of the injection's mods
-        folder (its source's take_back), so it does not keep injecting once
-        unpicked. Best effort: a failure is only logged under *tag*."""
-        try:
-            mod = self.shared_state.selected_custom_mod.get("source")
-            injector = getattr(self.injection_manager, "injector", None)
-            if mod is not None and injector is not None:
-                mod.take_back(injector.mods_dir)
-        except Exception as exc:
-            log.debug("[%s] Failed to take the custom mod out of the injection: %s", tag, exc)
 
     def _clear_active_selection_if_matches(self, champion_id: object, relative_path: object) -> None:
         """Clear the active/historic custom mod selection if it points at the deleted mod."""
