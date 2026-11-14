@@ -48,8 +48,8 @@ async function loadBridgePort() {
             }
           }
         } catch (e) {
-          // Cached port invalid, continue to discovery
-          localStorage.removeItem(BRIDGE_PORT_STORAGE_KEY);
+          // Not answering (Rose may not be running yet): keep the cached port,
+          // discovery below overwrites it if Rose is found on another one
         }
       }
     }
@@ -365,7 +365,7 @@ function setupBridgeSocket() {
       console.warn(`${LOG_PREFIX} Bridge socket setup failed`, error);
       bridgeSetupWarned = true;
     }
-    scheduleBridgeRetry();
+    scheduleBridgeRetry(true);
     return;
   }
 
@@ -469,7 +469,7 @@ function setupBridgeSocket() {
   bridgeSocket.addEventListener("close", () => {
     bridgeReady = false;
     if (opened) _notifyDisconnect();
-    scheduleBridgeRetry();
+    scheduleBridgeRetry(!opened);
   });
 
   bridgeSocket.addEventListener("error", (error) => {
@@ -478,7 +478,7 @@ function setupBridgeSocket() {
       bridgeErrorLogged = true;
     }
     bridgeReady = false;
-    scheduleBridgeRetry();
+    scheduleBridgeRetry(!opened);
   });
 }
 
@@ -500,7 +500,7 @@ function flushBridgeQueue() {
   }
 }
 
-function scheduleBridgeRetry() {
+function scheduleBridgeRetry(rediscoverPort = false) {
   if (bridgeReady || stopped) {
     return;
   }
@@ -509,7 +509,10 @@ function scheduleBridgeRetry() {
     return;
   }
 
-  retryTimer = setTimeout(() => {
+  retryTimer = setTimeout(async () => {
+    // Rose was not on this port: it may have started after the client, or
+    // restarted, on another one. Look again so this retry goes to the right one
+    if (rediscoverPort) await loadBridgePort();
     retryTimer = null;
     setupBridgeSocket();
   }, retryDelay);
