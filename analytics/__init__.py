@@ -8,11 +8,14 @@ from .core.install_id import get_install_id
 from .core.machine_id import get_machine_id
 from .core.analytics_client import AnalyticsClient
 from .core.analytics_thread import AnalyticsThread
+from .core.preference import analytics_opted_in, set_analytics_opted_in
 
 __all__ = [
     "get_machine_id",
     "get_install_id",
     "AnalyticsClient",
     "AnalyticsThread",
+    "analytics_opted_in",
+    "set_analytics_opted_in",
 ]
 

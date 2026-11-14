@@ -83,6 +83,8 @@
   "Start with Windows": "Εκκίνηση με τα Windows",
   "Hide empty categories": "Απόκρυψη κενών κατηγοριών",
   "Hide empty categories in the custom mods wheel": "Απόκρυψη κενών κατηγοριών στον τροχό προσαρμοσμένων mods",
+  "Send usage statistics": "Αποστολή στατιστικών χρήσης",
+  "Rose sends its version and a random ID for this install while it runs, to count how many people use it. No account or game data.": "Όσο εκτελείται, το Rose στέλνει την έκδοσή του και ένα τυχαίο αναγνωριστικό αυτής της εγκατάστασης, για να μετρά πόσοι το χρησιμοποιούν. Κανένα δεδομένο λογαριασμού ή παιχνιδιού.",
   "League of Legends Game Path:": "Διαδρομή παιχνιδιού League of Legends:",
   "Language:": "Γλώσσα:",
   "Auto (client language)": "Αυτόματα (γλώσσα του client)",

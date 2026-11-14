@@ -83,6 +83,8 @@
   "Start with Windows": "Windows 시작 시 실행",
   "Hide empty categories": "빈 카테고리 숨기기",
   "Hide empty categories in the custom mods wheel": "커스텀 모드 휠에서 빈 카테고리 숨기기",
+  "Send usage statistics": "사용 통계 보내기",
+  "Rose sends its version and a random ID for this install while it runs, to count how many people use it. No account or game data.": "Rose는 실행 중에 버전과 이 설치의 임의 ID를 보내 사용자 수를 집계합니다. 계정이나 게임 데이터는 보내지 않습니다.",
   "League of Legends Game Path:": "League of Legends 게임 경로:",
   "Language:": "언어:",
   "Auto (client language)": "자동 (클라이언트 언어)",

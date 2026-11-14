@@ -83,6 +83,8 @@
   "Start with Windows": "التشغيل مع Windows",
   "Hide empty categories": "إخفاء الفئات الفارغة",
   "Hide empty categories in the custom mods wheel": "إخفاء الفئات الفارغة في عجلة التعديلات المخصصة",
+  "Send usage statistics": "إرسال إحصاءات الاستخدام",
+  "Rose sends its version and a random ID for this install while it runs, to count how many people use it. No account or game data.": "يرسل Rose أثناء تشغيله إصداره ومعرّفًا عشوائيًا لهذا التثبيت، لمعرفة عدد مستخدميه. لا يُرسل أي بيانات عن الحساب أو اللعب.",
   "League of Legends Game Path:": "مسار لعبة League of Legends:",
   "Language:": "اللغة:",
   "Auto (client language)": "تلقائي (لغة العميل)",
