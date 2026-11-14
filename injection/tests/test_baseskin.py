@@ -990,6 +990,18 @@ class StoredSkinsTests(_GameAndMod):
         state.phase = "Matchmaking"
         self.assertTrue(stop())
 
+    def test_the_pass_runs_on_the_home_screen(self):
+        """The phase thread keeps the home screen as None in the shared state"""
+        manager = SimpleNamespace(injector=SimpleNamespace(game_dir=self.game), _injection_in_progress=False)
+        state = SimpleNamespace(phase=None)
+        for phase in (None, "None"):
+            with patch.object(library, "fix_stored_skins", return_value=0) as run, \
+                    patch("injection.mods.storage.ModStorageService"):
+                library.on_phase(phase, manager, state)
+                library._pass_thread.join(10)
+            run.assert_called_once()
+            self.assertFalse(run.call_args.args[2](), "stopped on the home screen")
+
 
 class PackageHelpersTests(unittest.TestCase):
     def test_wad_names_split_into_stem_and_locale(self):
