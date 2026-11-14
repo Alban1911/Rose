@@ -8,13 +8,13 @@ Handles connection initialization, refresh, and lifecycle
 import time
 import threading
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 
 import requests
 
 from utils.core.logging import get_logger, log_section, log_success
 
-from .lockfile import find_lockfile, parse_lockfile, find_process_credentials
+from .lockfile import find_lockfile, lockfile_folders, parse_lockfile, find_process_credentials
 
 log = get_logger()
 
@@ -35,6 +35,7 @@ class LCUConnection:
         self.session = self._prepare_session()
         self._explicit_lockfile = lockfile_path
         self.lf_path = None
+        self._seen_lockfile_dir: Optional[str] = None
         self.lf_mtime = 0.0
         self._next_credentials_check = 0.0
         self._lock = threading.RLock()
@@ -56,6 +57,9 @@ class LCUConnection:
         previous_path = self.lf_path
         lf = find_lockfile(self._explicit_lockfile)
         self.lf_path = lf
+        if lf:
+            # Kept once the client closes: where to wait for it to come back
+            self._seen_lockfile_dir = str(Path(lf).parent)
         self._next_credentials_check = time.monotonic() + 1.0
         
         try:
@@ -128,6 +132,10 @@ class LCUConnection:
         self.pw = None
         self.session = self._prepare_session()
     
+    def lockfile_folders(self) -> List[Path]:
+        """The existing folders a client's lockfile can appear in."""
+        return lockfile_folders(self._explicit_lockfile, [self._seen_lockfile_dir])
+
     def refresh_if_needed(self, force: bool = False):
         """Refresh once per second, including tokens rotated on client restart."""
         with self._lock:

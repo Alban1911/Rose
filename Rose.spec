@@ -242,6 +242,7 @@ hiddenimports = [
     'utils.core.modpkg',
     'utils.system',
     'utils.system.admin_utils',
+    'utils.system.folder_watch',
     'utils.system.win32_base',
     'utils.system.window_utils',
     'utils.system.resolution_utils',

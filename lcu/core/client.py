@@ -66,6 +66,10 @@ class LCU:
         """Refresh connection if needed"""
         self._connection.refresh_if_needed(force)
 
+    def lockfile_folders(self):
+        """The existing folders a client's lockfile can appear in."""
+        return self._connection.lockfile_folders()
+
     def websocket_credentials(self):
         """Return a consistent port/password snapshot for the LCU WebSocket."""
         return self._connection.websocket_credentials()

@@ -28,6 +28,7 @@ from config import (
 from lcu import LCU
 from state import SharedState
 from utils.core.logging import get_logger
+from utils.system.folder_watch import CHANGED, FolderWatch
 
 log = get_logger()
 
@@ -77,6 +78,9 @@ class WebSocketConnection:
         self.is_connected = False
         self._stop_event = threading.Event()
         self._retry_attempt = 0
+        # Waits for the client's lockfile while it is closed (no timer)
+        self._client_watch = FolderWatch()
+        self._client_wait_attempt = 0
         self._last_error = None
         # Reason of the last retry logged as a warning (repeats go to debug)
         self._warned_retry_reason: Optional[str] = None
@@ -97,6 +101,7 @@ class WebSocketConnection:
                 if self._wait_for_client():
                     break
                 continue
+            self._client_wait_attempt = 0
 
             port, password = credentials
             url = f"wss://127.0.0.1:{port}/"
@@ -205,6 +210,7 @@ class WebSocketConnection:
     def stop(self):
         """Stop the WebSocket connection"""
         self._stop_event.set()
+        self._client_watch.wake()
         if self.ws:
             try:
                 self.ws.close()
@@ -213,19 +219,39 @@ class WebSocketConnection:
                 pass
 
     def _wait_for_client(self) -> bool:
-        """Wait for the next look at the lockfile and return whether stopping.
+        """Wait for the client to write its lockfile and return whether stopping.
 
-        Without backoff: a look reads what LCU.refresh_if_needed keeps (one
-        refresh a second, whoever asks), and a client that starts is seen
-        within a second instead of up to WS_RECONNECT_MAX_DELAY later. The
-        connection's own backoff starts over with the client."""
+        Woken by a change in the folders the lockfile is looked for in (a
+        Windows change notification: nothing runs while the client stays
+        closed), so a client that starts is seen at once instead of up to
+        WS_RECONNECT_MAX_DELAY later. The connection's own backoff starts over
+        with the client. With no folder to watch (a client installed elsewhere,
+        not seen yet), the lockfile is looked for with a backoff."""
         self._retry_attempt = 0
         reason = "LCU lockfile is not ready"
         # The client stays closed for hours: warned once, the repeats are not logged
         if reason != self._warned_retry_reason:
             self._warned_retry_reason = reason
             log.warning("[WS] %s; waiting for the client", reason)
-        return self._stop_event.wait(WS_RECONNECT_DELAY) or self.state.stop
+
+        def started() -> bool:
+            # Looked at again once the folders are watched: a lockfile written
+            # since the last look sends no notification
+            self.lcu.refresh_if_needed(force=True)
+            return self.lcu.websocket_credentials() is not None
+
+        looked = time.monotonic()
+        woke = self._client_watch.wait(self.lcu.lockfile_folders(), WS_RECONNECT_MAX_DELAY, started)
+        if woke is None:
+            self._client_wait_attempt += 1
+            delay = min(WS_RECONNECT_MAX_DELAY, WS_RECONNECT_DELAY * (2 ** min(self._client_wait_attempt - 1, 6)))
+            return self._stop_event.wait(delay) or self.state.stop
+        if woke == CHANGED:
+            # A folder that keeps changing (a patch) is looked at once a second at most
+            rest = WS_RECONNECT_DELAY - (time.monotonic() - looked)
+            if rest > 0 and self._stop_event.wait(rest):
+                return True
+        return self._stop_event.is_set() or self.state.stop
 
     def _wait_before_retry(self, reason: str) -> bool:
         """Wait with bounded exponential backoff and return whether stopping."""

@@ -8,7 +8,7 @@ Handles finding and parsing League Client lockfile
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
+from typing import Iterable, List, Optional
 
 import psutil
 
@@ -55,6 +55,37 @@ def _is_lockfile_candidate(path: Path) -> bool:
         return False
 
 
+def _common_lockfiles() -> List[Path]:
+    if os.name == "nt":
+        return [
+            Path("C:/Riot Games/League of Legends/lockfile"),
+            Path("C:/Program Files/Riot Games/League of Legends/lockfile"),
+            Path("C:/Program Files (x86)/Riot Games/League of Legends/lockfile"),
+        ]
+    return [
+        Path("/Applications/League of Legends.app/Contents/LoL/lockfile"),
+        Path.home() / ".local/share/League of Legends/lockfile",
+    ]
+
+
+def lockfile_folders(explicit: Optional[str] = None, seen: Iterable[str] = ()) -> List[Path]:
+    """The existing folders a client writes its lockfile in, as find_lockfile
+    looks for it, plus *seen* (folders a lockfile was found in this session)."""
+    candidates = [Path(path).parent for path in (explicit, os.environ.get("LCU_LOCKFILE")) if path]
+    client_dir = (get_config_option("General", "clientPath") or "").strip()
+    if client_dir:
+        candidates.append(Path(client_dir))
+    candidates += [path.parent for path in _common_lockfiles()]
+    candidates += [Path(folder) for folder in seen if folder]
+    folders, keys = [], set()
+    for folder in candidates:
+        key = os.path.normcase(os.path.abspath(folder))
+        if key not in keys and folder.is_dir():
+            keys.add(key)
+            folders.append(folder)
+    return folders
+
+
 def find_lockfile(explicit: Optional[str] = None) -> Optional[str]:
     """Find League Client lockfile using pathlib
     
@@ -85,19 +116,7 @@ def find_lockfile(explicit: Optional[str] = None) -> Optional[str]:
             return str(configured)
 
     # Check common installation paths
-    if os.name == "nt":
-        common_paths = [
-            Path("C:/Riot Games/League of Legends/lockfile"),
-            Path("C:/Program Files/Riot Games/League of Legends/lockfile"),
-            Path("C:/Program Files (x86)/Riot Games/League of Legends/lockfile"),
-        ]
-    else:
-        common_paths = [
-            Path("/Applications/League of Legends.app/Contents/LoL/lockfile"),
-            Path.home() / ".local/share/League of Legends/lockfile",
-        ]
-    
-    for path in common_paths:
+    for path in _common_lockfiles():
         if _is_lockfile_candidate(path):
             return str(path)
     

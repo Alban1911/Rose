@@ -1,10 +1,15 @@
+import os
+import tempfile
 import threading
+import time
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from threads.websocket import websocket_connection
 from threads.websocket.websocket_connection import WebSocketConnection
+from utils.system import folder_watch
 
 
 class ConnectionCase(unittest.TestCase):
@@ -15,7 +20,12 @@ class ConnectionCase(unittest.TestCase):
         self.connection.state = SimpleNamespace(stop=False)
         self.connection._stop_event = threading.Event()
         self.connection._retry_attempt = 0
+        self.connection._client_wait_attempt = 0
         self.connection._warned_retry_reason = None
+        self.connection._client_watch = Mock()
+        self.connection._client_watch.wait.return_value = folder_watch.TIMEOUT
+        self.connection.lcu = Mock()
+        self.connection.lcu.lockfile_folders.return_value = ["C:/Riot Games/League of Legends"]
         wait = patch.object(self.connection._stop_event, 'wait', return_value=False)
         self.wait = wait.start()
         self.addCleanup(wait.stop)
@@ -50,11 +60,45 @@ class ClientStartTests(ConnectionCase):
     def waited(self):
         return [call.args[0] for call in self.wait.call_args_list]
 
-    def test_a_closed_client_is_looked_for_every_second(self):
+    def test_a_closed_client_is_waited_for_in_its_folders_not_on_a_timer(self):
         for _ in range(20):
             self.connection._wait_for_client()
 
-        self.assertEqual(self.waited(), [websocket_connection.WS_RECONNECT_DELAY] * 20)
+        self.assertEqual(self.waited(), [])
+        folders, timeout, _ready = self.connection._client_watch.wait.call_args.args
+        self.assertEqual(folders, ["C:/Riot Games/League of Legends"])
+        self.assertEqual(timeout, websocket_connection.WS_RECONNECT_MAX_DELAY)
+
+    def test_the_lockfile_is_looked_at_again_once_its_folders_are_watched(self):
+        self.connection._wait_for_client()
+        ready = self.connection._client_watch.wait.call_args.args[2]
+
+        self.connection.lcu.websocket_credentials.return_value = None
+        self.assertFalse(ready())
+        self.connection.lcu.websocket_credentials.return_value = (5000, "pw")
+        self.assertTrue(ready())
+        self.connection.lcu.refresh_if_needed.assert_called_with(force=True)
+
+    def test_a_folder_that_keeps_changing_is_looked_at_once_a_second_at_most(self):
+        self.connection._client_watch.wait.return_value = folder_watch.CHANGED
+        self.connection._wait_for_client()
+
+        (rest,) = self.waited()
+        self.assertGreater(rest, 0)
+        self.assertLessEqual(rest, websocket_connection.WS_RECONNECT_DELAY)
+
+    def test_without_a_folder_to_watch_the_lockfile_is_looked_for_with_backoff(self):
+        self.connection._client_watch.wait.return_value = None
+        for _ in range(7):
+            self.connection._wait_for_client()
+
+        self.assertEqual(self.waited(), [1.0, 2.0, 4.0, 8.0, 15.0, 15.0, 15.0])
+
+    def test_stopping_ends_the_wait_for_the_client(self):
+        self.connection.ws = None
+        self.connection.stop()
+
+        self.connection._client_watch.wake.assert_called_once_with()
 
     def test_a_closed_client_is_logged_once(self):
         for _ in range(20):
@@ -79,6 +123,45 @@ class ClientStartTests(ConnectionCase):
             self.connection._wait_before_retry('LCU WebSocket unavailable on port 5000')
 
         self.assertEqual(self.waited()[-1], websocket_connection.WS_RECONNECT_MAX_DELAY)
+
+
+
+@unittest.skipUnless(os.name == "nt", "Windows change notifications")
+class ClientFolderTests(unittest.TestCase):
+    """The lockfile a starting client writes ends the wait at once"""
+
+    def test_a_lockfile_written_in_the_watched_folder_ends_the_wait(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        folder = Path(temp.name)
+        lockfile = folder / "lockfile"
+        connection = WebSocketConnection.__new__(WebSocketConnection)
+        connection.state = SimpleNamespace(stop=False)
+        connection._stop_event = threading.Event()
+        connection._retry_attempt = 0
+        connection._client_wait_attempt = 0
+        connection._warned_retry_reason = None
+        connection._client_watch = folder_watch.FolderWatch()
+        connection.lcu = Mock()
+        connection.lcu.lockfile_folders.return_value = [folder]
+        connection.lcu.websocket_credentials.side_effect = lambda: (5000, "pw") if lockfile.exists() else None
+        done = {}
+
+        def wait():
+            started = time.monotonic()
+            done["stopping"] = connection._wait_for_client()
+            done["after"] = time.monotonic() - started
+
+        with patch.object(websocket_connection, "log"):
+            waiter = threading.Thread(target=wait)
+            waiter.start()
+            time.sleep(0.3)
+            lockfile.write_text("LeagueClient:1:5000:pw:https")
+            waiter.join(10)
+
+        self.assertFalse(done["stopping"])
+        self.assertLess(done["after"], websocket_connection.WS_RECONNECT_MAX_DELAY / 2)
+        self.assertIsNotNone(connection.lcu.websocket_credentials())
 
 
 if __name__ == '__main__':
