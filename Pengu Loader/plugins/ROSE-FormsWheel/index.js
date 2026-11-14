@@ -1545,7 +1545,7 @@
     },
     error: (msg, extra) => {
       console.error(`${LOG_PREFIX} ${msg}`, extra ?? "");
-      emitBridgeLog("error", { message: msg, data: extra });
+      emitBridgeLog("error", { message: msg, data: extra }, "error");
     },
   };
 

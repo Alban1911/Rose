@@ -25,7 +25,7 @@ const BRIDGE_PORT_STORAGE_KEY = "rose_bridge_port";
 const DISCOVERY_START_PORT = 50000;
 const DISCOVERY_END_PORT = 50099;
 
-async function loadBridgePort() {
+async function loadBridgePort({ legacy = true } = {}) {
   try {
     // First, check localStorage for cached port
     const cachedPort = localStorage.getItem(BRIDGE_PORT_STORAGE_KEY);
@@ -129,6 +129,10 @@ async function loadBridgePort() {
         return true;
       }
     }
+
+    // A retry skips the legacy scan: the server that answers /port answers
+    // /bridge-port too, so it cannot find what the scan above did not
+    if (!legacy) return false;
 
     // Fallback: try old /port endpoint (parallel as well)
     const legacyPromises = [];
@@ -512,7 +516,7 @@ function scheduleBridgeRetry(rediscoverPort = false) {
   retryTimer = setTimeout(async () => {
     // Rose was not on this port: it may have started after the client, or
     // restarted, on another one. Look again so this retry goes to the right one
-    if (rediscoverPort) await loadBridgePort();
+    if (rediscoverPort) await loadBridgePort({ legacy: false });
     retryTimer = null;
     setupBridgeSocket();
   }, retryDelay);
