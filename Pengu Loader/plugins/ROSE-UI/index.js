@@ -677,21 +677,19 @@
     };
     window.addEventListener("resize", handleResize, { passive: true });
 
-    document.addEventListener(
-      "visibilitychange",
-      () => {
-        if (document.visibilityState === "visible") {
-          scanSkinSelection();
-        }
-      },
-      false
-    );
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        scanSkinSelection();
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange, false);
 
     // Return cleanup in case we ever need it
     return () => {
       observer.disconnect();
       clearInterval(intervalId);
       window.removeEventListener("resize", handleResize);
+      document.removeEventListener("visibilitychange", handleVisibilityChange, false);
     };
   }
 
