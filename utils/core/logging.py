@@ -14,7 +14,7 @@ import threading
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Dict
+from typing import Dict, Optional
 
 # Third-party imports
 import logging
@@ -47,6 +47,8 @@ logging.Logger.trace = trace
 
 # Global log mode (set by setup_logging)
 _CURRENT_LOG_MODE = 'customer'
+# This session's file handler (SizeRotatingCompositeHandler), None when no file is written
+_FILE_HANDLER = None
 _NAMED_LOGGERS: Dict[str, logging.Logger] = {}
 
 def get_log_mode() -> str:
@@ -169,7 +171,7 @@ def setup_logging(log_mode: str = 'customer', *, write_logs: bool = True):
         write_logs: If False, skip creating log files (useful for --dev runs).
     """
     # Store the log mode globally
-    global _CURRENT_LOG_MODE
+    global _CURRENT_LOG_MODE, _FILE_HANDLER
     _CURRENT_LOG_MODE = log_mode
     # Handle windowed mode where stdout/stderr might be None or redirected to devnull
     if sys.stdout is not None and not hasattr(sys.stdout, 'name') or sys.stdout.name != os.devnull:
@@ -348,6 +350,8 @@ def setup_logging(log_mode: str = 'customer', *, write_logs: bool = True):
             log_file = None
             print(f"Warning: Could not setup file logging: {e}", file=sys.stderr)
     
+    _FILE_HANDLER = file_handler
+
     root = logging.getLogger()
     root.handlers.clear()
     
@@ -449,6 +453,12 @@ def install_uncaught_exception_logging() -> None:
 def get_logger(name: str = "tracer") -> logging.Logger:
     """Get a logger instance"""
     return logging.getLogger(name)
+
+
+def get_log_file() -> Optional[Path]:
+    """The log file this session writes to now, or None when no file is written."""
+    handler = _FILE_HANDLER
+    return None if handler is None else Path(handler.current_path)
 
 
 def exit_now(code: int = 0) -> None:

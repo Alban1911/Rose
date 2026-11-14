@@ -51,6 +51,11 @@ class FileLoggingTests(unittest.TestCase):
         for handler in self.handlers:
             handler.close()
 
+    def test_the_log_file_is_the_one_this_session_writes(self):
+        # The init error dialogs show it (they read a handler the tracer logger does not have)
+        self.assertEqual(rose_logging.get_log_file(), self.log_path)
+        self.assertTrue(rose_logging.get_log_file().is_file())
+
     def test_slow_disk_does_not_block_the_calling_thread(self):
         entered = threading.Event()
         release = threading.Event()
