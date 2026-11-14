@@ -284,6 +284,22 @@ class SkinSyncTests(unittest.TestCase):
         self.assertEqual(result.pending, [new])
         self.assertTrue(self.local(retired).is_file())
 
+    def test_temp_files_left_by_a_killed_sync_are_swept(self):
+        self.sync()
+        partial = self.local("skins/1/1001/.1001.fantome.abc123.tmp")
+        state_temp = self.skins / ".skin_sync_state.json.x1y2z3.tmp"
+        partial.write_bytes(b"half a skin")
+        state_temp.write_bytes(b"{")
+        self.github.etag = '"manifest-2"'
+
+        self.sync()
+
+        self.assertFalse(partial.exists())
+        self.assertFalse(state_temp.exists())
+        self.assertTrue((self.skins / skin_sync.STATE_FILE).exists())
+        self.assertTrue((self.skins / skin_sync.MANIFEST_COPY).exists())
+        self.assertEqual(self.local("skins/1/1001/1001.fantome").read_bytes(), b"skin 1001")
+
     def test_a_rewritten_commit_falls_back_to_main(self):
         self.github.commit_gone = True
 
