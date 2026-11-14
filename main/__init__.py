@@ -414,7 +414,7 @@ import utils.integration.pengu_loader as pengu_loader
 from state import AppStatus
 from utils.core.logging import get_logger, log_success
 from utils.core.issue_reporter import report_issue
-from utils.threading.thread_manager import create_daemon_thread
+from utils.threading.thread_manager import ThreadManager, create_daemon_thread
 from config import APP_VERSION, MAIN_LOOP_FORCE_QUIT_TIMEOUT_S, get_config_option, set_config_option
 from injection.config.config_manager import ConfigManager
 from injection.game.game_detector import GameDetector
@@ -776,6 +776,12 @@ def run_league_unlock(args: Optional[argparse.Namespace] = None,
 
         # A Quit or Restart clicked while Rose was starting runs now
         tray_manager.run_pending_request()
+
+    # Stopped while starting (a Quit or Restart clicked then): end before the
+    # threads start and Pengu's activation restarts a running client
+    if state.stop:
+        perform_cleanup(state, ThreadManager(), tray_manager, injection_manager)
+        return
     
     # Initialize threads (this starts the WebSocket server)
     thread_manager, t_phase, t_ui, t_ws, t_lcu_monitor = initialize_threads(

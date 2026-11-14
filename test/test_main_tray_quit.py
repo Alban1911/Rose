@@ -10,9 +10,6 @@ class TrayQuitWhileStartingTests(unittest.TestCase):
     def test_a_quit_clicked_while_preparing_the_mods_stops_rose_once_its_state_exists(self):
         """The tray has no callback while the stored mods are converted: the
         Quit clicked then must still reach the state, not only hide the icon"""
-        class Started(Exception):
-            """Stops the start before its threads"""
-
         tray = tray_manager.TrayManager()
         icon = Mock()
         state = SimpleNamespace(stop=False, skin_write_ms=0, inject_batch=1)
@@ -35,12 +32,15 @@ class TrayQuitWhileStartingTests(unittest.TestCase):
                              return_value=(MagicMock(), MagicMock(), state, injection_manager)), \
                 patch.object(rose_main, "create_lcu_disconnection_handler"), \
                 patch.object(rose_main, "create_daemon_thread") as watchdog, \
-                patch.object(rose_main, "initialize_threads", side_effect=Started), \
+                patch.object(rose_main, "initialize_threads") as threads, \
+                patch.object(rose_main, "perform_cleanup") as cleanup, \
                 patch.object(tray_manager, "log"):
-            with self.assertRaises(Started):
-                rose_main.run_league_unlock(args=SimpleNamespace())
+            rose_main.run_league_unlock(args=SimpleNamespace())
 
         self.assertTrue(state.stop)
+        # Rose ends there: no threads, no Pengu activation restarting the client
+        threads.assert_not_called()
+        cleanup.assert_called_once()
         watchdog.return_value.start.assert_called_once()
         icon.stop.assert_called_once()
 
