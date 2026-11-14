@@ -226,11 +226,9 @@ SKIN_THRESHOLD_MS_DEFAULT = 300             # Time before loadout ends to write 
 # is taken for the injection. A skin changed after it is ignored, so the one
 # picked before it (already staged in LTK Manager) is the one applied: with
 # less than a second, a late change could not be installed before the game.
-# The default is the maximum, which leaves a pick made right before it the
-# most time to be installed.
 INJECTION_THRESHOLD_MIN_S = 1.0
 INJECTION_THRESHOLD_MAX_S = 2.0
-INJECTION_THRESHOLD_DEFAULT_S = 2.0
+INJECTION_THRESHOLD_DEFAULT_S = 1.0
 
 
 def clamp_injection_threshold(value) -> float:

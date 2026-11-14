@@ -1376,7 +1376,10 @@ class InjectionTrigger:
                                     stats = _get_skin_stats()
                                     rec_ms = stats.get("recommended_threshold_ms")
                                     hint = "Retry your skin selection. If the warning persists, increase Injection Threshold."
-                                    if rec_ms is not None:
+                                    # A recommendation at or under the threshold in use is no reason to raise it
+                                    if rec_ms is not None and not (
+                                        isinstance(threshold_s, (int, float)) and rec_ms <= threshold_s * 1000
+                                    ):
                                         hint = (
                                             f"Based on your history, base skin confirmation takes up to "
                                             f"{stats.get('p90_ms', '?')}ms (p90). "
@@ -1414,6 +1417,9 @@ class InjectionTrigger:
                 log.warning(f"[INJECT] Failed to force base skin - injection may fail")
         
         except Exception as e:
+            # Tracking started before the request: a pending one would be
+            # recorded as a timeout when champion select ends
+            _cancel_skin_tracking()
             log.error(f"[INJECT] Error forcing base skin: {e}")
             import traceback
             log.error(f"[INJECT] Traceback: {traceback.format_exc()}")
