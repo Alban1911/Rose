@@ -87,7 +87,8 @@
               }
             }
           } catch (e) {
-            localStorage.removeItem(BRIDGE_PORT_STORAGE_KEY);
+            // Not answering (Rose may not be running yet): keep the cached port,
+            // discovery below overwrites it if Rose is found on another one
           }
         }
       }
@@ -1146,8 +1147,10 @@
 
     console.log(`${LOG_PREFIX} Connecting to bridge at ${BRIDGE_URL}`);
     bridgeSocket = new WebSocket(BRIDGE_URL);
+    let opened = false;
 
     bridgeSocket.onopen = () => {
+      opened = true;
       console.log(`${LOG_PREFIX} Bridge connected`);
       bridgeReady = true;
       clearConnectionErrors();
@@ -1176,6 +1179,13 @@
       bridgeReady = false;
       // Rose won't answer what it was asked on this connection
       releasePendingAction(t("Lost the connection to Rose. Check that Rose is running, then try again."));
+      // Rose was not on this port: it may have started after the client on
+      // another one, which Skin Monitor finds and shares
+      const sharedPort = window.__roseBridge?.port;
+      if (!opened && Number.isInteger(sharedPort) && sharedPort > 0 && sharedPort <= 65535 && sharedPort !== BRIDGE_PORT) {
+        BRIDGE_PORT = sharedPort;
+        BRIDGE_URL = `ws://127.0.0.1:${BRIDGE_PORT}`;
+      }
       setTimeout(connectBridge, 1000);
     };
 
