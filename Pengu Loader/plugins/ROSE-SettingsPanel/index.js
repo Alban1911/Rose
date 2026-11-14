@@ -5144,6 +5144,12 @@
         ? t("LTK Manager found problems it can't repair in {name}, so it won't be playable. {reason}", { name, reason }).trim()
         : t("LTK Manager found problems it can't repair in this mod, so it won't be playable. {reason}", { reason }).trim();
     }
+    if (item.code === "ltk_cleanup_failed") {
+      // Not "Failed to import": the mod was added, and stays
+      return several
+        ? t("LTK Manager rejected {name}, but Rose could not remove it. It is still in your library.", { name })
+        : t("LTK Manager rejected this mod, but Rose could not remove it. It is still in your library.");
+    }
     return t("Failed to import {name}: {error}", { name, error: item.error || "" });
   }
 
