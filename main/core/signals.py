@@ -4,12 +4,11 @@
 Signal handlers for graceful shutdown
 """
 
-import os
 import signal
 import sys
 
 import utils.integration.pengu_loader as pengu_loader
-from utils.core.logging import get_logger
+from utils.core.logging import exit_now, get_logger
 
 from .state import get_app_state
 
@@ -47,7 +46,7 @@ def force_quit_handler():
         pengu_loader.deactivate_on_exit()
     except Exception:
         log.warning("Failed to deactivate Pengu Loader during shutdown", exc_info=True)
-    os._exit(0)
+    exit_now(0)
 
 
 def _start_shutdown_watcher() -> None:

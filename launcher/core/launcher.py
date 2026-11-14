@@ -2,14 +2,13 @@
 from __future__ import annotations
 
 import logging
-import os
 import sys
 import threading
 import time
 from contextlib import contextmanager
 from typing import Callable, Iterator
 
-from utils.core.logging import get_logger, get_named_logger
+from utils.core.logging import exit_now, get_logger, get_named_logger
 from utils.system.win32_base import (
     WM_CLOSE,
     SW_SHOWNORMAL,
@@ -165,7 +164,7 @@ def _perform_update(dialog: UpdateDialog, dev_mode: bool = False) -> bool:
         dialog.pump_messages()
         time.sleep(1.0)
         updater_log.info("Update helper acknowledged the handoff. Closing Rose to apply it.")
-        os._exit(0)
+        exit_now(0)
 
     dialog.set_marquee(False)
     dialog.reset_progress()

@@ -1,7 +1,6 @@
 
 import contextlib
 import io
-import os
 import sys
 import unittest
 from pathlib import Path
@@ -10,6 +9,7 @@ from unittest.mock import MagicMock, patch
 
 import main as rose_main
 from config import UNINSTALL_CLEANUP_DEADLINE_S
+from utils.core.logging import exit_now
 from main.setup.arguments import setup_arguments
 
 
@@ -91,7 +91,7 @@ class RemoveLtkModsTests(unittest.TestCase):
         host = self.remove.call_args.args[0]
         self.assertEqual((host.tools_dir, host.injection_dir), (self.tools, self.injection))
         self.logging.assert_called_once_with("customer")
-        self.watchdog.assert_called_once_with(UNINSTALL_CLEANUP_DEADLINE_S, os._exit, args=(1,))
+        self.watchdog.assert_called_once_with(UNINSTALL_CLEANUP_DEADLINE_S, exit_now, args=(1,))
         self.assertTrue(self.watchdog.return_value.daemon)
         self.watchdog.return_value.start.assert_called_once_with()
 

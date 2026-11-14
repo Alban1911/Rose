@@ -202,3 +202,31 @@ for index in range(50):
         text = path.read_text(encoding='utf-8')
         self.assertEqual(text.count('exit record '), 50)
         self.assertIn('exit record 49', text)
+
+    def test_a_forced_exit_writes_pending_file_records(self):
+        directory = Path(self.temp.name) / 'forced'
+        script = '''
+import logging
+import sys
+from pathlib import Path
+from unittest.mock import patch
+from utils.core.logging import exit_now, setup_logging
+
+with patch('utils.core.paths.get_user_data_dir', return_value=Path(sys.argv[1])):
+    setup_logging('verbose')
+for index in range(300):
+    logging.getLogger('exit-test').warning('forced record %s', index)
+logging.getLogger('exit-test').error('forcing the exit')
+exit_now(3)
+'''
+        result = subprocess.run(
+            [sys.executable, '-c', script, str(directory)],
+            cwd=Path(__file__).resolve().parents[2],
+            capture_output=True,
+            timeout=10,
+        )
+        self.assertEqual(result.returncode, 3, result.stderr.decode('utf-8', errors='replace'))
+        (path,) = (directory / 'logs').glob('rose_*.log')
+        text = path.read_text(encoding='utf-8')
+        self.assertEqual(text.count('forced record '), 300)
+        self.assertIn('forcing the exit', text)

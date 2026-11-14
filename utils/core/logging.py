@@ -30,6 +30,9 @@ from config import (
     UPDATER_LOG_FILE_PATTERN,
 )
 
+# Queued after a QueueHandler's pending records: its worker writes them, then ends
+_STOP = object()
+
 # Add custom TRACE logging level (below DEBUG)
 TRACE = 5
 logging.addLevelName(TRACE, "TRACE")
@@ -184,34 +187,30 @@ def setup_logging(log_mode: str = 'customer', *, write_logs: bool = True):
     # Create a queue-based non-blocking logging handler
     class QueueHandler(logging.Handler):
         """A queue-based handler that never blocks the calling thread"""
-        def __init__(self, target_handler):
+        def __init__(self, target_handler, thread_name="LogQueueWorker"):
             super().__init__()
             self.target_handler = target_handler
             self.queue = queue.Queue(maxsize=1000)  # Limit queue size to prevent memory issues
             self.worker_thread = None
             self._stop_event = threading.Event()
-            self._start_worker()
+            self._start_worker(thread_name)
         
-        def _start_worker(self):
+        def _start_worker(self, thread_name):
             """Start the worker thread that processes log records"""
             def worker():
-                while not self._stop_event.is_set() or not self.queue.empty():
+                while True:
+                    record = self.queue.get()  # close() queues _STOP after the pending records
                     try:
-                        # Get record with timeout to allow checking stop event
-                        record = self.queue.get(timeout=0.1)
-                        # Emit to target handler in worker thread
-                        try:
-                            self.target_handler.handle(record)
-                        except Exception:
-                            # If emit fails, silently drop the log message
-                            pass
-                        finally:
-                            self.queue.task_done()
-                    except queue.Empty:
-                        continue
+                        if record is _STOP:
+                            break
+                        self.target_handler.handle(record)
+                    except Exception:
+                        pass  # a record that fails to write is dropped
+                    finally:
+                        self.queue.task_done()
                 self.target_handler.close()
             
-            self.worker_thread = threading.Thread(target=worker, daemon=True, name="LogQueueWorker")
+            self.worker_thread = threading.Thread(target=worker, daemon=True, name=thread_name)
             self.worker_thread.start()
         
         def emit(self, record):
@@ -229,7 +228,13 @@ def setup_logging(log_mode: str = 'customer', *, write_logs: bool = True):
         def close(self):
             """Drain pending records for up to one second on shutdown."""
             with self.lock:
+                stopping = not self._stop_event.is_set()
                 self._stop_event.set()
+            if stopping:
+                try:
+                    self.queue.put(_STOP, timeout=1.0)
+                except queue.Full:
+                    pass
             if self.worker_thread and self.worker_thread is not threading.current_thread():
                 self.worker_thread.join(timeout=1.0)
             super().close()
@@ -358,7 +363,7 @@ def setup_logging(log_mode: str = 'customer', *, write_logs: bool = True):
     
     # Always add file handler
     if file_handler:
-        file_queue = QueueHandler(file_handler)
+        file_queue = QueueHandler(file_handler, thread_name="LogFileWorker")
         file_queue.setLevel(file_handler.level)
         root.addHandler(file_queue)
     
@@ -444,6 +449,21 @@ def install_uncaught_exception_logging() -> None:
 def get_logger(name: str = "tracer") -> logging.Logger:
     """Get a logger instance"""
     return logging.getLogger(name)
+
+
+def exit_now(code: int = 0) -> None:
+    """os._exit once the queued log records are written.
+
+    os._exit skips logging's shutdown, so the queued lines (the ones that say
+    why Rose is forcing its exit) were lost. The flush gets 2 s, in a thread,
+    so a hung disk cannot hold up the exit.
+    """
+    try:
+        flusher = threading.Thread(target=logging.shutdown, daemon=True, name="LogFlushOnExit")
+        flusher.start()
+        flusher.join(timeout=2.0)
+    finally:
+        os._exit(code)
 
 
 def get_named_logger(name: str, prefix: str, log_mode: str = None) -> logging.Logger:

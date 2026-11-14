@@ -822,17 +822,16 @@ def _remove_ltk_mods() -> int:
     --remove-ltk-mods when the user does not keep Rose's data. It checked
     that Rose is closed and waits for this, hidden: no single-instance check,
     no launcher, no dialog, and a watchdog ends it should LTK Manager hang."""
-    import os
     import threading
 
     from config import UNINSTALL_CLEANUP_DEADLINE_S
     from injection.overlay.ltf_session import LtfHost
     from injection.overlay.ltk_library import remove_rose_mods
-    from utils.core.logging import setup_logging
+    from utils.core.logging import exit_now, setup_logging
     from utils.core.paths import get_injection_dir, get_tools_dir
 
     setup_logging('customer')
-    watchdog = threading.Timer(UNINSTALL_CLEANUP_DEADLINE_S, os._exit, args=(1,))
+    watchdog = threading.Timer(UNINSTALL_CLEANUP_DEADLINE_S, exit_now, args=(1,))
     watchdog.daemon = True
     watchdog.start()
     try:
