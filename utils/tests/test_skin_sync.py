@@ -119,13 +119,16 @@ class SkinSyncTests(unittest.TestCase):
         no_wait.start()
         self.addCleanup(no_wait.stop)
 
-    def sync(self):
+    def synchronizer(self):
         return SkinSync(
             self.downloader._resolve_local_path,
             [self.skins, self.downloader.classic_dir, self.downloader.resources_dir],
             self.skins,
             workers=2,
-        ).run()
+        )
+
+    def sync(self):
+        return self.synchronizer().run()
 
     def local(self, path):
         return self.downloader._resolve_local_path(path)
@@ -200,21 +203,86 @@ class SkinSyncTests(unittest.TestCase):
         self.assertEqual(second.downloaded, 3)  # the two that landed are not fetched again
         self.assertEqual(len(self.github.downloads()), 3)
 
-    def test_files_the_library_no_longer_has_are_removed(self):
+    def test_only_unmodified_files_owned_by_the_library_are_removed(self):
         self.sync()
-        old = self.local("skins/9/9001/9001.fantome")
-        old.parent.mkdir(parents=True)
-        old.write_bytes(b"removed upstream")
-        del self.github.files["skins/1/1001/1002/1002.fantome"]
+        untracked = self.local("skins/9/9001/9001.fantome")
+        untracked.parent.mkdir(parents=True)
+        untracked.write_bytes(b"local only")
+        modified = "skins/1/1001/1001.png"
+        self.local(modified).write_bytes(b"local preview")
+        retired = "skins/1/1001/1002/1002.fantome"
+        del self.github.files[modified]
+        del self.github.files[retired]
         self.github.etag = '"manifest-2"'
 
         result = self.sync()
 
-        self.assertEqual(result.removed, 2)
-        self.assertFalse(old.exists())
-        self.assertFalse(old.parent.exists())
-        self.assertFalse(self.local("skins/1/1001/1002/1002.fantome").exists())
+        self.assertTrue(result.complete)
+        self.assertEqual(result.removed, 1)
+        self.assertEqual(untracked.read_bytes(), b"local only")
+        self.assertEqual(self.local(modified).read_bytes(), b"local preview")
+        self.assertFalse(self.local(retired).exists())
+        self.assertFalse(self.local(retired).parent.exists())
         self.assertTrue((self.skins / skin_sync.STATE_FILE).exists())  # Rose's own files stay
+
+    def test_an_incomplete_sync_preserves_files_until_a_complete_retry(self):
+        self.sync()
+        retired = "skins/1/1001/1002/1002.fantome"
+        new = "skins/2/2001/2001.fantome"
+        del self.github.files[retired]
+        self.github.files[new] = b"new skin"
+        self.github.wrong_content.add(new)
+        self.github.etag = '"manifest-2"'
+
+        failed = self.sync()
+
+        self.assertFalse(failed.complete)
+        self.assertEqual(failed.removed, 0)
+        self.assertEqual(self.local(retired).read_bytes(), b"chroma 1002")
+        self.github.wrong_content.clear()
+
+        retried = self.sync()
+
+        self.assertTrue(retried.complete)
+        self.assertEqual(retried.removed, 1)
+        self.assertFalse(self.local(retired).exists())
+        self.assertEqual(self.local(new).read_bytes(), b"new skin")
+
+    def test_an_interrupted_manifest_fetch_cannot_reuse_the_wrong_listing(self):
+        self.sync()
+        synchronizer = self.synchronizer()
+        original = self.github.files.copy()
+        retired = "skins/1/1001/1002/1002.fantome"
+        del self.github.files[retired]
+        self.github.etag = '"manifest-2"'
+        # The process can exit after writing the manifest but before saving state.
+        synchronizer.fetch_manifest(synchronizer._load_state())
+        self.github.files = original
+        self.github.etag = '"manifest-1"'
+        self.github.calls.clear()
+
+        result = self.sync()
+
+        self.assertTrue(result.complete)
+        self.assertEqual(result.removed, 0)
+        self.assertTrue(self.local(retired).exists())
+        self.assertEqual(self.github.calls, [MANIFEST_URL, MANIFEST_URL])
+
+    def test_an_unresolvable_destination_prevents_cleanup(self):
+        self.sync()
+        retired = "skins/1/1001/1002/1002.fantome"
+        new = "skins/2/2001/2001.fantome"
+        del self.github.files[retired]
+        self.github.files[new] = b"new skin"
+        self.github.etag = '"manifest-2"'
+        synchronizer = self.synchronizer()
+        synchronizer.resolve = lambda path: None if path == new else self.local(path)
+
+        result = synchronizer.run()
+
+        self.assertFalse(result.complete)
+        self.assertEqual(result.pending, [new])
+        self.assertTrue(self.local(retired).is_file())
 
     def test_a_rewritten_commit_falls_back_to_main(self):
         self.github.commit_gone = True
