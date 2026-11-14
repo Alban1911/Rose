@@ -1542,6 +1542,10 @@
       console.debug(`${LOG_PREFIX} ${msg}`, extra ?? "");
       emitBridgeLog("debug", { message: msg, data: extra });
     },
+    error: (msg, extra) => {
+      console.error(`${LOG_PREFIX} ${msg}`, extra ?? "");
+      emitBridgeLog("error", { message: msg, data: extra });
+    },
   };
 
   function getNumericId(value) {
