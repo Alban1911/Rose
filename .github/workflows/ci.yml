@@ -57,6 +57,8 @@ jobs:
         run: node --test test/party_ui_reconnect.test.cjs
       - name: ROSE-UI observer lifecycle regression tests
         run: node --test test/ui_visibility_listener.test.cjs
+      - name: Custom mods reconnect regression tests
+        run: node --test test/custom_wheel_reconnect.test.cjs
 
   python:
     name: Python (errors lint, unit tests)
