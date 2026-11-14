@@ -67,6 +67,8 @@ class UpdateSequence:
             status_callback("Update skipped (development build)")
             return False
 
+        self.installer.discard_snapshots(Path(sys.executable).resolve().parent)
+
         status_callback("Checking for updates...")
         release = self.github_client.get_latest_release()
         if not release:

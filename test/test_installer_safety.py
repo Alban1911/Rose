@@ -51,13 +51,13 @@ class InstallerSafetyTests(unittest.TestCase):
             r"\s*RegDeleteValue\(RootKey, SubKey, Names\[I\]\)",
         )
 
-    def test_ifeo_cleanup_deletes_only_an_owned_debugger_value(self):
+    def test_ifeo_cleanup_deletes_an_owned_or_dead_debugger_value(self):
         body = self._routine('_RemoveRosePenguIfeo')
         self.assertRegex(
             body,
             r"(?s)DllPath := _PenguCoreFromCommand\(Debugger\);\s*"
-            r"if \(DllPath <> ''\) and _IsRosePenguCore\(DllPath\) and\s*"
-            r"\(\(not OnlyIfMissing\) or \(not FileExists\(DllPath\)\)\) then\s*"
+            r"if \(DllPath <> ''\) and\s*"
+            r"\(\(not FileExists\(DllPath\)\) or \(\(not OnlyIfMissing\) and _IsRosePenguCore\(DllPath\)\)\) then\s*"
             r"RegDeleteValue\(HKLM64, IfeoKey, 'Debugger'\)",
         )
         self.assertNotRegex(self.script, r'(?i)RegDeleteKey\w*\([^,]+,\s*IfeoKey\)')

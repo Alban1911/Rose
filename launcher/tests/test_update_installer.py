@@ -295,11 +295,32 @@ class UpdateInstallerTests(unittest.TestCase):
         self.assertFalse((third / "_internal/obsolete.dll").exists())
         self.assertFalse((third / "_internal/new.dll").exists())
 
-    def test_refuses_to_overwrite_unrelated_root_files(self):
+    def test_a_root_file_the_release_ships_is_the_release_one(self):
         self.write(self.install_dir, "user-note.txt", "user data")
         self.write(self.install_dir, "_internal/old.dll", "old")
         self.write(self.candidate, "user-note.txt", "candidate")
 
-        with self.assertRaisesRegex(OSError, "conflicts with an existing"):
-            update_installer._preserve_install_files(self.install_dir, self.candidate)
+        update_installer._preserve_install_files(self.install_dir, self.candidate)
+        self.assertEqual((self.candidate / "user-note.txt").read_text(), "candidate")
         self.assertEqual((self.install_dir / "user-note.txt").read_text(), "user data")
+
+    def test_a_started_update_drops_the_recovery_trees(self):
+        root = self.installer.workspace(self.install_dir)
+        for name in ("previous", "failed", "staging"):
+            self.write(root, f"{name}/Rose.exe", "old")
+        self.write(root, "Recover-Rose.cmd", "tool")
+
+        self.installer.discard_snapshots(self.install_dir)
+
+        for name in ("previous", "failed", "staging"):
+            self.assertFalse((root / name).exists())
+        self.assertTrue((root / "Recover-Rose.cmd").is_file())
+
+    def test_snapshots_are_kept_outside_a_rose_workspace(self):
+        other_install = self.install_dir.with_name("Unrelated")
+        root = other_install.with_name("Unrelated.update")
+        self.write(root, "previous/file.txt", "not Rose's")
+
+        self.installer.discard_snapshots(other_install)
+
+        self.assertTrue((root / "previous/file.txt").is_file())

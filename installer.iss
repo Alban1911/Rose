@@ -371,9 +371,11 @@ var
 begin
   if not RegQueryStringValue(HKLM64, IfeoKey, 'Debugger', Debugger) then
     exit;
+  { A hook whose DLL is gone only breaks the client's start: remove it
+    whoever set it }
   DllPath := _PenguCoreFromCommand(Debugger);
-  if (DllPath <> '') and _IsRosePenguCore(DllPath) and
-     ((not OnlyIfMissing) or (not FileExists(DllPath))) then
+  if (DllPath <> '') and
+     ((not FileExists(DllPath)) or ((not OnlyIfMissing) and _IsRosePenguCore(DllPath))) then
     RegDeleteValue(HKLM64, IfeoKey, 'Debugger');
 end;
 

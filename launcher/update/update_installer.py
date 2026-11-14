@@ -45,22 +45,31 @@ $destination = $plan.destination
 $executable = Join-Path $destination $plan.executable
 $mutex = $null
 $result = 0
+$swapStarted = $false
 
 function Write-UpdateLog([string]$message) {
     Add-Content -LiteralPath $log -Value ("[{0:u}] {1}" -f (Get-Date), $message) -Encoding UTF8 -ErrorAction SilentlyContinue
 }
 
 function Move-Directory([string]$source, [string]$target) {
-    for ($attempt = 1; $attempt -le 5; $attempt++) {
+    for ($attempt = 1; $attempt -le 20; $attempt++) {
         try {
             [System.IO.Directory]::Move($source, $target)
             return
         }
         catch [System.IO.IOException] {
-            if ($attempt -eq 5) { throw }
+            if ($attempt -eq 20) { throw }
             Start-Sleep -Milliseconds 500
         }
     }
+}
+
+function Start-Rose {
+    # Start-Process expands wildcards: an install path holding [ ] was not found
+    $info = [System.Diagnostics.ProcessStartInfo]::new($executable)
+    $info.WorkingDirectory = $destination
+    $info.UseShellExecute = $true
+    return [System.Diagnostics.Process]::Start($info)
 }
 
 function New-RecoveryMutex {
@@ -113,6 +122,7 @@ try {
         if (![System.IO.File]::Exists((Join-Path $plan.candidate $plan.executable))) {
             throw 'The staged Rose executable is missing.'
         }
+        $swapStarted = $true
         Move-Directory $destination $previous
         try {
             Move-Directory $plan.candidate $destination
@@ -134,7 +144,7 @@ finally {
 
 if ($result -eq 0 -and !$Recover) {
     try {
-        $started = Start-Process -FilePath $executable -WorkingDirectory $destination -PassThru -ErrorAction Stop
+        $started = Start-Rose
         Write-UpdateLog ("Update applied. Rose relaunched (PID " + $started.Id + ").")
     }
     catch {
@@ -149,6 +159,12 @@ if ($result -eq 0 -and !$Recover) {
             Write-UpdateLog ("Automatic rollback could not run: " + $_.Exception.Message)
         }
     }
+}
+elseif ($result -ne 0 -and $swapStarted -and [System.IO.File]::Exists($executable)) {
+    # The swap failed and was undone (or never moved anything): Rose has
+    # exited for it, so start the installed one again
+    try { $null = Start-Rose; Write-UpdateLog 'Restarted the installed Rose.' }
+    catch { Write-UpdateLog ("Could not restart the installed Rose: " + $_.Exception.Message) }
 }
 if ($result -ne 0 -and $Notify) {
     Add-Type -AssemblyName System.Windows.Forms
@@ -218,7 +234,8 @@ def _preserve_install_files(install_dir: Path, candidate: Path) -> None:
         if name in PERSISTENT_FILENAMES or name == "icon.ico" or re.fullmatch(r"unins\d+\.(exe|dat|msg)", name):
             _copy_preserved_file(entry, target)
         elif target.exists():
-            raise OSError(f"The update conflicts with an existing file or folder: {entry}")
+            # A name the release ships is Rose's: the installed copy stays in previous
+            continue
         else:
             _copy_preserved_entry(entry, target)
 
@@ -289,6 +306,27 @@ class UpdateInstaller:
             raise OSError(f"Update workspace was not created by Rose: {root}")
         return root
 
+    def discard_snapshots(self, install_dir: Path) -> None:
+        """Rose started from the swapped-in tree: drop the recovery trees.
+
+        Recover-Rose.cmd is for a Rose that cannot start; one that got this far
+        can update itself. An uninstall left them behind otherwise (a full old
+        Rose, beside the install).
+        """
+        root = install_dir.with_name(f"{install_dir.name}.update")
+        try:
+            if _is_reparse_point(root) or (root / WORKSPACE_MARKER).read_bytes() != WORKSPACE_VERSION:
+                return
+        except OSError:
+            return
+        for name in ("previous", "failed", "staging"):
+            tree = root / name
+            try:
+                if tree.exists() and not _is_reparse_point(tree):
+                    shutil.rmtree(tree)
+            except OSError as exc:
+                updater_log.debug("Could not remove %s: %s", tree, exc)
+
     def extract_update(
         self,
         zip_path: Path,
@@ -352,7 +390,8 @@ class UpdateInstaller:
             updater_log.error("Could not prepare update: %s", exc)
             return False
 
-        deadline = time.monotonic() + 10
+        # A cold PowerShell start behind a busy antivirus can take a while
+        deadline = time.monotonic() + 30
         while time.monotonic() < deadline and process.poll() is None:
             if ready.is_file():
                 updater_log.info("Update helper is ready. Update log and recovery tool: %s", updates_root)
