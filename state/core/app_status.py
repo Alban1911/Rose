@@ -52,8 +52,8 @@ class AppStatus:
             
             # Check if there are preview image files in the merged structure
             # Structure: {champion_id}/{skin_id}/{skin_id}.png and {champion_id}/{skin_id}/{chroma_id}/{chroma_id}.png
-            preview_files = list(skins_dir.rglob("*.png"))
-            return bool(preview_files)
+            # The first one answers: listing them all walked the whole library (1s, 9000 files)
+            return next(skins_dir.rglob("*.png"), None) is not None
         except Exception as e:
             log.debug(f"Failed to check previews directory: {e}")
             return False

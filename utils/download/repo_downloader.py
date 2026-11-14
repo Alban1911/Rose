@@ -7,11 +7,12 @@ only the files that differ are downloaded, from raw.githubusercontent.com, with
 no GitHub API call.
 """
 
+import os
 from pathlib import Path
 from typing import Callable, Optional, Dict
 from utils.core.logging import get_logger
 from utils.core.paths import get_classic_skins_dir, get_skins_dir, get_user_data_dir
-from utils.core.safe_extract import is_safe_path
+from utils.core.safe_extract import join_within
 
 log = get_logger()
 
@@ -27,13 +28,15 @@ class RepoDownloader:
         progress_callback: Optional[ProgressCallback] = None,
     ):
         # Use user data directory for skins to avoid permission issues
-        self.target_dir = target_dir or get_skins_dir()
+        # (made absolute without the disk, so a folder keeps the spelling it was
+        # given: _resolve_local_path checks the library's paths against it)
+        self.target_dir = Path(os.path.abspath(target_dir or get_skins_dir()))
         self.progress_callback = progress_callback
 
         # Rift Classic skins (the repository's classic/ folder) and the resources
         # folder sit next to the skins (a library given its own folder keeps them there)
-        self.classic_dir = get_classic_skins_dir() if target_dir is None else self.target_dir.parent / "classic"
-        self.resources_dir = (get_user_data_dir() if target_dir is None else self.target_dir.parent) / "resources"
+        self.classic_dir = Path(os.path.abspath(get_classic_skins_dir() if target_dir is None else self.target_dir.parent / "classic"))
+        self.resources_dir = Path(os.path.abspath((get_user_data_dir() if target_dir is None else self.target_dir.parent) / "resources"))
     
     def _emit_progress(self, percent: float, message: Optional[str] = None):
         if not self.progress_callback:
@@ -51,10 +54,11 @@ class RepoDownloader:
             base_dir, relative = self.resources_dir, repo_path[len('resources/'):]
         else:
             return None
-        local_path = base_dir / relative
-        if not is_safe_path(base_dir, local_path):
+        # Checked without the disk (join_within): resolving each of the library's
+        # 11000 paths took 4s, twice per start
+        local_path = join_within(base_dir, relative)
+        if local_path is None:
             log.warning(f"Skipping repository path outside the target folder: {repo_path}")
-            return None
         return local_path
 
     def sync_from_manifest(self) -> Optional[bool]:
@@ -185,36 +189,15 @@ def download_skins_from_repo(
     try:
         # Note: tray_manager status is already set by caller (download_skins_on_startup)
         downloader = RepoDownloader(target_dir, progress_callback=progress_callback)
-        
-        # Get current detailed stats
-        current_detailed = downloader.get_detailed_stats()
-        
-        if current_detailed['total_ids'] > 0:
-            log.info(f"Found {current_detailed['total_skins']} base skins + "
-                    f"{current_detailed['total_chromas']} chromas = "
-                    f"{current_detailed['total_ids']} total skin IDs + "
-                    f"{current_detailed['total_previews']} preview images")
-        
-        # The manifest sync downloads what differs, a missing library included
+
+        # The manifest sync downloads what differs, a missing library included,
+        # and logs what it downloaded and removed (counting the skins on disk
+        # before and after it, for the log, took 3.5s of every start)
         success = downloader.download_incremental_updates(force_update)
-        
+
         if success:
-            # Get updated detailed stats
-            final_detailed = downloader.get_detailed_stats()
-            new_ids = final_detailed['total_ids'] - current_detailed['total_ids']
-            new_previews = final_detailed['total_previews'] - current_detailed['total_previews']
-            
-            if new_ids > 0 or new_previews > 0:
-                log.info(f"Downloaded {new_ids} new skin IDs and {new_previews} new preview images")
-                log.info(f"Final totals: {final_detailed['total_skins']} base skins + "
-                        f"{final_detailed['total_chromas']} chromas = "
-                        f"{final_detailed['total_ids']} total skin IDs + "
-                        f"{final_detailed['total_previews']} preview images")
-            else:
-                log.info("No new skins or previews to download")
-            
             log.info("Skin library sync complete (skins + previews)")
-        
+
         return success
         
     except Exception as e:
