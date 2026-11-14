@@ -88,21 +88,30 @@ class PartyStorageTests(unittest.TestCase):
                 self.assertNotEqual(invitation, identity)
                 self.assertEqual(party_storage.load_party_key(1), invitation)
 
-    def test_unreadable_identity_is_preserved_for_recovery(self):
+    def test_a_corrupt_identity_is_replaced(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             path = Path(temp_dir) / party_storage.PARTY_IDENTITY_KEYS_FILE
-            path.write_text('{"1":"invalid"}', encoding="utf-8")
-            with patch.object(party_storage, "get_user_data_dir", return_value=Path(temp_dir)):
+            for content in ('{"1":"invalid"}', "{not json", '["a list"]'):
+                path.write_text(content, encoding="utf-8")
+                with patch.object(party_storage, "get_user_data_dir", return_value=Path(temp_dir)):
+                    key = party_storage.load_party_identity_key(1)
+                    self.assertEqual(len(key), party_storage.KEY_SIZE)
+                    self.assertEqual(party_storage.load_party_identity_key(1), key)
+                self.assertEqual(json.loads(path.read_text(encoding="utf-8")), {"1": key.hex()})
+
+    def test_a_locked_identity_file_is_not_replaced(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / party_storage.PARTY_IDENTITY_KEYS_FILE
+            path.write_text('{"1":"%s"}' % ("ab" * party_storage.KEY_SIZE), encoding="utf-8")
+            with patch.object(party_storage, "get_user_data_dir", return_value=Path(temp_dir)),                     patch.object(Path, "read_text", side_effect=PermissionError("locked")):
                 with self.assertRaisesRegex(RuntimeError, "Couldn't read"):
                     party_storage.load_party_identity_key(1)
-            self.assertEqual(path.read_text(encoding="utf-8"), '{"1":"invalid"}')
+            self.assertEqual(path.read_text(encoding="utf-8"), '{"1":"%s"}' % ("ab" * party_storage.KEY_SIZE))
 
-    def test_unsaved_identity_is_not_returned(self):
+    def test_an_unsaved_identity_is_still_used(self):
         with tempfile.TemporaryDirectory() as temp_dir:
-            with patch.object(party_storage, "get_user_data_dir", return_value=Path(temp_dir)), \
-                    patch.object(party_storage, "write_text_atomic", side_effect=OSError("disk is full")):
-                with self.assertRaisesRegex(RuntimeError, "Couldn't save"):
-                    party_storage.load_party_identity_key(1)
+            with patch.object(party_storage, "get_user_data_dir", return_value=Path(temp_dir)),                     patch.object(party_storage, "write_text_atomic", side_effect=OSError("disk is full")):
+                self.assertEqual(len(party_storage.load_party_identity_key(1)), party_storage.KEY_SIZE)
 
 
 class CustomModsTests(unittest.TestCase):

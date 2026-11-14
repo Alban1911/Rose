@@ -60,33 +60,41 @@ def load_party_key(summoner_id: int) -> bytes:
 
 
 def load_party_identity_key(summoner_id: int) -> bytes:
-    """Load or durably create the private key used to claim this account in rooms."""
+    """Load or create the private key used to claim this account in rooms.
+
+    The relay holds an ID for a credential only while it is connected, so a
+    lost key costs what a reinstall does: friends who saw the old one this
+    session ignore the new one until they turn Party Mode off and on.
+    """
     path = get_user_data_dir() / PARTY_IDENTITY_KEYS_FILE
+    keys = {}
     try:
-        keys = json.loads(path.read_text(encoding="utf-8"))
-        if not isinstance(keys, dict):
-            raise ValueError("expected an account-to-key mapping")
-        stored = keys.get(str(summoner_id))
-        if str(summoner_id) in keys:
-            if not isinstance(stored, str):
-                raise ValueError("expected a hex key")
-            key = bytes.fromhex(stored)
-            if len(key) != KEY_SIZE:
-                raise ValueError("invalid key size")
-            return key
+        loaded = json.loads(path.read_text(encoding="utf-8"))
+        if isinstance(loaded, dict):
+            keys = loaded
     except FileNotFoundError:
-        keys = {}
-    except (OSError, ValueError) as error:
+        pass
+    except OSError as error:
+        # Locked for now (antivirus...): fail rather than replace a key a retry would find
         log.warning("[PARTY] Could not read party identity keys: %s", error)
         raise RuntimeError("Couldn't read your Party Mode identity key") from error
+    except ValueError as error:
+        log.warning("[PARTY] Party identity keys are corrupt, making a new key: %s", error)
+
+    stored = keys.get(str(summoner_id))
+    if isinstance(stored, str):
+        try:
+            key = bytes.fromhex(stored)
+            if len(key) == KEY_SIZE:
+                return key
+        except ValueError:
+            pass
 
     key = secrets.token_bytes(KEY_SIZE)
     keys[str(summoner_id)] = key.hex()
     try:
         write_text_atomic(path, json.dumps(keys, indent=2))
     except OSError as error:
-        # The relay keeps the first credential it sees. Never join with one
-        # that would be lost when Rose exits.
+        # Next session joins with a new key, like after a reinstall
         log.warning("[PARTY] Could not save party identity key: %s", error)
-        raise RuntimeError("Couldn't save your Party Mode identity key") from error
     return key
