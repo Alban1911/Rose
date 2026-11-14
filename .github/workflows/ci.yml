@@ -59,6 +59,8 @@ jobs:
         run: node --test test/ui_visibility_listener.test.cjs
       - name: Custom mods reconnect regression tests
         run: node --test test/custom_wheel_reconnect.test.cjs
+      - name: Custom skin selector in-game regression tests
+        run: node --test test/custom_skin_selector_ingame.test.cjs
 
   python:
     name: Python (errors lint, unit tests)

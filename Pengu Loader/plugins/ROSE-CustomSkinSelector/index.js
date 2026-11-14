@@ -267,6 +267,12 @@
     ) {
       resetCustomSkinSessionState();
     }
+
+    if (phase === "InProgress") {
+      stopSkinObserver();
+    } else {
+      startSkinObserver();
+    }
   }
 
   function createSelectionRequestId() {
@@ -907,10 +913,25 @@
     if (panel && panel.parentNode && panelButtonRef) positionPanel(panel, panelButtonRef);
   }
 
-  function observeSkinSelection() {
-    const observer = new MutationObserver(() => scanSkinSelection());
-    observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["class", "aria-selected"] });
-    setInterval(scanSkinSelection, 500);
+  // Observer lifecycle: stopped while a game is running (InProgress) so the
+  // DOM scan doesn't steal CPU from the game; Swiftplay picks skins in the
+  // Lobby phase, so it runs in every other phase. See GitHub issue #22.
+  let skinObserver = null;
+  let skinScanTimer = null;
+
+  function startSkinObserver() {
+    if (skinObserver) return;
+    skinObserver = new MutationObserver(() => scanSkinSelection());
+    skinObserver.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["class", "aria-selected"] });
+    skinScanTimer = setInterval(scanSkinSelection, 500);
+  }
+
+  function stopSkinObserver() {
+    if (!skinObserver) return;
+    skinObserver.disconnect();
+    skinObserver = null;
+    clearInterval(skinScanTimer);
+    skinScanTimer = null;
   }
 
   async function init() {
@@ -966,7 +987,7 @@
     window.addEventListener("resize", () => { if (panel && panel.parentNode && panelButtonRef) positionPanel(panel, panelButtonRef); });
     window.addEventListener("scroll", () => { if (panel && panel.parentNode && panelButtonRef) positionPanel(panel, panelButtonRef); });
 
-    observeSkinSelection();
+    if (currentPhase !== "InProgress") startSkinObserver();
     requestModsForCurrentSkin();
     scanSkinSelection();
   }
