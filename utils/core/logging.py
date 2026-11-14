@@ -5,6 +5,7 @@ Logging configuration and utilities
 """
 
 # Standard library imports
+import copy
 import os
 import queue
 import re
@@ -194,15 +195,13 @@ def setup_logging(log_mode: str = 'customer', *, write_logs: bool = True):
         def _start_worker(self):
             """Start the worker thread that processes log records"""
             def worker():
-                while not self._stop_event.is_set():
+                while not self._stop_event.is_set() or not self.queue.empty():
                     try:
                         # Get record with timeout to allow checking stop event
                         record = self.queue.get(timeout=0.1)
-                        if record is None:  # Sentinel value to stop
-                            break
                         # Emit to target handler in worker thread
                         try:
-                            self.target_handler.emit(record)
+                            self.target_handler.handle(record)
                         except Exception:
                             # If emit fails, silently drop the log message
                             pass
@@ -210,28 +209,28 @@ def setup_logging(log_mode: str = 'customer', *, write_logs: bool = True):
                             self.queue.task_done()
                     except queue.Empty:
                         continue
+                self.target_handler.close()
             
             self.worker_thread = threading.Thread(target=worker, daemon=True, name="LogQueueWorker")
             self.worker_thread.start()
         
         def emit(self, record):
             """Queue the log record without blocking"""
+            if self._stop_event.is_set():
+                return
             try:
                 # Use put_nowait to never block the calling thread
-                self.queue.put_nowait(record)
+                self.queue.put_nowait(copy.copy(record))
             except queue.Full:
                 # Queue is full - drop the message silently
                 # This prevents blocking even under extreme log load
                 pass
         
         def close(self):
-            """Stop the worker thread gracefully"""
-            self._stop_event.set()
-            try:
-                self.queue.put_nowait(None)  # Sentinel to stop worker
-            except queue.Full:
-                pass
-            if self.worker_thread and self.worker_thread.is_alive():
+            """Drain pending records for up to one second on shutdown."""
+            with self.lock:
+                self._stop_event.set()
+            if self.worker_thread and self.worker_thread is not threading.current_thread():
                 self.worker_thread.join(timeout=1.0)
             super().close()
     
@@ -284,7 +283,7 @@ def setup_logging(log_mode: str = 'customer', *, write_logs: bool = True):
     
     class _Fmt(logging.Formatter):
         def format(self, record):
-            record._when = time.strftime("%H:%M:%S", time.localtime())
+            record._when = time.strftime("%H:%M:%S", time.localtime(record.created))
             return super().format(record)
     
     safe_handler.setFormatter(_Fmt(fmt))
@@ -325,7 +324,7 @@ def setup_logging(log_mode: str = 'customer', *, write_logs: bool = True):
             
             class _FileFmt(logging.Formatter):
                 def format(self, record):
-                    record._when = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+                    record._when = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(record.created))
                     return super().format(record)
             
             file_handler.setFormatter(_FileFmt(file_fmt))
@@ -359,7 +358,9 @@ def setup_logging(log_mode: str = 'customer', *, write_logs: bool = True):
     
     # Always add file handler
     if file_handler:
-        root.addHandler(file_handler)
+        file_queue = QueueHandler(file_handler)
+        file_queue.setLevel(file_handler.level)
+        root.addHandler(file_queue)
     
     # Root logger must be at TRACE to allow all handlers to receive all messages
     # This is critical - if root is at INFO, DEBUG/TRACE messages never reach handlers
