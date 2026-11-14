@@ -193,13 +193,19 @@ class PropBinTests(unittest.TestCase):
         with self.assertRaises(PropError):
             Bin(data).find_entry(SKIN_DATA)
 
-    def test_a_container_whose_size_disagrees_with_its_values_is_refused(self):
+    def test_a_container_size_only_has_to_stay_within_the_data(self):
+        # Like Rosebin: a size that disagrees with values that still parse is
+        # ignored, one that runs past the end of the data is refused
         items = struct.pack("<I", 1) + b"\x07"
-        for size in (len(items) - 1, len(items) + 1, 0xFFFFFF00):
+        for size, readable in ((len(items) - 1, True), (len(items) + 1, True), (0xFFFFFF00, False)):
             fields = struct.pack("<H", 2) + struct.pack("<IBBI", 1, LIST, U8, size) + items
             fields += struct.pack("<IB", 2, U8) + b"\x08"
-            with self.subTest(size=size), self.assertRaises(PropError):
-                Bin(_skin_bin_of(fields)).find_entry(SKIN_DATA)
+            with self.subTest(size=size):
+                if readable:
+                    self.assertIsNotNone(Bin(_skin_bin_of(fields)).find_entry(SKIN_DATA))
+                else:
+                    with self.assertRaises(PropError):
+                        Bin(_skin_bin_of(fields)).find_entry(SKIN_DATA)
 
     def test_a_bin_nested_too_deep_comes_back_as_it_came(self):
         fields = struct.pack("<H", 0)

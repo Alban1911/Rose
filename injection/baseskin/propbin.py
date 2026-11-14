@@ -160,16 +160,16 @@ class _Reader:
         return self.take(self.u16()).decode("utf-8", "surrogateescape")
 
     def body_end(self) -> int:
-        """Where the container whose size comes next ends: the size counts the bytes after it."""
+        """Where the container whose size comes next ends: the size counts the bytes after it.
+
+        Like Rosebin (prop.rs), a size that disagrees with values that still
+        parse is not an error; only one running past the data is.
+        """
         size = self.u32()
         end = self.pos + size
         if end > len(self.data):
             raise PropError(f"a container at {self.pos} runs past the end of the data")
         return end
-
-    def check_end(self, end: int) -> None:
-        if self.pos != end:
-            raise PropError(f"a container ends at {self.pos} but its size says {end}")
 
     def type_tag(self) -> int:
         tag = self.u8()
@@ -205,22 +205,18 @@ class _Reader:
     def container(self, ty: int) -> Value:
         if ty in (LIST, LIST2):
             elem = self.type_tag()
-            end = self.body_end()
+            self.body_end()
             count = self.u32()
             # NONE values take no bytes, so nothing in the data would bound the count
             if count and elem == NONE:
                 raise PropError("a list of NONE values")
-            items = [self.value(elem) for _ in range(count)]
-            self.check_end(end)
-            return Value(ty, items, elem)
+            return Value(ty, [self.value(elem) for _ in range(count)], elem)
         if ty in (POINTER, EMBED):
             name_hash = self.u32()
             if name_hash == 0:
                 return Value(ty, None)
-            end = self.body_end()
-            embed = Embed(name_hash, self.fields(name_hash))
-            self.check_end(end)
-            return Value(ty, embed)
+            self.body_end()
+            return Value(ty, Embed(name_hash, self.fields(name_hash)))
         if ty == OPTION:
             elem = self.type_tag()
             present = self.u8() != 0
@@ -228,12 +224,11 @@ class _Reader:
         if ty == MAP:
             key_ty = self.type_tag()
             value_ty = self.type_tag()
-            end = self.body_end()
+            self.body_end()
             count = self.u32()
             if count and key_ty == value_ty == NONE:
                 raise PropError("a map of NONE values")
             pairs = [(self.value(key_ty), self.value(value_ty)) for _ in range(count)]
-            self.check_end(end)
             return Value(MAP, pairs, key_ty, value_ty)
         raise PropError(f"unreadable value type 0x{ty:02x}")  # pragma: no cover - type_tag filters these
 
