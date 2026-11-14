@@ -2094,6 +2094,23 @@
     document.querySelectorAll(".rose-language-menu").forEach((menu) => menu.remove());
   }
 
+  // The (i) icon whose tooltip is shown. One listener pair for every panel
+  // opened: the flyout is rebuilt on each open and its icons go with it.
+  let _tooltipOwner = null;
+  function repositionSettingsTooltip() {
+    if (!_tooltipOwner) return;
+    const tt = document.getElementById("rose-global-tooltip");
+    if (!tt || tt.getAttribute("data-show") !== "true") return;
+    if (!_tooltipOwner.btn.isConnected) {
+      _tooltipOwner = null;
+      return;
+    }
+    _tooltipOwner.reposition();
+  }
+  // Keep tooltip in correct position while resizing/scrolling
+  window.addEventListener("resize", repositionSettingsTooltip);
+  window.addEventListener("scroll", repositionSettingsTooltip, true);
+
   function createSettingsFlyout(navItem) {
     closeLanguageMenu();
     // Remove existing panel if any
@@ -2221,6 +2238,7 @@
     }
 
     function hideGlobalTooltip() {
+      _tooltipOwner = null;
       const el = document.getElementById("rose-global-tooltip");
       if (!el) return;
       el.setAttribute("data-show", "false");
@@ -2272,22 +2290,17 @@
         e.stopPropagation();
       });
 
-      const show = () => showGlobalTooltipFor(btn, tooltipText);
+      const reposition = () => showGlobalTooltipFor(btn, tooltipText);
+      const show = () => {
+        _tooltipOwner = { btn, reposition };
+        reposition();
+      };
       const hide = () => hideGlobalTooltip();
 
       btn.addEventListener("mouseenter", show);
       btn.addEventListener("mouseleave", hide);
       btn.addEventListener("focus", show);
       btn.addEventListener("blur", hide);
-
-      // Keep tooltip in correct position while resizing/scrolling
-      const reposition = () => {
-        const tt = document.getElementById("rose-global-tooltip");
-        if (!tt || tt.getAttribute("data-show") !== "true") return;
-        showGlobalTooltipFor(btn, tooltipText);
-      };
-      window.addEventListener("resize", reposition);
-      window.addEventListener("scroll", reposition, true);
 
       wrapper.appendChild(btn);
       return wrapper;
