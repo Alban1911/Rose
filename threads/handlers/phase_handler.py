@@ -121,10 +121,6 @@ class PhaseHandler:
                 # Normal ChampSelect handling
                 from threads.handlers.champ_select_reset import perform_champ_select_reset
                 perform_champ_select_reset(self.state, self.lcu)
-                self.state.locked_champ_id = None
-                self.state.locked_champ_timestamp = 0.0
-                self.state.champion_exchange_triggered = False
-                self.state.own_champion_locked = False
 
                 # Backup UI initialization
                 try:
