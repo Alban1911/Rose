@@ -96,6 +96,26 @@ Add tests to the `tests/` folder of the package they cover (with an
 lints the workflows in `.github/` (actionlint, zizmor) and reviews dependency
 changes on pull requests.
 
+### Party relay
+
+Run `npm ci`, `npm run typecheck`, and `npm test` from `relay-worker/`. The
+tests build the Worker and exercise WebSocket upgrades against a local Durable
+Object with SQLite storage. For manual development, start `npm run dev` and
+set `ROSE_RELAY_URL=ws://127.0.0.1:8787` in the environment that launches Rose.
+
+Coordinate the protocol v2 Worker deployment with distribution of a matching
+Rose client. The new Worker returns HTTP 426 to older clients, and the new
+client requires a v2 acknowledgement before exchanging party state. Existing
+invite tokens keep their room keys. Deployments outside loopback use WSS.
+
+Each Rose installation joins with a credential derived from its private
+`party_identity_keys.json`. The room key still grants access to join. While a
+member is connected, only the same installation can take over that summoner
+ID, and Rose keeps a known member's identity consistent across rooms during
+the current Party Mode session. The relay stores no bindings: once a member
+has left, any installation can join with their ID again, so a reinstall or
+another PC is never locked out.
+
 ## Pull requests
 
 - Branch off `main`, with a name like the ones in the setup above
