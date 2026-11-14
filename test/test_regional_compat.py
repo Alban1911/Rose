@@ -1,3 +1,4 @@
+from contextlib import contextmanager
 import logging
 from pathlib import Path
 import sys
@@ -28,32 +29,52 @@ from lcu.core import lockfile
 from lcu.core.lcu_connection import LCUConnection
 
 
-def process(name='LeagueClientUx.exe', args=None, pid=42, denied=False):
-    proc = SimpleNamespace(info={'name': name}, pid=pid)
+def process(name='LeagueClientUx.exe', args=None, pid=42, denied=False, exe=''):
+    proc = SimpleNamespace(image_name=name, pid=pid)
+    proc.name = Mock(return_value=name)
     proc.cmdline = Mock(return_value=args or ['client', '--app-port=12345', '--remoting-auth-token=test-token'])
+    proc.exe = Mock(return_value=exe)
     if denied:
+        proc.name.side_effect = lockfile.psutil.AccessDenied(pid)
         proc.cmdline.side_effect = lockfile.psutil.AccessDenied(pid)
+        proc.exe.side_effect = lockfile.psutil.AccessDenied(pid)
     return proc
+
+
+@contextmanager
+def running(*procs):
+    """These stand-ins as the running processes"""
+    by_pid = {proc.pid: proc for proc in procs}
+
+    def open_process(pid):
+        if pid not in by_pid:
+            raise lockfile.psutil.NoSuchProcess(pid)
+        return by_pid[pid]
+
+    entries = [(proc.pid, proc.image_name) for proc in procs]
+    with patch.object(lockfile, 'running_processes', return_value=entries) as snapshot, \
+            patch.object(lockfile.psutil, 'Process', side_effect=open_process):
+        yield snapshot
 
 
 class CredentialsTests(unittest.TestCase):
     def test_equals_arguments(self):
-        with patch.object(lockfile.psutil, 'process_iter', return_value=[process()]):
+        with running(process()):
             result = lockfile.find_process_credentials()
         self.assertEqual((result.port, result.password, result.protocol), (12345, 'test-token', 'https'))
 
     def test_separate_quoted_arguments(self):
         proc = process(name='LEAGUECLIENTUX.EXE', args=['client', '--app-port', '12345', '--remoting-auth-token', '"quoted-token"'])
-        with patch.object(lockfile.psutil, 'process_iter', return_value=[proc]):
+        with running(proc):
             self.assertEqual(lockfile.find_process_credentials().password, 'quoted-token')
 
     def test_access_denied_client_does_not_block_ux(self):
-        with patch.object(lockfile.psutil, 'process_iter', return_value=[process('LeagueClient.exe', denied=True), process()]):
+        with running(process('LeagueClient.exe', pid=41, denied=True), process()):
             self.assertIsNotNone(lockfile.find_process_credentials())
 
     def test_unrelated_process_not_read(self):
         proc = process('Other.exe')
-        with patch.object(lockfile.psutil, 'process_iter', return_value=[proc]):
+        with running(proc):
             self.assertIsNone(lockfile.find_process_credentials())
         proc.cmdline.assert_not_called()
 
@@ -61,8 +82,99 @@ class CredentialsTests(unittest.TestCase):
         for args in (['--app-port=0', '--remoting-auth-token=x'], ['--app-port=65536', '--remoting-auth-token=x'],
                      ['--app-port=invalid', '--remoting-auth-token=x'], ['--app-port=12345'],
                      ['--app-port=12345', '--remoting-auth-token=']):
-            with self.subTest(args=args), patch.object(lockfile.psutil, 'process_iter', return_value=[process(args=args)]):
+            with self.subTest(args=args), running(process(args=args)):
                 self.assertIsNone(lockfile.find_process_credentials())
+
+    def test_lockfile_found_beside_a_client_installed_elsewhere(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / 'lockfile'
+            path.write_text('LeagueClient:42:12345:sample:https', encoding='utf-8')
+            denied = process('LeagueClient.exe', pid=41, denied=True)
+            client = process(exe=str(Path(folder) / 'LeagueClientUx.exe'))
+            with patch.dict(lockfile.os.environ, {'LCU_LOCKFILE': ''}), \
+                    patch.object(lockfile, 'get_config_option', return_value=None), \
+                    patch.object(Path, 'is_file', lambda self: self == path), \
+                    running(process('Other.exe', pid=40), denied, client):
+                self.assertEqual(lockfile.find_lockfile(), str(path))
+
+    def test_lockfile_in_the_saved_client_folder_needs_no_process_list(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / 'lockfile'
+            path.write_text('LeagueClient:42:12345:sample:https', encoding='utf-8')
+            with running(process()), patch.dict(lockfile.os.environ, {'LCU_LOCKFILE': ''}), \
+                    patch.object(lockfile, 'get_config_option', return_value=f' {folder} ') as saved, \
+                    patch.object(lockfile, 'running_processes', side_effect=AssertionError('processes listed')):
+                self.assertEqual(lockfile.find_lockfile(), str(path))
+            saved.assert_called_once_with('General', 'clientPath')
+
+    def test_saved_lockfile_works_when_process_details_are_denied(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / 'lockfile'
+            path.write_text('LeagueClient:42:23456:file-token:https', encoding='utf-8')
+            client = process(denied=True)
+            with running(client) as snapshot, patch.dict(lockfile.os.environ, {'LCU_LOCKFILE': ''}), \
+                    patch.object(lockfile, 'get_config_option', return_value=folder), \
+                    patch.object(Path, 'is_file', lambda candidate: candidate == path), \
+                    patch.object(LCUConnection, '_check_client_elevation'):
+                connection = LCUConnection()
+
+            self.assertEqual(connection.websocket_credentials(), (23456, 'file-token'))
+            client.name.assert_called_once_with()
+            client.cmdline.assert_not_called()
+            snapshot.assert_not_called()
+
+    def test_empty_saved_lockfile_uses_one_snapshot_per_refresh(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / 'lockfile'
+            path.touch()
+            client = process()
+            with running(client) as snapshot, patch.dict(lockfile.os.environ, {'LCU_LOCKFILE': ''}), \
+                    patch.object(lockfile, 'get_config_option', return_value=folder), \
+                    patch.object(Path, 'is_file', lambda candidate: candidate == path), \
+                    patch.object(LCUConnection, '_check_client_elevation'):
+                connection = LCUConnection()
+                snapshot.assert_called_once_with()
+                self.assertEqual(connection.lf_path, str(path))
+                self.assertEqual(connection.websocket_credentials(), (12345, 'test-token'))
+
+                snapshot.reset_mock()
+                connection.refresh_if_needed(force=True)
+                snapshot.assert_called_once_with()
+                self.assertEqual(connection.websocket_credentials(), (12345, 'test-token'))
+
+            client.exe.assert_not_called()
+            client.name.assert_not_called()
+
+    def test_stale_saved_lockfile_falls_back_to_the_active_client(self):
+        with tempfile.TemporaryDirectory() as folder:
+            saved_dir = Path(folder) / 'old'
+            saved_dir.mkdir()
+            stale = saved_dir / 'lockfile'
+            stale.write_text('LeagueClient:41:11111:old:https', encoding='utf-8')
+            active = Path(folder) / 'lockfile'
+            active.write_text('LeagueClient:42:12345:active:https', encoding='utf-8')
+            client = process(exe=str(Path(folder) / 'LeagueClientUx.exe'))
+            common = 'C:/Riot Games/League of Legends/lockfile'
+
+            cases = (
+                ('expired PID, common path', (client,), active),
+                ('reused PID, process scan', (process('Other.exe', pid=41), client), stale),
+            )
+            for scenario, procs, common_lockfile in cases:
+                def map_common_path(path):
+                    return common_lockfile if path == common else Path(path)
+
+                with self.subTest(scenario=scenario), running(*procs), \
+                        patch.dict(lockfile.os.environ, {'LCU_LOCKFILE': ''}), \
+                        patch.object(lockfile, 'get_config_option', return_value=str(saved_dir)), \
+                        patch.object(lockfile, 'Path', side_effect=map_common_path), \
+                        patch.object(Path, 'is_file', lambda path: path in (stale, active)), \
+                        patch.object(LCUConnection, '_check_client_elevation'):
+                    connection = LCUConnection()
+                    self.assertEqual(connection.lf_path, str(active))
+                    self.assertEqual(connection.port, 12345)
+                    connection.refresh_if_needed(force=True)
+                    self.assertEqual(connection.port, 12345)
 
     def test_normal_lockfile(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -274,9 +386,12 @@ class OverlayLifetimeTests(unittest.TestCase):
 
     def test_game_detection_accepts_both_names(self):
         for name in config.GAME_EXECUTABLE_NAMES:
-            proc = SimpleNamespace(info={'name': name})
-            with self.subTest(name=name), patch.object(self.module.psutil, 'process_iter', return_value=[proc]):
+            proc = SimpleNamespace(pid=42, name=Mock(return_value=name))
+            with self.subTest(name=name), \
+                    patch.object(self.module, 'running_processes', return_value=[(42, name)]), \
+                    patch.object(self.module.psutil, 'Process', return_value=proc) as opened:
                 self.assertIs(self.manager._running_game(), proc)
+                opened.assert_called_once_with(42)
 
 
 class LoaderFallbackTests(unittest.TestCase):
