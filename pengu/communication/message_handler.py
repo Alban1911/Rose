@@ -1713,9 +1713,9 @@ class MessageHandler:
                 )
                 return
 
-            # Extract mod immediately when selected (not during injection)
+            # The injection links the mod from this selection: refuse a pick it could not inject
             if not self.injection_manager:
-                log.warning("[SkinMonitor] Cannot extract mod - injection manager not available")
+                log.warning("[SkinMonitor] Cannot select mod - injection manager not available")
                 self._send_custom_mod_selection_result(
                     payload,
                     success=False,
@@ -1727,7 +1727,7 @@ class MessageHandler:
                 
             injector = self.injection_manager.injector
             if not injector:
-                log.warning("[SkinMonitor] Cannot extract mod - injector not available")
+                log.warning("[SkinMonitor] Cannot select mod - injector not available")
                 self._send_custom_mod_selection_result(
                     payload,
                     success=False,
