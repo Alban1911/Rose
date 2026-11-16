@@ -23,6 +23,8 @@ from websockets.legacy.client import Connect
 from config import APP_VERSION
 from utils.core.logging import get_logger
 
+from . import relay_addresses
+
 log = get_logger()
 # websockets logs request headers at DEBUG, including Authorization.
 connection_log = logging.getLogger(f"{__name__}.connection")
@@ -36,6 +38,12 @@ except ImportError:
 RELAY_URL = os.environ.get("ROSE_RELAY_URL", _CONFIGURED_URL)
 PING_INTERVAL = 25.0
 CONNECT_TIMEOUT = 15.0
+# Per relay address: a blocked one should not hold up trying the next
+TCP_CONNECT_TIMEOUT = 4.0
+# Longest time spent going through the relay's addresses on one attempt
+ADDRESS_FALLBACK_BUDGET = 30.0
+# Said with every failure that looks like the network blocking the relay
+_BLOCKED_HINT = "a VPN or Cloudflare WARP usually gets around this"
 # Wait before each reconnect attempt, in seconds
 RECONNECT_DELAYS = (1.0, 2.0, 5.0, 10.0, 20.0, 30.0)
 # A connection that lasted this long was a working one: the next drop starts
@@ -101,8 +109,22 @@ def _status_code(error: Optional[BaseException]) -> Optional[int]:
     return getattr(error, "status_code", None) or getattr(getattr(error, "response", None), "status_code", None)
 
 
-def _describe_error(error: Optional[BaseException]) -> str:
-    """Short, user-facing reason for a failed connection."""
+def _is_final(error: Optional[BaseException]) -> bool:
+    """The relay itself answered: another of its addresses would answer the same."""
+    return _status_code(error) is not None or isinstance(error, SecurityError)
+
+
+def _describe_error(error: Optional[BaseException], stage: Optional[str] = None) -> str:
+    """Short, user-facing reason for a failed connection.
+
+    stage is how far the best attempt at the relay's addresses got: "dns"
+    (no address found), "tcp" (none accepted a connection) or "handshake"
+    (connected, then the secure connection or upgrade failed). None when the
+    relay was reached at one address only."""
+    if stage == "dns":
+        return f"could not find the party server's address, your network or DNS may be blocking it, {_BLOCKED_HINT}"
+    if stage == "tcp":
+        return f"your network blocks the party server (none of its addresses could be reached), {_BLOCKED_HINT}"
     if error is None:
         return "unknown error"
     if isinstance(error, ssl.SSLCertVerificationError):
@@ -117,10 +139,14 @@ def _describe_error(error: Optional[BaseException]) -> str:
     if status:
         return f"the party server answered with HTTP {status}"
     if isinstance(error, asyncio.TimeoutError):
-        return "the party server did not answer in time"
-    if isinstance(error, OSError):
-        return f"network error ({error.strerror or error})"
-    return str(error) or type(error).__name__
+        reason = "the party server did not answer in time"
+    elif isinstance(error, OSError):
+        reason = f"network error ({error.strerror or error})"
+    else:
+        reason = str(error) or type(error).__name__
+    if stage == "handshake":
+        return f"{reason}, your network may be filtering the party server, {_BLOCKED_HINT}"
+    return reason
 
 
 class PartyRelay:
@@ -297,42 +323,142 @@ class PartyRelay:
         query = urlencode({"key": self.room_key, "v": APP_VERSION, "p": RELAY_PROTOCOL_VERSION})
         url = f"{RELAY_URL.rstrip('/')}/room?{query}"
         contexts = _ssl_contexts() if endpoint.scheme == "wss" else [None]
-        error: Optional[BaseException] = None
 
+        stage: Optional[str] = None
+        if endpoint.scheme == "wss" and not relay_addresses.is_ip_literal(hostname):
+            ws, error, stage = await self._connect_any_address(url, headers, contexts, hostname, port, timeout)
+        else:
+            ws, error, _ = await self._handshake(url, headers, contexts, timeout)
+
+        if ws is None:
+            self.last_error = _describe_error(error, stage)
+            self._refused_status = _status_code(error)
+            log.warning(f"[RELAY] Connection to room {self.room_key[:8]} failed: {error}")
+            return False
+
+        if ws.response_headers.get_all(RELAY_PROTOCOL_HEADER) != [RELAY_PROTOCOL_VERSION]:
+            await self._close_socket(ws)
+            self.last_error = "the party server does not support authenticated connections"
+            self._refused_status = UPDATE_REQUIRED_STATUS
+            log.warning("[RELAY] Party server did not confirm protocol %s", RELAY_PROTOCOL_VERSION)
+            return False
+
+        self._ws = ws
+        self._connected = True
+        self._replaced = False
+        self._sent_state = None  # a new connection starts without our state
+        self.last_error = None
+        log.info(f"[RELAY] Connected to room {self.room_key[:8]}")
+        self._notify(self._on_connection_changed)
+        return True
+
+    @staticmethod
+    async def _handshake(url, headers, contexts, timeout, address=None, port=None):
+        """Open the WebSocket, with each trust store in turn until one verifies
+        the relay. With an address, connect to it rather than to whatever the
+        URL's host resolves to; TLS and the Host header still use the URL's host.
+
+        Returns (ws, None, True) on success, else (None, error, reached) where
+        reached tells whether a TCP connection to the address was made."""
+        error: Optional[BaseException] = None
+        reached = address is None
         for context in contexts:
             # A room can send ten members' state, each with an 8 KiB limit.
             kwargs = {"max_size": 128 * 1024, "extra_headers": headers, "logger": connection_log}
             if context is not None:
                 kwargs["ssl"] = context
+            sock = None
+            if address is not None:
+                try:
+                    sock = await relay_addresses.open_socket(address, port, min(TCP_CONNECT_TIMEOUT, timeout))
+                except (OSError, asyncio.TimeoutError) as e:
+                    # A failure after a trust store's handshake reached the address
+                    # says less about this address than that handshake's error
+                    return None, error if reached else e, reached
+                reached = True
+                # websockets then takes the TLS server name from the URL
+                kwargs["sock"] = sock
             try:
                 ws = await asyncio.wait_for(_RelayConnect(url, **kwargs), timeout=timeout)
             except ssl.SSLCertVerificationError as e:
                 error = e
+                if sock is not None:
+                    sock.close()
                 continue  # try the next trust store
-            except Exception as e:
+            except BaseException as e:
+                if sock is not None:
+                    sock.close()
+                if not isinstance(e, Exception):
+                    raise  # cancelled
                 error = e
                 break
+            return ws, None, True
+        return None, error, reached
 
-            if ws.response_headers.get_all(RELAY_PROTOCOL_HEADER) != [RELAY_PROTOCOL_VERSION]:
-                await self._close_socket(ws)
-                self.last_error = "the party server does not support authenticated connections"
-                self._refused_status = UPDATE_REQUIRED_STATUS
-                log.warning("[RELAY] Party server did not confirm protocol %s", RELAY_PROTOCOL_VERSION)
-                return False
+    async def _connect_any_address(self, url, headers, contexts, host, port, timeout):
+        """Open the WebSocket at the first of the relay's addresses that works.
 
-            self._ws = ws
-            self._connected = True
-            self._replaced = False
-            self._sent_state = None  # a new connection starts without our state
-            self.last_error = None
-            log.info(f"[RELAY] Connected to room {self.room_key[:8]}")
-            self._notify(self._on_connection_changed)
-            return True
+        The address that worked last comes first, then the system resolver's,
+        then, if none of those connects, those DNS-over-HTTPS resolvers give
+        (see relay_addresses). Stops at the first answer from the relay
+        itself, since its other addresses would give the same.
 
-        self.last_error = _describe_error(error)
-        self._refused_status = _status_code(error)
-        log.warning(f"[RELAY] Connection to room {self.room_key[:8]} failed: {error}")
-        return False
+        Returns (ws, None, None) on success, else (None, error, stage) where
+        stage is how far the best attempt got: "dns", "tcp" or "handshake"."""
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + max(timeout, ADDRESS_FALLBACK_BUDGET)
+        preferred = relay_addresses.preferred_address(host, port)
+        lookup_error: Optional[BaseException] = None
+        tcp_error: Optional[BaseException] = None
+        handshake_error: Optional[BaseException] = None
+        tried: List[str] = []
+
+        async def remembered():
+            return [preferred] if preferred else []
+
+        async def from_system():
+            nonlocal lookup_error
+            try:
+                return await asyncio.wait_for(relay_addresses.system_addresses(host, port), timeout)
+            except OSError as e:  # TimeoutError included
+                lookup_error = e
+                return []
+
+        async def from_doh():
+            log.info(f"[RELAY] No address of {host} connected, asking DNS-over-HTTPS resolvers")
+            return await relay_addresses.doh_addresses(host, [c for c in contexts if c is not None])
+
+        for source in (remembered, from_system, from_doh):
+            if loop.time() >= deadline:
+                break
+            for address in await source():
+                if address in tried:
+                    continue
+                remaining = deadline - loop.time()
+                if remaining <= 0:
+                    break
+                tried.append(address)
+                ws, error, reached = await self._handshake(
+                    url, headers, contexts, min(timeout, remaining), address, port)
+                if ws is not None:
+                    relay_addresses.remember_address(host, port, address)
+                    if len(tried) > 1:
+                        log.info(f"[RELAY] Reached the party server at {address} after {len(tried) - 1} failed address(es)")
+                    return ws, None, None
+                relay_addresses.forget_address(host, port, address)
+                log.info(f"[RELAY] Party server address {address} failed: {error}")
+                if reached:
+                    handshake_error = error
+                    if _is_final(error):
+                        return None, error, "handshake"
+                else:
+                    tcp_error = error
+
+        if handshake_error is not None:
+            return None, handshake_error, "handshake"
+        if tcp_error is not None:
+            return None, tcp_error, "tcp"
+        return None, lookup_error or asyncio.TimeoutError(), "dns"
 
     async def _run(self):
         """Receive room updates; reopen the connection when it drops.

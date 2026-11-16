@@ -108,6 +108,16 @@ Rose client. The new Worker returns HTTP 426 to older clients, and the new
 client requires a v2 acknowledgement before exchanging party state. Existing
 invite tokens keep their room keys. Deployments outside loopback use WSS.
 
+Some networks block the relay at only some of its addresses (Spanish ISPs drop
+Cloudflare IP ranges during LaLiga matches). For a `wss://` relay with a
+hostname, Rose tries each address in turn, keeping the hostname for TLS and
+the Host header: the address that worked last, then the system resolver's,
+then the addresses DNS-over-HTTPS resolvers give, if none of those connects
+(`party/network/relay_addresses.py`). An HTTP answer from the relay stops the
+search. When every address fails, the error says whether the name did not
+resolve, no address accepted a connection, or connections were cut during the
+handshake.
+
 Each Rose installation joins with a credential derived from its private
 `party_identity_keys.json`. The room key still grants access to join. While a
 member is connected, only the same installation can take over that summoner
