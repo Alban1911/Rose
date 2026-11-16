@@ -51,9 +51,17 @@ def running(*procs):
             raise lockfile.psutil.NoSuchProcess(pid)
         return by_pid[pid]
 
+    def read_cmdline(pid):
+        # query_cmdline returns None where the process cannot be read
+        try:
+            return open_process(pid).cmdline()
+        except lockfile.psutil.Error:
+            return None
+
     entries = [(proc.pid, proc.image_name) for proc in procs]
     with patch.object(lockfile, 'running_processes', return_value=entries) as snapshot, \
-            patch.object(lockfile.psutil, 'Process', side_effect=open_process):
+            patch.object(lockfile.psutil, 'Process', side_effect=open_process), \
+            patch.object(lockfile, 'query_cmdline', side_effect=read_cmdline):
         yield snapshot
 
 
@@ -71,6 +79,12 @@ class CredentialsTests(unittest.TestCase):
     def test_access_denied_client_does_not_block_ux(self):
         with running(process('LeagueClient.exe', pid=41, denied=True), process()):
             self.assertIsNotNone(lockfile.find_process_credentials())
+
+    def test_main_client_command_line_not_read(self):
+        proc = process('LeagueClient.exe')
+        with running(proc):
+            self.assertIsNone(lockfile.find_process_credentials())
+        proc.cmdline.assert_not_called()
 
     def test_unrelated_process_not_read(self):
         proc = process('Other.exe')

@@ -14,11 +14,14 @@ import psutil
 
 from config import get_config_option
 from utils.core.logging import get_logger
+from utils.system.process_cmdline import query_cmdline
 from utils.system.process_list import running_processes
 
 log = get_logger()
 
 _CLIENT_PROCESS_NAMES = frozenset({"leagueclient.exe", "leagueclientux.exe"})
+# The only process whose command line is read for LCU credentials
+_CREDENTIALS_PROCESS_NAME = "leagueclientux.exe"
 
 SWIFTPLAY_MODES = {"SWIFTPLAY", "BRAWL"}
 # Queues where champions and skins are picked in the lobby (no champ select):
@@ -177,15 +180,19 @@ def parse_lockfile(lockfile_path: str) -> Optional[Lockfile]:
 def find_process_credentials() -> Optional[Lockfile]:
     """Read the local LCU endpoint when a regional client leaves lockfile empty.
 
-    Only the main client / UX processes are eligible. Never log their command
-    lines or authentication tokens and never persist these credentials.
+    Only LeagueClientUx.exe is eligible. Never log its command
+    line or authentication token and never persist these credentials.
     """
     try:
         for pid, name in running_processes():
             try:
-                if name.lower() not in _CLIENT_PROCESS_NAMES:
+                if name.lower() != _CREDENTIALS_PROCESS_NAME:
                     continue
-                args = psutil.Process(pid).cmdline()
+                # Not psutil's cmdline(): it opens the client with
+                # PROCESS_VM_READ first, which Vanguard strips and logs.
+                args = query_cmdline(pid)
+                if not args:
+                    continue
                 options = {}
                 for index, arg in enumerate(args):
                     key, separator, value = arg.partition("=")
