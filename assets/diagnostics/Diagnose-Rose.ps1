@@ -612,6 +612,7 @@ namespace RoseDiagnostics {
         [DllImport("advapi32.dll")] static extern IntPtr GetSidSubAuthority(IntPtr s, uint n);
         [DllImport("userenv.dll", CharSet=CharSet.Unicode, SetLastError=true)] static extern bool GetUserProfileDirectory(IntPtr t, StringBuilder p, ref uint n);
         [DllImport("kernel32.dll", SetLastError=true)] static extern bool GetProcessMitigationPolicy(IntPtr p, int k, out uint flags, UIntPtr size);
+        [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)] static extern bool QueryFullProcessImageNameW(IntPtr p, int flags, StringBuilder name, ref int size);
         static IntPtr Info(IntPtr t, int kind) {
             int size; GetTokenInformation(t, kind, IntPtr.Zero, 0, out size);
             if (size <= 0) throw new Win32Exception(Marshal.GetLastWin32Error());
@@ -642,6 +643,16 @@ namespace RoseDiagnostics {
             if (p == IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error());
             try { uint flags; if (!GetProcessMitigationPolicy(p, kind, out flags, (UIntPtr)4)) throw new Win32Exception(Marshal.GetLastWin32Error()); return flags; }
             finally { CloseHandle(p); }
+        }
+        // Process.MainModule reads the target's memory (PROCESS_VM_READ); this does not
+        public static string ImagePath(int pid) {
+            IntPtr p = OpenProcess(0x1000, false, pid); // PROCESS_QUERY_LIMITED_INFORMATION only
+            if (p == IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error());
+            try {
+                int size = 32768; StringBuilder name = new StringBuilder(size);
+                if (!QueryFullProcessImageNameW(p, 0, name, ref size)) throw new Win32Exception(Marshal.GetLastWin32Error());
+                return name.ToString(0, size);
+            } finally { CloseHandle(p); }
         }
     }
 }
@@ -822,10 +833,13 @@ Invoke-Check 'windows' 'Environment' {
 Invoke-Check 'native-query-support' 'Environment' { Initialize-NativeQueries }
 Invoke-Check 'processes' 'Environment' {
     $names = @('Rose', 'LeagueClient', 'LeagueClientUx', 'LeagueClientUxRender', 'League of Legends', 'League of Legends (TM) Client', 'ltk_patcher_host', 'ltk-manager', 'ltk_launcher', 'Pengu Loader', 'RiotClientServices', 'explorer')
+    # Never read the memory of the main client or the game (MainModule does)
+    $noMemoryRead = @('LeagueClient', 'League of Legends', 'League of Legends (TM) Client')
     $session = (Get-Process -Id $PID).SessionId
     $script:Processes = @(Get-Process -ErrorAction Stop | Where-Object { $_.ProcessName -in $names -and $_.SessionId -eq $session } | ForEach-Object {
         $path = ''; $start = $null; $token = $null
-        try { $path = $_.MainModule.FileName } catch { }
+        if ($script:NativeAvailable) { try { $path = [RoseDiagnostics.Native]::ImagePath($_.Id) } catch { } }
+        if (-not $path -and $_.ProcessName -notin $noMemoryRead) { try { $path = $_.MainModule.FileName } catch { } }
         try { $start = $_.StartTime } catch { }
         if ($script:NativeAvailable) { try { $token = [RoseDiagnostics.Native]::Token($_.Id); if ($token.Profile -and -not $script:ProfilePaths.Contains($token.Profile)) { $script:ProfilePaths.Add($token.Profile) } } catch { } }
         [pscustomobject]@{ name = $_.ProcessName + '.exe'; pid = $_.Id; path = $path; start = $start; token = $token; session = $_.SessionId }
