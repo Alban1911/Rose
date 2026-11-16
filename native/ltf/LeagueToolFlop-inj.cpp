@@ -200,16 +200,27 @@ static HANDLE ShellUserToken()
 // with VRF0000000x. Seeding the new process's parent as the desktop shell keeps
 // the env, the suspended start and the debug port while making that chain look
 // like a hand-started manager's.
+//
+// Turns a privilege the token holds on. The attribute has to say so: left at
+// 0, AdjustTokenPrivileges turns it off. SeDebugPrivilege then stayed off, which
+// only showed when Rose runs as administrator through another Windows account
+// than the desktop user's (a standard account): explorer.exe and the LTK
+// Manager started for that user refused OpenProcess with err=5, so LTK Manager
+// lost its explorer.exe parent and the bridge could not be injected (exit 4).
+// On failure GetLastError() says why (ERROR_NOT_ALL_ASSIGNED: not held).
 static bool EnablePrivilege(const wchar_t* name)
 {
     HANDLE token = NULL;
     if (!OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &token)) return false;
     TOKEN_PRIVILEGES tp{};
     tp.PrivilegeCount = 1;
+    tp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
     bool ok = LookupPrivilegeValueW(NULL, name, &tp.Privileges[0].Luid)
         && AdjustTokenPrivileges(token, FALSE, &tp, 0, NULL, NULL)
         && GetLastError() == ERROR_SUCCESS;
+    DWORD err = ok ? ERROR_SUCCESS : GetLastError();
     CloseHandle(token);
+    SetLastError(err);
     return ok;
 }
 
@@ -294,6 +305,30 @@ static std::wstring EnvironmentFor(HANDLE token, const EnvVars& vars)
     return block;
 }
 
+// *block* (an environment block as EnvironmentFor returns it) with *name* set
+// to *value*, any entry it had for *name* left out
+static std::wstring WithEnvVar(const std::wstring& block, const std::wstring& name, const std::wstring& value)
+{
+    std::wstring out;
+    size_t at = 0;
+    while (at < block.size() && block[at]) {
+        size_t end = block.find(L'\0', at);
+        if (end == std::wstring::npos) end = block.size();
+        const wchar_t* entry = block.c_str() + at;
+        const wchar_t* eq = wcschr(entry + 1, L'=');  // "=C:=C:\" entries start with '='
+        bool same = eq && (size_t)(eq - entry) == name.size() && _wcsnicmp(entry, name.c_str(), name.size()) == 0;
+        if (!same) {
+            out.append(block, at, end - at);
+            out.push_back(L'\0');
+        }
+        at = end + 1;
+    }
+    out += name + L"=" + value;
+    out.push_back(L'\0');
+    out.push_back(L'\0');
+    return out;
+}
+
 static bool ResolveDllPath(wchar_t* outPath, size_t outLen)
 {
     outPath[0] = 0;
@@ -363,9 +398,23 @@ static bool SpawnAsUserChild(HANDLE token, const std::wstring& env, const wchar_
         si.wShowWindow = SW_HIDE;
     }
     PROCESS_INFORMATION pi{};
+    // The helper is this program: with "Run this program as an administrator"
+    // set on it in Windows' compatibility settings, Windows refuses to start
+    // it with the desktop user's token (err 740), LTK Manager then starts
+    // without explorer.exe as its parent and the patcher refuses the overlay
+    // (VRF00000007). RunAsInvoker asks Windows to leave that setting out for
+    // this start; Rose also takes the setting off before it runs the launcher.
+    // The helper drops the variable again (--as-user-child), so LTK Manager
+    // does not inherit it
+    std::wstring helperEnv = WithEnvVar(env, L"__COMPAT_LAYER", L"RunAsInvoker");
     if (!CreateProcessWithTokenW(token, 0, self, cmdLine, CREATE_UNICODE_ENVIRONMENT,
-        (LPVOID)env.data(), NULL, &si, &pi)) {
-        Log("[warn] helper spawn err=%lu", GetLastError());
+        (LPVOID)helperEnv.data(), NULL, &si, &pi)) {
+        DWORD err = GetLastError();
+        Log("[warn] helper spawn err=%lu", err);
+        if (err == ERROR_ELEVATION_REQUIRED) {
+            Log("[warn] ltk_launcher.exe is set to run as administrator in Windows' compatibility settings: "
+                "Windows refuses to start it for the desktop user");
+        }
         return false;
     }
     Log("[launch] helper started pid=%lu", pi.dwProcessId);
@@ -530,6 +579,11 @@ int wmain(int argc, wchar_t** argv)
         }
     }
 
+    // The elevated launcher started this copy with __COMPAT_LAYER=RunAsInvoker
+    // (SpawnAsUserChild): LTK Manager, which inherits this environment, is
+    // started without it
+    if (asUserChild) SetEnvironmentVariableW(L"__COMPAT_LAYER", NULL);
+
     if (exePath[0] == 0) ResolveDefaultExe(exePath, MAX_PATH);
 
     if (exePath[0] == 0 || GetFileAttributesW(exePath) == INVALID_FILE_ATTRIBUTES)
@@ -582,12 +636,22 @@ int wmain(int argc, wchar_t** argv)
 
     DWORD flags = CREATE_SUSPENDED | CREATE_NEW_PROCESS_GROUP;
 
+    // Opening explorer.exe below, and the LTK Manager started for the desktop
+    // user, takes SeDebugPrivilege when that user is another Windows account
+    // than this elevated launcher's: neither process's DACL grants this one.
+    // Only an elevated launcher holds it, so only its failure is news
+    if (!EnablePrivilege(L"SeDebugPrivilege")) {
+        DWORD err = GetLastError();
+        if (IsElevated()) Log("[warn] SeDebugPrivilege could not be turned on (err=%lu)", err);
+    }
+
     // The parent the patcher DLL expects above LTK Manager
     DWORD shellPid = ShellPid();
     HANDLE shellProc = NULL;
+    DWORD shellErr = 0;
     if (shellPid) {
-        EnablePrivilege(L"SeDebugPrivilege");
         shellProc = OpenProcess(PROCESS_CREATE_PROCESS | PROCESS_QUERY_LIMITED_INFORMATION, FALSE, shellPid);
+        if (!shellProc) shellErr = GetLastError();
     }
     bool shellParent = false;
     if (shellProc) {
@@ -611,7 +675,7 @@ int wmain(int argc, wchar_t** argv)
         }
     }
     else {
-        Log("[warn] no explorer.exe (pid=%lu) to parent LTK Manager to", shellPid);
+        Log("[warn] no explorer.exe (pid=%lu) to parent LTK Manager to (err=%lu)", shellPid, shellErr);
     }
 
     // Started any other way, LTK Manager restarts itself as a child of the
