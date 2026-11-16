@@ -239,5 +239,153 @@ class LeagueClientTests(unittest.TestCase):
         self.assertIsInstance(windows_account.league_run_as_admin_entries(), list)
 
 
+class FakeRegistry:
+    """Windows' compatibility settings keys, as winreg reads and writes them.
+    *values* maps (root, subkey) to {program path: layers}; *read_only*
+    lists the (root, subkey) keys Rose may only read."""
+
+    def __init__(self, values, read_only=()):
+        self.values = {where: dict(entries) for where, entries in values.items()}
+        self.read_only = set(read_only)
+        self.opened = []
+
+    def open_key(self, root, subkey, reserved=0, access=0):
+        import winreg
+        where = (root, subkey)
+        self.opened.append(where)
+        if where not in self.values:
+            raise FileNotFoundError(2, "The system cannot find the file specified")
+        if where in self.read_only and access & winreg.KEY_SET_VALUE:
+            raise PermissionError(5, "Access is denied")
+        key = MagicMock()
+        key.where = where
+        key.__enter__.return_value = key
+        return key
+
+    def enum_value(self, key, index):
+        import winreg
+        entries = list(self.values[key.where].items())
+        if index >= len(entries):
+            raise OSError("no more data")
+        name, data = entries[index]
+        return name, data, winreg.REG_SZ
+
+    def delete_value(self, key, name):
+        del self.values[key.where][name]
+
+    def set_value(self, key, name, reserved, kind, data):
+        self.values[key.where][name] = data
+
+    def patched(self):
+        import winreg
+        return (
+            patch.object(winreg, "OpenKey", side_effect=self.open_key),
+            patch.object(winreg, "EnumValue", side_effect=self.enum_value),
+            patch.object(winreg, "DeleteValue", side_effect=self.delete_value),
+            patch.object(winreg, "SetValueEx", side_effect=self.set_value),
+        )
+
+
+class LauncherSettingTests(unittest.TestCase):
+    """Rose's ltk_launcher.exe set to run as administrator: Windows refused the
+    copy of it that gives LTK Manager explorer.exe as its parent (error 740),
+    and the patcher refused every overlay (VRF00000007). Rose takes the
+    setting off itself"""
+
+    LAUNCHER = r"C:\Program Files\Rose\_internal\injection\tools\ltk_launcher.exe"
+    OLD_LAUNCHER = r"C:\Rose\_internal\injection\tools\ltk_launcher.exe"
+    ROSE = r"C:\Program Files\Rose\Rose.exe"
+    KEY = windows_account.COMPAT_LAYERS_KEY
+
+    def clear(self, registry, desktop_sid=None):
+        first, second, third, fourth = registry.patched()
+        with first, second, third, fourth, \
+                patch.object(windows_account, "desktop_user_sid", return_value=desktop_sid):
+            return windows_account.clear_launcher_run_as_admin()
+
+    def test_only_the_run_as_administrator_layer_goes(self):
+        self.assertIsNone(windows_account.without_run_as_admin("~ RUNASADMIN"))
+        self.assertIsNone(windows_account.without_run_as_admin("$ runasadmin"))
+        self.assertEqual(windows_account.without_run_as_admin("$ RUNASADMIN WIN8RTM"), "$ WIN8RTM")
+        self.assertEqual(windows_account.without_run_as_admin("~ HIGHDPIAWARE RUNASADMIN"), "~ HIGHDPIAWARE")
+
+    def test_the_launchers_setting_is_taken_off_and_nothing_else(self):
+        """The user's own settings stay: Rose.exe's, and LTK Manager's (Rose
+        only names those, they are not its programs)"""
+        import winreg
+        hkcu, hklm = (winreg.HKEY_CURRENT_USER, self.KEY), (winreg.HKEY_LOCAL_MACHINE, self.KEY)
+        ltk_manager = r"C:\Program Files\LTK Manager\ltk-manager.exe"
+        registry = FakeRegistry({
+            hkcu: {self.LAUNCHER: "~ RUNASADMIN", self.ROSE: "~ RUNASADMIN"},
+            hklm: {self.OLD_LAUNCHER: "$ RUNASADMIN WIN8RTM", ltk_manager: "$ RUNASADMIN"},
+        })
+
+        cleared, left = self.clear(registry)
+
+        self.assertEqual(cleared, [("HKCU", self.LAUNCHER), ("HKLM", self.OLD_LAUNCHER)])
+        self.assertEqual(left, [])
+        self.assertEqual(registry.values[hkcu], {self.ROSE: "~ RUNASADMIN"})
+        self.assertEqual(registry.values[hklm], {self.OLD_LAUNCHER: "$ WIN8RTM", ltk_manager: "$ RUNASADMIN"})
+
+    def test_the_desktop_users_setting_goes_when_rose_runs_as_another_account(self):
+        """A standard account elevated with an administrator's password: Rose's
+        HKEY_CURRENT_USER is the administrator's, the user's setting is in
+        their own hive"""
+        import winreg
+        sid = "S-1-5-21-163208246-3233954084-627669836-1001"
+        desktop = (winreg.HKEY_USERS, f"{sid}\\{self.KEY}")
+        registry = FakeRegistry({desktop: {self.LAUNCHER: "~ RUNASADMIN"}})
+
+        cleared, left = self.clear(registry, desktop_sid=sid)
+
+        self.assertEqual(cleared, [("HKU", self.LAUNCHER)])
+        self.assertEqual(registry.values[desktop], {})
+        self.assertIn(desktop, registry.opened)
+
+    def test_a_setting_rose_cannot_change_is_left_and_named(self):
+        import winreg
+        hklm = (winreg.HKEY_LOCAL_MACHINE, self.KEY)
+        registry = FakeRegistry({hklm: {self.LAUNCHER: "$ RUNASADMIN"}}, read_only=[hklm])
+
+        cleared, left = self.clear(registry)
+
+        self.assertEqual((cleared, left), ([], [("HKLM", self.LAUNCHER)]))
+        self.assertEqual(registry.values[hklm], {self.LAUNCHER: "$ RUNASADMIN"})
+
+    def check(self, cleared, left):
+        with patch.object(windows_account, "clear_launcher_run_as_admin", return_value=(cleared, left)), \
+                patch("utils.core.issue_reporter.report_issue") as report, \
+                patch("utils.core.issue_reporter.remove_issues") as remove:
+            result = windows_account.check_launcher_settings()
+        return result, report, remove
+
+    def test_a_setting_taken_off_is_logged_and_clears_the_warning(self):
+        with self.assertLogs(windows_account.log.name, level="INFO") as logs:
+            result, report, remove = self.check([("HKCU", self.LAUNCHER)], [])
+
+        self.assertFalse(result)
+        report.assert_not_called()
+        line = f"{windows_account.LAUNCHER_SETTING_MESSAGE} ({self.LAUNCHER})."
+        self.assertTrue(remove.call_args.args[0](f"Nov 16 16:15 | {line}", ""))
+        self.assertTrue(any("Took \"Run as administrator\" off" in entry and self.LAUNCHER in entry
+                            for entry in logs.output))
+
+    def test_troubleshooting_names_a_setting_rose_could_not_take_off(self):
+        result, report, _ = self.check([], [("HKLM", self.LAUNCHER)])
+
+        self.assertTrue(result)
+        code, severity, message = report.call_args.args
+        self.assertEqual((code, severity), ("LAUNCHER_ELEVATED", "error"))
+        (summary,) = summarize((message, report.call_args.kwargs["hint"]))
+        self.assertEqual(summary["code"], "LAUNCHER_ELEVATED")
+        self.assertEqual(summary["detail"], f"{self.LAUNCHER} [all users]")
+
+    def test_an_unreadable_registry_never_stops_rose(self):
+        with patch.object(windows_account, "clear_launcher_run_as_admin", side_effect=OSError("no registry")), \
+                patch("utils.core.issue_reporter.report_issue") as report:
+            self.assertFalse(windows_account.check_launcher_settings())
+        report.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()

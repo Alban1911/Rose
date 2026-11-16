@@ -5593,12 +5593,25 @@
           };
         }
 
+        if (code === 'LAUNCHER_ELEVATED') {
+          const detail = String(e?.detail || '').trim();
+          return {
+            title: t("Rose's launcher is set to run as administrator"),
+            details: [
+              t("What it means: Windows' compatibility settings run Rose's ltk_launcher.exe as administrator, so Windows refuses to start it for your Windows account, LTK Manager does not start under explorer.exe and its patcher refuses the skins. Rose could not take that setting off by itself: {detail}", { detail }),
+              t('Fix: untick "Run this program as an administrator" in the Compatibility tab of the Properties of ltk_launcher.exe, in Rose\'s _internal\\injection\\tools folder (for one marked "all users", under "Change settings for all users"), then restart Rose.'),
+            ],
+          };
+        }
+
         if (code === 'LTF_FAILED') {
           const detail = String(e?.detail || '').trim();
           // Why it failed (ltk_failure_cause in overlay_manager.py): what to
           // do depends on it
           const fixes = {
             start: () => t("Fix: Rose could not start the LTK patcher. Check that ltk_launcher.exe and LeagueToolFlop.dll are still in Rose's tools folder: an antivirus may have removed them."),
+            inject: () => t("Fix: Rose's launcher started LTK Manager but could not get into it. With err=5 (access denied) above, Windows or an antivirus refused it: add Rose's folder to your antivirus exclusions, update Rose, then retry. If Rose runs as administrator through another Windows account than the one you are signed in with, make your own account an administrator instead."),
+            launcher_admin: () => t('Fix: Windows refused to start Rose\'s ltk_launcher.exe because it is set to run as administrator, so LTK Manager did not start under explorer.exe. Rose takes that setting off before it starts LTK Manager: retry the next game. If it happens again, untick "Run this program as an administrator" in the Compatibility tab of the Properties of ltk_launcher.exe, in Rose\'s _internal\\injection\\tools folder (also under "Change settings for all users"), then restart Rose.'),
             running: () => t('Fix: close LTK Manager (also from the system tray), then retry. Rose starts it with its bridge and closes it again after the game.'),
             late: () => t('Fix: the game started before the patcher was ready. Retry the next game.'),
             bridge: () => t('Fix: LTK Manager closed while the game was running. Retry the next game. If it happens every game, report it with your Rose logs.'),

@@ -964,6 +964,17 @@ class MessageHandler:
                         'detail': programs,
                     }
 
+                # Category: Rose's own launcher set to run as administrator,
+                # which Rose could not take off itself (before the Windows
+                # account category, whose markers it also names)
+                if "can't apply skins" in ml and "ltk_launcher.exe is set to run as administrator" in ml:
+                    programs = msg.split('(', 1)[1].rsplit(')', 1)[0].strip() if '(' in msg else ''
+                    return {
+                        'code': 'LAUNCHER_ELEVATED',
+                        'text': "Rose's launcher set to run as administrator -> turn it off",
+                        'detail': programs,
+                    }
+
                 # Category: LTK Manager's automatic mod check took minutes while
                 # the game loaded (before the LTF category: it names LTK Manager)
                 if "automatic mod check took" in ml:

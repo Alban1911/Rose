@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import patch
 
-from injection.overlay.ltf_report import LTF_LOGS_HINT
+from injection.overlay.ltf_report import LAUNCHER_ELEVATED_DETAIL, LTF_LOGS_HINT, ltk_failure_hint
 from pengu.communication import message_handler
 
 
@@ -87,6 +87,24 @@ class LtfDiagnosticsTests(unittest.TestCase):
 
         self.assertEqual(summary["code"], "LTF_FAILED")
         self.assertEqual(summary["cause"], "cdp")
+
+    def test_a_refusal_over_the_launchers_setting_is_an_ltf_failure(self):
+        """It names "run as administrator", like the Windows account's and
+        LTK Manager's own reports, but is this session's patcher failure"""
+        reason = ("LTK Manager's patcher refused the overlay (host verification failed: VRF00000007 (12024); "
+                  f"LTK Manager's parent was not explorer.exe (not explorer.exe); {LAUNCHER_ELEVATED_DETAIL})")
+        (summary,) = summarize((f"Injection failed: {reason}", ltk_failure_hint(reason)))
+
+        self.assertEqual(summary["code"], "LTF_FAILED")
+        self.assertEqual(summary["cause"], "launcher_admin")
+
+    def test_a_launcher_that_could_not_get_into_ltk_manager_is_no_missing_file(self):
+        reason = ("could not start the LTF launcher (exit code 4: it could not inject its bridge into LTK Manager; "
+                  "OpenProcess(pid=12368) err=5)")
+        (summary,) = summarize((f"Injection failed: {reason}", ltk_failure_hint(reason)))
+
+        self.assertEqual(summary["code"], "LTF_FAILED")
+        self.assertEqual(summary["cause"], "inject")
 
 
 if __name__ == "__main__":
