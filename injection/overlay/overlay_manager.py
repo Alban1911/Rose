@@ -32,6 +32,7 @@ from utils.core.modpkg import is_modpkg
 from utils.system.process_list import running_processes
 from .ltf_report import (
     LATE_JOIN_MESSAGE,
+    LAUNCHER_ELEVATED_DETAIL,
     LTF_LOGS_HINT,
     LTK_ACL_REFUSAL,
     NOT_ATTACHED_MESSAGE,
@@ -1454,17 +1455,24 @@ class OverlayManager:
             # launcher could not do that, its lines in this log say why (#478)
             parent = self.host.logged_manager_parent
             unparented = parent is not None and parent != LAUNCHER_SHELL_PARENT
+            # Why it was not: Windows refused the launcher's helper, Rose's
+            # ltk_launcher.exe being set to run as administrator
+            launcher_elevated = unparented and self.host.logged_launcher_elevated is True
             if unparented:
                 log.error(
                     f"[INJECT] LTK Manager was not started under explorer.exe ({parent}), which the patcher's "
                     "check refuses - the ltk_launcher lines above say why"
                 )
+            if launcher_elevated:
+                log.error(f"[INJECT] {LAUNCHER_ELEVATED_DETAIL}")
             if not self._stopped_by_rose():
                 details = [f"host verification failed: {described}"]
                 if signature:
                     details.append(f"{SIGNATURE_FAILURE_MESSAGE}, {signature}")
                 if unparented:
                     details.append(f"LTK Manager's parent was not explorer.exe ({parent})")
+                if launcher_elevated:
+                    details.append(LAUNCHER_ELEVATED_DETAIL)
                 report_ltf_failure(f"LTK Manager's patcher refused the overlay ({'; '.join(details)})")
         not_attached = session.get("ltk_not_attached")
         if not_attached and not session.get("ltk_attached") and not session.get("not_attached_reported"):

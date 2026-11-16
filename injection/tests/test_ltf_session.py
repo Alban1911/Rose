@@ -13,7 +13,7 @@ from unittest.mock import MagicMock, patch
 from injection.mods import manifest
 from injection.mods.ltk_ref import ltk_ref
 from injection.overlay import ltf_report, ltf_session, ltk_data, overlay_manager
-from injection.overlay.ltf_report import ltk_failure_cause, ltk_failure_hint
+from injection.overlay.ltf_report import has_ltf_logs_hint, ltk_failure_cause, ltk_failure_hint
 from injection.overlay.ltf_session import LtfHost, LtfSession
 from injection.overlay.overlay_manager import OverlayManager
 from injection.overlay.process_manager import ProcessManager
@@ -289,6 +289,7 @@ class LtfSessionTestCase(unittest.TestCase):
             patch.object(ltk_data.LtkLogTail, "log_dir", staticmethod(lambda: self.ltk_logs)),
             patch.object(ltf_session, "ltk_logs_dir", lambda: self.root / "logs" / "ltk"),
             patch("utils.system.windows_account.check_ltk_settings", return_value=False),
+            patch("utils.system.windows_account.check_launcher_settings", return_value=False),
             patch.object(ltf_session, "launcher_log_paths",
                          lambda: (self.root / "logs" / "ltk" / "ltk_launcher.log",
                                   self.root / "Public" / "ltk_launcher.log",
@@ -647,8 +648,26 @@ class InjectionSessionTests(LtfSessionTestCase):
         self.assertIn("WARNING", launcher_lines[0])
         self.assertIn("starting it as a child", launcher_lines[0])
         self.assertEqual(self.host.logged_manager_parent, "not explorer.exe")
+        self.assertFalse(self.host.logged_launcher_elevated)
         self.assertFalse(public_log.exists())
         self.assertFalse(temp_log.exists())
+
+    def test_windows_refusing_the_launchers_helper_is_kept(self):
+        launch = self.launcher_writing([
+            "[launch] explorer.exe (pid=6016) as the parent",
+            "[warn] CreateProcessAsUser err=1314",
+            "[warn] helper spawn err=740",
+            "[warn] spawn with explorer.exe as the parent failed (err=87) - starting it as a child",
+            "[launch] spawned pid = 12168 (suspended), parent pid = 12024 (not explorer.exe)",
+        ])
+        mod = self.make_mod()
+        with patch.object(ltf_session, "find_bridge", return_value=None), \
+                patch.object(ltf_session.subprocess, "run", side_effect=launch):
+            self.overlay.mk_run_overlay([mod], stop_callback=lambda: True)
+
+        self.assertTrue(self.host.logged_launcher_elevated)
+        self.assertEqual(self.host.logged_manager_parent, "not explorer.exe")
+        self.assertIsNone(self.host.logged_launcher_error)
 
     def test_the_launcher_logs_into_roses_logs_folder(self):
         """The LTF logs go to Rose's logs\\ltk folder (Open Logs folder), not
@@ -725,6 +744,58 @@ class InjectionSessionTests(LtfSessionTestCase):
         self.assertEqual(result, 1)
         self.assertIn("LTF_FAILED", self.reported_codes())
         self.assertEqual(self.reported_causes(), ["start"])
+
+    def launcher_writing(self, lines, returncode=0, stdout="LTK_MANAGER_PID=4242\n"):
+        """A launcher run that logs *lines* into Rose's launcher log."""
+        rose_log = ltf_session.launcher_log_paths()[0]
+
+        def launch(*args, **kwargs):
+            rose_log.parent.mkdir(parents=True, exist_ok=True)
+            with open(rose_log, "a", encoding="utf-8") as handle:
+                handle.write("========== ltk_launcher ==========\r\n" + "".join(f"{line}\r\n" for line in lines))
+            return MagicMock(returncode=returncode, stdout=stdout)
+
+        return launch
+
+    def test_a_launcher_that_could_not_inject_its_bridge_names_its_error(self):
+        """Exit code 4: the launcher's files are there, so the hint to look for
+        them misled; Windows refused OpenProcess on the LTK Manager it started
+        (err=5) when Rose ran as another Windows account than the desktop user"""
+        launch = self.launcher_writing([
+            "[warn] no explorer.exe (pid=5172) to parent LTK Manager to (err=5)",
+            "[launch] spawned pid = 12368 (suspended), parent pid = 12308 (no shell parent)",
+            "[err] OpenProcess(pid=12368) err=5",
+            "[err] injection failed - terminating ltk-manager.exe",
+        ], returncode=4, stdout="")
+        mod = self.make_mod()
+        with patch.object(ltf_session, "find_bridge", return_value=None), \
+                patch.object(ltf_session.subprocess, "run", side_effect=launch):
+            result = self.overlay.mk_run_overlay([mod], stop_callback=lambda: True)
+
+        self.assertEqual(result, 1)
+        self.assertEqual(self.reported_causes(), ["inject"])
+        (reason,) = [call.args[2] for call in self.report_issue.call_args_list if call.args[0] == "LTF_FAILED"]
+        self.assertIn("exit code 4: it could not inject its bridge into LTK Manager; "
+                      "OpenProcess(pid=12368) err=5)", reason)
+        self.assertNotIn("terminating", reason)  # what followed from it
+
+    def test_the_launchers_setting_is_checked_before_it_runs(self):
+        """Rose takes "Run as administrator" off its own ltk_launcher.exe
+        before running it: once it runs, Windows has refused its helper"""
+        order = []
+        no_bridge, _ = self.launched()
+
+        def launch(*args, **kwargs):
+            order.append("launcher")
+            return MagicMock(returncode=0, stdout="LTK_MANAGER_PID=4242\n")
+
+        mod = self.make_mod()
+        with no_bridge, patch.object(ltf_session.subprocess, "run", side_effect=launch), \
+                patch("utils.system.windows_account.check_launcher_settings",
+                      side_effect=lambda: order.append("setting")):
+            self.overlay.mk_run_overlay([mod], stop_callback=lambda: True)
+
+        self.assertEqual(order, ["setting", "launcher"])
 
     def test_a_bridge_that_never_comes_up_closes_the_launched_manager(self):
         mod = self.make_mod()
@@ -1714,6 +1785,23 @@ class PatcherStatusParsingTests(LtfSessionTestCase):
         self.assertIn("LTK Manager's patcher refused the overlay (host verification failed: VRF00000007 (18776); "
                       "LTK Manager's parent was not explorer.exe (not explorer.exe))", reason)
 
+    def test_a_refusal_after_windows_refused_the_launchers_helper_names_its_setting(self):
+        """VRF00000007 with ltk_launcher.exe set to run as administrator: the
+        hint to update Rose did not help, taking the setting off does"""
+        session = self._session()
+        self.host.logged_manager_parent = "not explorer.exe"
+        self.host.logged_launcher_elevated = True
+        FakeBridge.patcher_statuses = [status(session={"log": (
+            "2026-11-16T15:15:23.000000Z  INFO ltk_manager_runtime::patcher::injector: [ltk-dll pid=1 tid=2 ERROR] "
+            "ltk_patcher_dll::verify: host verification failed, refusing overlay: [VRF00000007] (12024)")})]
+
+        self.overlay._poll_patcher_status(session)
+
+        self.assertEqual(self.reported_causes(), ["launcher_admin"])
+        (reason,) = [call.args[2] for call in self.report_issue.call_args_list if call.args[0] == "LTF_FAILED"]
+        self.assertIn("LTK Manager's parent was not explorer.exe (not explorer.exe); "
+                      f"{ltf_report.LAUNCHER_ELEVATED_DETAIL})", reason)
+
     def test_a_refusal_with_a_manager_under_explorer_names_no_parent(self):
         session = self._session()
         self.host.logged_manager_parent = "explorer.exe"
@@ -2345,6 +2433,22 @@ class FailureCauseTests(unittest.TestCase):
     def test_start_failures(self):
         self.assertEqual(ltk_failure_cause("could not start the LTF launcher (exit code 3)"), "start")
         self.assertEqual(ltk_failure_cause("could not start the LTK patcher (denied)"), "start")
+
+    def test_a_launcher_that_could_not_get_into_ltk_manager_is_no_missing_file(self):
+        reason = ("could not start the LTF launcher (exit code 4: it could not inject its bridge into LTK Manager; "
+                  "OpenProcess(pid=12368) err=5)")
+        self.assertEqual(ltk_failure_cause(reason), "inject")
+        self.assertIn("antivirus", ltk_failure_hint(reason))
+        self.assertTrue(has_ltf_logs_hint(ltk_failure_hint(reason)))
+
+    def test_the_launchers_setting_explains_the_refusal(self):
+        """Before "refused" and before LTK Manager's own programs' error 740"""
+        reason = ("LTK Manager's patcher refused the overlay (host verification failed: VRF00000007 (12024); "
+                  "LTK Manager's parent was not explorer.exe (not explorer.exe); "
+                  f"{ltf_report.LAUNCHER_ELEVATED_DETAIL})")
+        self.assertEqual(ltk_failure_cause(reason), "launcher_admin")
+        self.assertIn("ltk_launcher.exe", ltk_failure_hint(reason))
+        self.assertTrue(has_ltf_logs_hint(ltk_failure_hint(reason)))
 
     def test_patcher_refusals_over_administrator_rights(self):
         """#430: LTK refuses to patch League set to run as administrator, or

@@ -34,6 +34,7 @@ _ALLOWED_CODES = {
     'BASE_SKIN_FORCE_SLOW',   # Suggest increasing Injection Threshold
     'BASE_SKIN_VERIFY_FAILED',  # Base skin verification mismatch (often causes skin not to show)
     'LEAGUE_ELEVATED',        # The League client runs as administrator: LTK Manager's patcher can't reach it
+    'LAUNCHER_ELEVATED',      # Rose's ltk_launcher.exe is set to run as administrator and Rose could not undo it
     'LOW_DISK_SPACE',         # Injection could not install a mod with the available disk space
     'LTF_MISSING',            # Rose's LTF bridge files (ltk_launcher.exe + LeagueToolFlop.dll) are missing
     'LTK_MANAGER_MISSING',    # LTK Manager, which Rose drives through the bridge, is not installed
@@ -62,6 +63,7 @@ _SETUP_CODES = {
 # session's, until that check removes it (resolve_issue) or reports it again.
 # Dropped at Rose's start, the problem went unseen until a game's injection failed
 _UNTIL_RECHECKED = {
+    'LAUNCHER_ELEVATED',
     'LTF_MISSING',
     'LTK_ELEVATED',
     'LTK_MANAGER_MISSING',

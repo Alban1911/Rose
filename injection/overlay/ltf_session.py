@@ -32,7 +32,7 @@ from ..tools.bridge import (
 )
 from ..tools.tools_manager import LTF_BRIDGE_DLL, LTF_LAUNCHER, ToolsManager
 from .ltf_journal import KeptRecord, LibraryId, LibraryNames, LtfJournal
-from .ltf_report import cdp_unreachable, report_ltf_failure
+from .ltf_report import LAUNCHER_INJECT_FAILED_MESSAGE, cdp_unreachable, report_ltf_failure
 from .ltk_data import LtkLogTail, entry_name
 from .ltk_switches import SavedModSwitches
 from .process_manager import LTK_MANAGER_PROCESSES
@@ -49,6 +49,10 @@ LTK_LOGS_FOLDER = "ltk"
 LAUNCHER_LOG_ROTATE_BYTES = 1024 * 1024
 LAUNCHER_PARENT_LOG_LINE = re.compile(r"parent pid = \d+ \(([^)]*)\)")
 LAUNCHER_SHELL_PARENT = "explorer.exe"
+# Windows refusing the launcher's helper, the copy of it started with the
+# desktop user's token to give LTK Manager explorer.exe as its parent:
+# ltk_launcher.exe is set to run as administrator (ERROR_ELEVATION_REQUIRED)
+LAUNCHER_HELPER_ELEVATION_LINE = re.compile(r"helper spawn err=740\b")
 BRIDGE_START_TIMEOUT_S = 30
 # LTK Manager's built-in browser (CDP) answers seconds after its bridge does:
 # a command sent in between fails with "CDP unavailable", and the countdown's
@@ -270,6 +274,10 @@ class LtfHost:
         self.launcher_lock = threading.Lock()
         self.last_failure_reason: Optional[str] = None
         self.logged_manager_parent: Optional[str] = None
+        # What the launcher's log said of its last start: Windows refused its
+        # helper as set to run as administrator, and its first error line
+        self.logged_launcher_elevated = False
+        self.logged_launcher_error: Optional[str] = None
         self.journal = LtfJournal(injection_dir / "ltf_installed.json")
         self.switches = SavedModSwitches(self)
 
@@ -343,6 +351,14 @@ class LtfHost:
             check_ltk_settings()
         except Exception as e:
             log.debug(f"[INJECT] Could not check LTK Manager's compatibility settings: {e}")
+        # Rose's own launcher set to run as administrator: Windows refuses the
+        # copy of it that gives LTK Manager explorer.exe as its parent (error
+        # 740), and the patcher refuses the overlay. Rose takes that off itself
+        try:
+            from utils.system.windows_account import check_launcher_settings
+            check_launcher_settings()
+        except Exception as e:
+            log.debug(f"[INJECT] Could not check the launcher's compatibility settings: {e}")
 
         bridge, launched = self._connect_bridge(launcher, manager, report, cancelled)
         if bridge is None:
@@ -923,8 +939,12 @@ class LtfHost:
 
     def _log_launcher_run(self, sizes: Dict[Path, int]) -> None:
         """Copy what ltk_launcher.exe (and its helper) logged for this start
-        into Rose's log, and keep the parent it gave LTK Manager."""
+        into Rose's log, and keep the parent it gave LTK Manager, whether
+        Windows refused its helper as set to run as administrator, and its
+        first error (what made it fail; the later ones follow from it)."""
         parent = None
+        elevated = False
+        error = None
         for line in _new_log_lines(sizes):
             if line.startswith("=========="):
                 continue
@@ -937,7 +957,13 @@ class LtfHost:
             found = LAUNCHER_PARENT_LOG_LINE.search(line)
             if found:
                 parent = found.group(1).strip()
+            if LAUNCHER_HELPER_ELEVATION_LINE.search(line):
+                elevated = True
+            if error is None and line.startswith("[err]"):
+                error = line[len("[err]"):].strip()
         self.logged_manager_parent = parent
+        self.logged_launcher_elevated = elevated
+        self.logged_launcher_error = error
 
     def _session_failed(self, reason: str, report: bool) -> None:
         """Keep why the session could not start (last_failure_reason), and
@@ -994,6 +1020,17 @@ class LtfHost:
         if result.returncode == LauncherExit.ALREADY_RUNNING:
             log.warning("[INJECT] LTK Manager opened before the launcher could start it - leaving it alone")
             self._session_failed(ALREADY_OPEN_REASON, report)
+            return None, False
+        if result.returncode == LauncherExit.INJECT_FAILED:
+            # It started LTK Manager, then could not get into it: the files
+            # are there (the hint for the other exit codes), Windows or an
+            # antivirus refused the launcher; its error line says which
+            error = self.logged_launcher_error
+            self._session_failed(
+                f"could not start the LTF launcher (exit code {result.returncode}: {LAUNCHER_INJECT_FAILED_MESSAGE}"
+                + (f"; {error}" if error else "") + ")",
+                report,
+            )
             return None, False
         if result.returncode != LauncherExit.OK:
             self._session_failed(

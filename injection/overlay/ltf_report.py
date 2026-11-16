@@ -25,6 +25,15 @@ CDP_UNREACHABLE_REASON = "Rose's bridge could not reach LTK Manager's built-in b
 # plugin:library|get_installed_mods not allowed by ACL")
 LTK_ACL_REFUSAL = "not allowed by acl"
 PATCHER_OUT_OF_DATE_VERDICT = "patcheroutofdate"
+# ltk_launcher.exe started LTK Manager, then could not inject the bridge into
+# it (its exit code 4): the launcher's files are there, Windows or an
+# antivirus refused it
+LAUNCHER_INJECT_FAILED_MESSAGE = "it could not inject its bridge into LTK Manager"
+# Windows refusing the launcher's helper (error 740), which gives LTK Manager
+# explorer.exe as its parent: why the patcher then refused the overlay
+LAUNCHER_ELEVATED_DETAIL = (
+    "Windows refused to start ltk_launcher.exe for the desktop user: it is set to run as administrator"
+)
 LTF_API_LOG = "ltk_api.log"
 LTF_LOGS_HINT = f"Details are in {LTF_API_LOG} and ltk_launcher.log, in the ltk folder of Rose's logs."
 
@@ -41,6 +50,14 @@ def ltk_failure_cause(reason: str) -> str:
     lowered = reason.lower()
     if BRIDGE_CDP_FAILURE_MARKER in lowered or "built-in browser" in lowered:
         return "cdp"
+    # Rose's own launcher set to run as administrator: before the patcher's
+    # refusal it explains, and before LTK Manager's own programs' error 740
+    if LAUNCHER_ELEVATED_DETAIL.lower() in lowered:
+        return "launcher_admin"
+    # Before "start": the launcher's files are there, it could not get into
+    # the LTK Manager it started
+    if LAUNCHER_INJECT_FAILED_MESSAGE.lower() in lowered:
+        return "inject"
     # LTK Manager refuses to patch across an elevation boundary (ADR-0074):
     # League set to run as administrator, or LTK Manager itself elevated
     if "league_elevated" in lowered or "league is set to run as administrator" in lowered:
@@ -180,6 +197,19 @@ def ltk_failure_hint(reason: str) -> str:
     if cause == "start":
         return ("Rose could not start the LTK patcher. Check that ltk_launcher.exe and LeagueToolFlop.dll "
                 f"are still in Rose's tools folder: an antivirus may have removed them. {logs}")
+    if cause == "inject":
+        return ("Rose's launcher started LTK Manager but could not get into it to connect Rose's bridge. With "
+                "err=5 (access denied) in the error above, Windows or an antivirus refused it: add Rose's folder to "
+                "your antivirus exclusions, update Rose, then retry. If Rose runs as administrator through another "
+                "Windows account than the one you are signed in with, make your own account an administrator "
+                f"instead. {logs}")
+    if cause == "launcher_admin":
+        return ("Windows refused to start Rose's ltk_launcher.exe for your Windows account because it is set to "
+                "run as administrator, so LTK Manager did not start under explorer.exe, which its patcher "
+                "requires. Rose takes that setting off before it starts LTK Manager: retry the next game. If it "
+                "happens again, untick \"Run this program as an administrator\" in the Compatibility tab of the "
+                "Properties of ltk_launcher.exe, in Rose's _internal\\injection\\tools folder (also under \"Change "
+                f"settings for all users\"), then restart Rose. {logs}")
     if cause == "running":
         return ("Close LTK Manager (also from the system tray), then retry: Rose starts it with its "
                 f"bridge and closes it again after the game. {logs}")

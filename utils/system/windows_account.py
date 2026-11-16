@@ -67,6 +67,10 @@ def _declare_signatures() -> None:
     advapi32.GetSidSubAuthorityCount.argtypes = [ctypes.c_void_p]
     advapi32.GetSidSubAuthority.restype = ctypes.POINTER(wintypes.DWORD)
     advapi32.GetSidSubAuthority.argtypes = [ctypes.c_void_p, wintypes.DWORD]
+    advapi32.ConvertSidToStringSidW.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_void_p)]
+    kernel32.GetCurrentProcess.restype = wintypes.HANDLE
+    kernel32.LocalFree.restype = ctypes.c_void_p
+    kernel32.LocalFree.argtypes = [ctypes.c_void_p]
 
 
 def _token_sid_last_rid(token, info_class: int) -> Optional[int]:
@@ -85,6 +89,84 @@ def _token_sid_last_rid(token, info_class: int) -> Optional[int]:
     if not count:
         return None
     return advapi32.GetSidSubAuthority(sid, count - 1)[0]
+
+
+def _token_user_sid(token) -> Optional[str]:
+    """The string SID ("S-1-5-21-...") of the user a token belongs to."""
+    advapi32, kernel32 = ctypes.windll.advapi32, ctypes.windll.kernel32
+    size = wintypes.DWORD()
+    advapi32.GetTokenInformation(token, TOKEN_USER_CLASS, None, 0, ctypes.byref(size))
+    if not size.value:
+        return None
+    buffer = ctypes.create_string_buffer(size.value)
+    if not advapi32.GetTokenInformation(token, TOKEN_USER_CLASS, buffer, size, ctypes.byref(size)):
+        return None
+    sid = ctypes.cast(buffer, ctypes.POINTER(ctypes.c_void_p))[0]
+    text = ctypes.c_void_p()
+    if not advapi32.ConvertSidToStringSidW(sid, ctypes.byref(text)) or not text.value:
+        return None
+    try:
+        return ctypes.wstring_at(text.value)
+    finally:
+        kernel32.LocalFree(text)
+
+
+def _process_user_sid(pid: Optional[int]) -> Optional[str]:
+    """The string SID of the user a process runs as (this process when *pid*
+    is None), or None when it can't be read. _declare_signatures() must have run."""
+    kernel32, advapi32 = ctypes.windll.kernel32, ctypes.windll.advapi32
+    own = pid is None
+    if own:
+        process = kernel32.GetCurrentProcess()
+    else:
+        process = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+    if not process:
+        return None
+    try:
+        token = wintypes.HANDLE()
+        if not advapi32.OpenProcessToken(process, TOKEN_QUERY, ctypes.byref(token)):
+            return None
+        try:
+            return _token_user_sid(token)
+        finally:
+            kernel32.CloseHandle(token)
+    finally:
+        if not own:
+            kernel32.CloseHandle(process)
+
+
+def _shell_pid() -> int:
+    """The Windows shell's (explorer.exe's) process id, 0 without a shell
+    window. _declare_signatures() must have run."""
+    user32 = ctypes.windll.user32
+    hwnd = user32.GetShellWindow()
+    if not hwnd:
+        return 0
+    pid = wintypes.DWORD()
+    user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+    return pid.value
+
+
+def desktop_user_sid() -> Optional[str]:
+    """The desktop user's SID when Rose runs as another Windows account than
+    the one signed in (a standard account, elevated with an administrator's
+    password): HKEY_CURRENT_USER is then the administrator's, and the desktop
+    user's settings are under HKEY_USERS\\<SID>. None when Rose runs as the
+    desktop user, or when it can't be told."""
+    if sys.platform != "win32":
+        return None
+    try:
+        _declare_signatures()
+        pid = _shell_pid()
+        if not pid:
+            return None
+        shell, own = _process_user_sid(pid), _process_user_sid(None)
+    except Exception as e:  # a diagnostic must never stop Rose
+        log.debug(f"[ACCOUNT] Could not tell the desktop user from Rose's: {e}")
+        return None
+    if not shell or not own or shell.upper() == own.upper():
+        return None
+    return shell
 
 
 def _uac_disabled() -> bool:
@@ -138,14 +220,11 @@ def shell_account() -> Optional[ShellAccount]:
     if sys.platform != "win32":
         return None
     try:
-        user32 = ctypes.windll.user32
         _declare_signatures()
-        hwnd = user32.GetShellWindow()
-        if not hwnd:
+        pid = _shell_pid()
+        if not pid:
             return None
-        pid = wintypes.DWORD()
-        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
-        rids = _process_token_rids(pid.value)
+        rids = _process_token_rids(pid)
         if rids is None:
             return None
         integrity, user_rid = rids
@@ -267,6 +346,117 @@ def check_ltk_settings() -> bool:
     message = f"{LTK_SETTING_MESSAGE} ({programs})."
     log.warning(f"[ACCOUNT] {message}")
     report_issue(LTK_REPORT_CODE, "error", message, details={"programs": programs}, hint=LTK_SETTING_HINT,
+                 dedupe_window_s=600.0)
+    return True
+
+
+# Rose's own launcher set to run as administrator. The elevated launcher
+# starts a copy of itself with the desktop user's token, which gives LTK
+# Manager explorer.exe as its parent; with that setting, Windows refuses the
+# copy (error 740), LTK Manager starts as the launcher's child, and its
+# patcher refuses the overlay (VRF00000007). The setting is on Rose's own
+# program, so Rose takes it off rather than asking the user to. Only that
+# layer goes: any other one on the program (Windows 8 mode...) stays
+LAUNCHER_PROGRAMS = ("ltk_launcher.exe",)
+LAUNCHER_REPORT_CODE = "LAUNCHER_ELEVATED"
+LAUNCHER_SETTING_MESSAGE = "LTK Manager can't apply skins: Rose's ltk_launcher.exe is set to run as administrator"
+LAUNCHER_SETTING_HINT = (
+    "Rose could not take that setting off by itself. Untick \"Run this program as an administrator\" in the "
+    "Compatibility tab of the Properties of ltk_launcher.exe, in Rose's _internal\\injection\\tools folder (for "
+    "one marked \"all users\", under \"Change settings for all users\"), then restart Rose. For a program that "
+    "no longer exists, delete its value under HKEY_CURRENT_USER (or HKEY_LOCAL_MACHINE for \"all users\")"
+    f"\\{COMPAT_LAYERS_KEY} with regedit."
+)
+RUN_AS_ADMIN_LAYER = "RUNASADMIN"
+
+
+def without_run_as_admin(value: str) -> Optional[str]:
+    """A compatibility setting's value without its RUNASADMIN layer, or None
+    when no layer is left (the value then goes: its "~" or "$" flag alone
+    means nothing)."""
+    kept = [part for part in str(value).split() if part.upper() != RUN_AS_ADMIN_LAYER]
+    return " ".join(kept) if any(part[0].isalnum() for part in kept) else None
+
+
+def clear_launcher_run_as_admin() -> Tuple[List[Tuple[str, str]], List[Tuple[str, str]]]:
+    """Take the RUNASADMIN layer off every ltk_launcher.exe in Windows'
+    compatibility settings: this account's, the machine's ("all users"), and
+    the desktop user's when Rose runs as another account. Returns ((hive,
+    program path) taken off, (hive, program path) Rose could not change)."""
+    if sys.platform != "win32":
+        return [], []
+    import winreg
+    keys = [
+        ("HKCU", winreg.HKEY_CURRENT_USER, COMPAT_LAYERS_KEY),
+        ("HKLM", winreg.HKEY_LOCAL_MACHINE, COMPAT_LAYERS_KEY),
+    ]
+    desktop_sid = desktop_user_sid()
+    if desktop_sid:
+        keys.append(("HKU", winreg.HKEY_USERS, f"{desktop_sid}\\{COMPAT_LAYERS_KEY}"))
+    cleared, left = [], []
+    for hive, root, subkey in keys:
+        writable = True
+        try:
+            key = winreg.OpenKey(root, subkey, 0, winreg.KEY_READ | winreg.KEY_SET_VALUE | winreg.KEY_WOW64_64KEY)
+        except PermissionError:
+            # Rose not elevated: the machine's settings can still be read
+            writable = False
+            try:
+                key = winreg.OpenKey(root, subkey, 0, winreg.KEY_READ | winreg.KEY_WOW64_64KEY)
+            except OSError:
+                continue
+        except OSError:
+            continue  # no compatibility setting there
+        with key:
+            # Every value first: a deleted one would shift the indexes
+            values, index = [], 0
+            while True:
+                try:
+                    name, value, _ = winreg.EnumValue(key, index)
+                except OSError:
+                    break
+                index += 1
+                program = re.split(r"[\\/]", name)[-1].lower()
+                if program in LAUNCHER_PROGRAMS and RUN_AS_ADMIN_LAYER in str(value).upper():
+                    values.append((name, value))
+            for name, value in values:
+                if not writable:
+                    left.append((hive, name))
+                    continue
+                kept = without_run_as_admin(value)
+                try:
+                    if kept is None:
+                        winreg.DeleteValue(key, name)
+                    else:
+                        winreg.SetValueEx(key, name, 0, winreg.REG_SZ, kept)
+                except OSError as e:
+                    log.debug(f"[ACCOUNT] Could not change the compatibility setting of {name} ({hive}): {e}")
+                    left.append((hive, name))
+                else:
+                    cleared.append((hive, name))
+    return cleared, left
+
+
+def check_launcher_settings() -> bool:
+    """Take "Run as administrator" off Rose's own ltk_launcher.exe; warn (log
+    and Troubleshooting) about any such setting Rose could not take off, and
+    clear the warning once none is left. Returns whether one is still set."""
+    from utils.core.issue_reporter import remove_issues, report_issue
+    try:
+        cleared, left = clear_launcher_run_as_admin()
+    except Exception as e:  # a diagnostic must never stop Rose
+        log.debug(f"[ACCOUNT] Could not read the compatibility settings: {e}")
+        return False
+    for hive, path in cleared:
+        log.info(f"[ACCOUNT] Took \"Run as administrator\" off {path} ({hive}): Windows refused to start it "
+                 "for the desktop user, so LTK Manager could not get explorer.exe as its parent")
+    if not left:
+        remove_issues(lambda line, fix: LAUNCHER_SETTING_MESSAGE in line)
+        return False
+    programs = ", ".join(path + (" [all users]" if hive == "HKLM" else "") for hive, path in left)
+    message = f"{LAUNCHER_SETTING_MESSAGE} ({programs})."
+    log.warning(f"[ACCOUNT] {message}")
+    report_issue(LAUNCHER_REPORT_CODE, "error", message, details={"programs": programs}, hint=LAUNCHER_SETTING_HINT,
                  dedupe_window_s=600.0)
     return True
 
