@@ -1,4 +1,5 @@
 import errno
+import hashlib
 import io
 import json
 import tempfile
@@ -75,6 +76,10 @@ class FakeBridge:
     # Answer an install with the whole entry it created (id, names, enabled),
     # not its id alone
     full_install_answer = False
+    # Answer an install as LTK Manager does ({kind, mod}), an archive whose
+    # bytes an entry already came from with that entry (alreadyInstalled)
+    outcome_answers = False
+    held_archives = {}  # SHA-256 of an archive -> the id of the entry installed from it
     # The health_check_off answer; None: a bridge older than the command
     health_check_answer = {"ok": True, "changed": False}
     # Library entries LTK Manager cannot read, logged to broken_log at each read
@@ -101,6 +106,8 @@ class FakeBridge:
         cls.patcher_statuses = []
         cls.initial_library = []
         cls.full_install_answer = False
+        cls.outcome_answers = False
+        cls.held_archives = {}
         cls.health_check_answer = {"ok": True, "changed": False}
         cls.broken_ids = []
         cls.broken_log = None
@@ -138,6 +145,12 @@ class FakeBridge:
         return [dict(entry) for entry in self.library_entries]
 
     def _install(self, file_name, name, data):
+        if FakeBridge.outcome_answers:
+            sha = hashlib.sha256(data).hexdigest()
+            held = next((e for e in self.library_entries if e["id"] == FakeBridge.held_archives.get(sha)), None)
+            if held is not None:
+                return {"ok": True, "response": {"ok": True, "value": {"kind": "alreadyInstalled",
+                                                                        "mod": dict(held)}}}
         mod_id = str(uuid.uuid4())
         entry = {
             "id": mod_id,
@@ -151,12 +164,16 @@ class FakeBridge:
             mod_dir.with_name(f"{mod_dir.name}.fantome").write_bytes(data)
             entry.update({"modDir": str(mod_dir), "storage": "archive", "format": "fantome"})
         self.library_entries.append(entry)
+        if FakeBridge.outcome_answers:
+            FakeBridge.held_archives[hashlib.sha256(data).hexdigest()] = mod_id
+            return {"ok": True, "response": {"ok": True, "value": {"kind": "installed", "mod": dict(entry)}}}
         value = dict(entry) if FakeBridge.full_install_answer else {"id": mod_id}
         return {"ok": True, "response": {"ok": True, "value": value}}
 
     def import_fantome(self, path, name=None):
         self.calls.append(("import", path, name))
-        return self._install(path, name, Path(path).read_bytes() if FakeBridge.mod_storage is not None else b"")
+        read = FakeBridge.mod_storage is not None or FakeBridge.outcome_answers
+        return self._install(path, name, Path(path).read_bytes() if read else b"")
 
     def import_fantome_bytes(self, data, name):
         self.calls.append(("import_bytes", len(data), name))
@@ -966,6 +983,146 @@ class LibraryOwnershipTests(LtfSessionTestCase):
         self.assertEqual(self.state()["installed"], {})
 
 
+class HeldEntryTests(LtfSessionTestCase):
+    """LTK Manager installs nothing for an archive its library already holds:
+    it answers with the entry holding it (alreadyInstalled), or with an older
+    version of the mod it updated in place. Rose failed the injection with
+    "<mod> is not in the library after the import"."""
+
+    font = {"id": "user-font", "name": "Font Chinese", "displayName": "Font Chinese", "enabled": False}
+
+    def setUp(self):
+        super().setUp()
+        FakeBridge.outcome_answers = True
+
+    def archive_mod(self, name="Font Chinese"):
+        """A saved mod's archive, put into the mods folder as Rose links one"""
+        with zipfile.ZipFile(self.mods / name, "w") as packed:
+            packed.writestr("META/info.json", json.dumps({"Name": name}))
+            packed.writestr("WAD/UI.wad.client", b"font")
+        return name
+
+    def users_copy(self, mod, enabled=False):
+        """The user installed the very same archive in LTK Manager"""
+        FakeBridge.initial_library = [dict(self.font, enabled=enabled)]
+        FakeBridge.held_archives[hashlib.sha256((self.mods / mod).read_bytes()).hexdigest()] = "user-font"
+
+    def run_game(self, mods):
+        during = {}
+
+        def stop():
+            during.setdefault("library", [(e["id"], e["enabled"]) for e in self.bridge.library_entries])
+            during.setdefault("state", self.host.journal.read())
+            return True
+
+        return self.overlay.mk_run_overlay(mods, stop_callback=stop), during
+
+    def test_a_mod_ltk_manager_already_holds_is_used_and_left_there(self):
+        mod = self.archive_mod()
+        self.users_copy(mod, enabled=False)
+
+        result, during = self.run_game([mod])
+
+        self.assertEqual(result, 0)
+        self.assertEqual(self.reported_codes(), [])
+        self.assertEqual(during["library"], [("user-font", True)])
+        self.assertEqual(during["state"]["installed"], {}, "the user's: never removed as Rose's")
+        self.assertEqual(during["state"]["switched"], {"user-font": "Font Chinese"},
+                         "a crash leaves it for the next start to switch off")
+        self.assertNotIn("uninstall", self.bridge.command_names())
+        self.assertEqual(self.bridge.library_entries, [self.font], "off again, as it was found")
+        self.assertEqual(self.host.journal.read()["switched"], {})
+
+    def test_one_the_user_had_on_stays_on(self):
+        mod = self.archive_mod()
+        self.users_copy(mod, enabled=True)
+
+        result, during = self.run_game([mod])
+
+        self.assertEqual(result, 0)
+        self.assertEqual(during["library"], [("user-font", True)])
+        self.assertEqual(during["state"]["switched"], {})
+        self.assertNotIn(("toggle", "user-font", False), self.bridge.calls)
+        self.assertEqual(self.bridge.library_entries, [dict(self.font, enabled=True)])
+        self.assertEqual(self.host.journal.read()["disabled"], [])
+
+    def test_a_crash_leaves_the_held_mod_on_and_the_next_session_switches_it_off(self):
+        FakeBridge.initial_library = [dict(self.font, enabled=True)]
+        self.state_path.write_text(json.dumps({"switched": {"user-font": "Font Chinese"}}), encoding="utf-8")
+
+        self.overlay.start_patcher_early()
+
+        self.assertIn(("toggle", "user-font", False), self.bridge.calls)
+        self.assertNotIn("uninstall", self.bridge.command_names())
+        self.assertEqual(self.host.journal.read()["switched"], {})
+
+    def test_a_held_mod_and_a_new_skin_install_side_by_side(self):
+        mod = self.archive_mod()
+        self.users_copy(mod)
+
+        result, during = self.run_game([mod, self.make_mod()])
+
+        self.assertEqual(result, 0)
+        self.assertEqual(len(during["library"]), 2)
+        self.assertTrue(all(enabled for _, enabled in during["library"]))
+        self.assertEqual(self.bridge.library_entries, [self.font], "Rose's skin removed, the user's left")
+
+    def test_a_mod_ltk_manager_updated_in_place_stays_the_users(self):
+        FakeBridge.initial_library = [dict(self.font)]
+
+        def update_in_place(bridge_self, path, name=None):
+            bridge_self.calls.append(("import", path, name))
+            entry = dict(bridge_self.library_entries[0])
+            return {"ok": True, "response": {"ok": True, "value": {"kind": "updated", "mod": entry}}}
+
+        with patch.object(FakeBridge, "import_fantome", update_in_place):
+            result, during = self.run_game([self.archive_mod()])
+
+        self.assertEqual(result, 0)
+        self.assertEqual(during["library"], [("user-font", True)])
+        self.assertNotIn("uninstall", self.bridge.command_names())
+        self.assertEqual(self.bridge.library_entries, [self.font])
+
+    def test_an_answer_naming_a_held_entry_alone_is_that_entry_when_nothing_was_created(self):
+        FakeBridge.initial_library = [dict(self.font)]
+
+        def answer_with_the_held_entry(bridge_self, path, name=None):
+            bridge_self.calls.append(("import", path, name))
+            return {"ok": True, "response": {"ok": True, "value": {"id": "user-font"}}}
+
+        with patch.object(FakeBridge, "import_fantome", answer_with_the_held_entry):
+            result, during = self.run_game([self.archive_mod()])
+
+        self.assertEqual(result, 0)
+        self.assertEqual(during["library"], [("user-font", True)])
+        self.assertNotIn("uninstall", self.bridge.command_names())
+        self.assertEqual(self.bridge.library_entries, [self.font])
+
+    def test_a_new_install_answered_with_its_outcome_is_not_looked_up_again(self):
+        FakeBridge.initial_library = [dict(self.font, id="user-map", name="Map", displayName="Map", enabled=True)]
+
+        self.assertEqual(self.overlay.mk_run_overlay([self.make_mod()], stop_callback=lambda: True), 0)
+
+        self.assertEqual(self.bridge.library_reads, 1)
+        self.assertEqual([e["id"] for e in self.bridge.library_entries], ["user-map"])
+
+    def test_a_held_mod_no_longer_selected_is_left_as_it_was_found(self):
+        mod = self.archive_mod()
+        self.users_copy(mod)
+        session = self.overlay._acquire_session()
+        self.addCleanup(self.overlay._end_session, session)
+
+        self.assertTrue(self.overlay._install_mods(session, [mod]))
+        self.assertIn(("toggle", "user-font", True), self.bridge.calls)
+        self.assertTrue(self.overlay._install_mods(session, [self.make_mod()]))
+
+        self.assertNotIn(("uninstall", "user-font"), self.bridge.calls)
+        self.assertEqual(self.bridge.calls[-1][0], "import", "switched off before the skin's import")
+        self.assertIn(("toggle", "user-font", False), self.bridge.calls)
+        self.assertEqual(self.host.journal.read()["switched"], {})
+        self.assertNotIn("user-font", session["ltf"].imports)
+
+
 class StaleCleanupTests(LtfSessionTestCase):
     def test_leftover_mods_from_a_crashed_session_are_removed_at_start(self):
         FakeBridge.initial_library = [{"id": "old-id", "name": "SomeFolder", "enabled": True}]
@@ -1147,6 +1304,30 @@ class KeptModsTests(LtfSessionTestCase):
         self.assertIn(("uninstall", old_id), self.bridge.calls)
         self.assertEqual(len(self.bridge.library_entries), 1)
         self.assertEqual(list(self.state()["kept"]), [self.bridge.library_entries[0]["id"]])
+
+    def test_a_newer_version_ltk_manager_updates_in_place_stays_rose_s_kept_copy(self):
+        """LTK Manager updates the kept copy of the saved mod's older version under its own id"""
+        from injection.mods.fingerprint import mod_fingerprint
+        voiceover = self.saved_mod()
+        self.overlay.mk_run_overlay([voiceover], stop_callback=lambda: True)
+        kept_id = next(iter(self.state()["kept"]))
+        self.write_archive(self.saved / f"{voiceover}.fantome", voiceover, "VO Korean", b"a newer voiceover")
+        self.next_game()
+
+        def update_in_place(bridge_self, path, name=None):
+            bridge_self.calls.append(("import", path, name))
+            entry = next(e for e in bridge_self.library_entries if e["id"] == kept_id)
+            return {"ok": True, "response": {"ok": True, "value": {"kind": "updated", "mod": dict(entry)}}}
+
+        with patch.object(FakeBridge, "import_fantome", update_in_place):
+            self.assertEqual(self.overlay.mk_run_overlay([voiceover], stop_callback=lambda: True), 0)
+
+        self.assertNotIn(("uninstall", kept_id), self.bridge.calls)
+        self.assertEqual([(e["id"], e["enabled"]) for e in self.bridge.library_entries], [(kept_id, False)])
+        kept = self.state()["kept"]
+        self.assertEqual(list(kept), [kept_id])
+        self.assertEqual(kept[kept_id]["fingerprint"], mod_fingerprint(self.saved / f"{voiceover}.fantome"))
+        self.assertEqual((self.state()["installed"], self.state()["switched"]), ({}, {}))
 
     def test_an_older_copy_that_cannot_be_removed_stays_recorded(self):
         voiceover = self.saved_mod()

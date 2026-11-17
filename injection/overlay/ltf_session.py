@@ -198,6 +198,37 @@ def _resendable_as_bytes(error: Exception, archive: Path) -> bool:
     return _unreadable_archive(error) and archive.stat().st_size <= BYTES_IMPORT_LIMIT
 
 
+class InstallKind(StrEnum):
+    """What LTK Manager says an install did (its InstallOutcome's kind)."""
+
+    INSTALLED = "installed"
+    # The archive was a newer version of a mod the library held: that entry
+    # now holds it, under its own id
+    UPDATED = "updated"
+    # The library held the same archive already: nothing was installed
+    ALREADY_INSTALLED = "alreadyInstalled"
+
+
+HELD_KINDS = (InstallKind.UPDATED, InstallKind.ALREADY_INSTALLED)
+
+
+def _install_answer(response: dict) -> tuple:
+    """(what the install did, the entry it names) from LTK Manager's answer to
+    an install: {kind, mod}, or the entry alone (kind None) from an LTK
+    Manager that answered so."""
+    nested = response.get("response")
+    value = nested.get("value") if isinstance(nested, dict) else None
+    if not isinstance(value, dict):
+        return None, None
+    if "kind" in value and isinstance(value.get("mod"), dict):
+        try:
+            kind = InstallKind(value["kind"])
+        except ValueError:
+            kind = None
+        return kind, value["mod"]
+    return None, value
+
+
 def _same_content_kept(kept: Dict[LibraryId, KeptRecord], mod_id: str, fingerprint: str) -> bool:
     """Whether another kept entry than *mod_id* holds the same content already."""
     return any(record["fingerprint"] == fingerprint for other, record in kept.items() if other != mod_id)
@@ -223,11 +254,22 @@ _OLD_BRIDGE_OR_UNREADY_PAGE = (BridgeCommandError, BridgeUnavailable)
 @dataclass
 class TrackedImport:
     """An entry Rose imported into LTK Manager's library: the session's end
-    removes it unless it was kept."""
+    removes it unless it was kept.
+
+    *users_entry_was_on* is set for an entry the user's library already
+    held, which LTK Manager answered the import with (the same archive, or
+    an older version of the mod it updated): the session uses it, never
+    removes it, and leaves it on or off as it found it.
+    """
 
     source_folder: str
     source_digest: Optional[str] = None
     saved_mod_source: Optional[str] = None
+    users_entry_was_on: Optional[bool] = None
+
+    @property
+    def users_entry(self) -> bool:
+        return self.users_entry_was_on is not None
 
 
 @dataclass(eq=False)
@@ -415,6 +457,9 @@ class LtfHost:
 
         removed = []
         for mod_id, tracked in imports:
+            if tracked.users_entry:
+                self._give_back(bridge, mod_id, tracked)
+                continue
             if self._park(session, mod_id):
                 log.debug(f"[INJECT] Turned off {tracked.source_folder} in LTK Manager, kept for the next game")
                 continue
@@ -444,7 +489,9 @@ class LtfHost:
         tracked as Rose's (removed at the session's end) from here.
 
         *before_ids* are the library's ids before this import (read here when
-        not given): an id among them is never taken for the import's.
+        not given): an id among them is never taken for a new entry. LTK
+        Manager answers an archive its library already holds with the entry
+        that holds it (_use_held_entry).
         """
         bridge = session.bridge
         if before_ids is None:
@@ -460,13 +507,68 @@ class LtfHost:
         except (BridgeUnavailable, BridgeCommandError):
             self._track_late_install(session, before_ids, folder, display_name)
             raise
-        entry = self._installed_entry(bridge, response, before_ids, folder, display_name)
+        entry, held = self._installed_entry(bridge, response, before_ids, folder, display_name)
         if entry is None:
             raise BridgeCommandError(f"{display_name} is not in the library after the import")
+        if held is not None:
+            self._use_held_entry(session, entry, folder, display_name, fingerprint, held)
+            return entry
         tracked = self._track(session, str(entry.get("id")), folder.name, fingerprint)
         if fingerprint:
             tracked.saved_mod_source = self._keep_source(folder)
         return entry
+
+    def _use_held_entry(self, session: LtfSession, entry: dict, folder: Path, display_name: str,
+                        fingerprint: Optional[str], held: InstallKind) -> None:
+        """Take for the session the entry LTK Manager answered an import with,
+        one its library held already (*held*: the same archive, or an older
+        version of the mod it has just updated in place).
+
+        Rose's own (an earlier session's leftover, a copy a game kept) is
+        tracked as an import. The user's is theirs: tracked so the session's
+        end leaves it as it was found, never removed. Rose turns it on for
+        the game when it is off: recorded as switched on first, so a crash
+        leaves it for the next session's start to switch off.
+        """
+        mod_id, name = str(entry.get("id")), entry_name(entry)
+        if mod_id in session.imports:
+            return
+        state = self.journal.read()
+        if mod_id not in session.saved_mod_ids and (mod_id in state["installed"] or mod_id in state["kept"]):
+            log.info(f"[INJECT] LTK Manager already holds {display_name} as Rose's {name} ({mod_id}): using it")
+            tracked = self._track(session, mod_id, folder.name, fingerprint)
+            if fingerprint:
+                tracked.saved_mod_source = self._keep_source(folder)
+            return
+        was_on = bool(entry.get("enabled"))
+        if held is InstallKind.UPDATED:
+            log.warning(f"[INJECT] LTK Manager updated {name} ({mod_id}), already in its library, to the newer "
+                        f"{display_name}: Rose uses it for the game and leaves it in the library")
+        else:
+            log.info(f"[INJECT] {display_name} is already in LTK Manager's library as {name} ({mod_id}): "
+                     f"Rose uses it for the game and leaves it in the library {'on' if was_on else 'off'}")
+        with session.lock:
+            if session.ended:
+                return
+            if not was_on and not self.journal.update(lambda s: s["switched"].__setitem__(mod_id, name)):
+                log.warning(f"[INJECT] Could not record {name} in Rose's LTF session state: "
+                            "a crash would leave it on in LTK Manager")
+            session.imports[mod_id] = TrackedImport(folder.name, fingerprint, users_entry_was_on=was_on)
+
+    def _give_back(self, bridge, mod_id: str, tracked: TrackedImport) -> bool:
+        """Leave the user's entry the session used as it was found: off again
+        when it was off. False when it could not be switched off: it stays
+        recorded, and the next session's start does it."""
+        if not tracked.users_entry_was_on:
+            try:
+                bridge.toggle(mod_id, False)
+            except (BridgeUnavailable, BridgeCommandError) as e:
+                log.debug(f"[INJECT] Could not switch {tracked.source_folder}'s entry {mod_id} back off: {e}")
+                return False
+            self.journal.update(lambda state: state["switched"].pop(mod_id, None))
+        log.debug(f"[INJECT] Left {mod_id} in LTK Manager {'on' if tracked.users_entry_was_on else 'off'}, "
+                  "as it was found (the user's, used for the game)")
+        return True
 
     def keep(self, session: LtfSession, ltk_id: str) -> None:
         """Hand the entry to a saved mod for good: neither the session's end
@@ -478,12 +580,21 @@ class LtfHost:
         def release(state):
             state["installed"].pop(ltk_id, None)
             state["kept"].pop(ltk_id, None)
+            # The user's entry the import found (_use_held_entry): a saved mod's now
+            state["switched"].pop(ltk_id, None)
 
         self.journal.update(release)
         session.bridge.toggle(ltk_id, False)
 
     def uninstall(self, session: LtfSession, ltk_id: str) -> None:
+        """Remove the entry; the user's entry an import found is left as it
+        was found instead (_give_back)."""
         ltk_id = str(ltk_id)
+        tracked = session.imports.get(ltk_id)
+        if tracked is not None and tracked.users_entry:
+            session.imports.pop(ltk_id, None)
+            self._give_back(session.bridge, ltk_id, tracked)
+            return
         session.bridge.uninstall(ltk_id)
         if session.imports.pop(ltk_id, None) is not None:
             self.journal.untrack(removed=[ltk_id])
@@ -525,6 +636,13 @@ class LtfHost:
         removed, ok = [], True
         for mod_id in mod_ids:
             tracked = session.imports[mod_id]
+            if tracked.users_entry:
+                # One still on stays tracked: the session's end tries again
+                if self._give_back(bridge, mod_id, tracked):
+                    session.imports.pop(mod_id, None)
+                else:
+                    ok = False
+                continue
             if self._park(session, mod_id):
                 session.imports.pop(mod_id, None)
                 log.debug(f"[INJECT] Turned off {tracked.source_folder} in LTK Manager (no longer selected, kept for later)")
@@ -684,26 +802,39 @@ class LtfHost:
         return new_entries if len(new_entries) == 1 else []
 
     def _installed_entry(self, bridge: LtkBridge, response: dict, before_ids: set,
-                         folder: Path, display_name: str) -> Optional[dict]:
-        """The library entry a just-finished import created.
+                         folder: Path, display_name: str) -> tuple:
+        """(the library entry a just-finished import gave, how the library
+        held it already: None for an entry it created).
 
-        LTK Manager answers an install with the entry it created: when that
-        answer names a new id and says whether it is enabled, the library is
-        not read again (each read is a round trip through LTK Manager).
+        LTK Manager answers an install with what it did and the entry: one it
+        created, or one its library held already (the same archive, or an
+        older version of the mod, updated in place under its own id). An
+        answer that names its entry and whether it is enabled is taken as it
+        is (each library read is a round trip through LTK Manager). An answer
+        with the entry alone names a held one only when the import created
+        nothing.
         """
-        nested = response.get("response")
-        value = nested.get("value") if isinstance(nested, dict) else None
-        if (isinstance(value, dict) and value.get("id") and "enabled" in value
-                and str(value.get("id")) not in before_ids):
-            return dict(value)
+        kind, answered = _install_answer(response)
+        answered_id = str(answered.get("id")) if answered and answered.get("id") else None
+        if answered_id and "enabled" in answered:
+            if kind in HELD_KINDS:
+                return dict(answered), kind
+            if answered_id not in before_ids:
+                return dict(answered), None
         library = bridge.library()
+        if kind in HELD_KINDS and answered_id:
+            listed = next((e for e in library if str(e.get("id")) == answered_id), None)
+            return listed, (kind if listed is not None else None)
         new_entries = [e for e in library if e.get("id") and str(e.get("id")) not in before_ids]
-        if isinstance(value, dict) and value.get("id"):
+        if answered_id:
             for entry in new_entries:
-                if str(entry.get("id")) == str(value.get("id")):
-                    return entry
+                if str(entry.get("id")) == answered_id:
+                    return entry, None
         created = self._created_entries(library, before_ids, folder, display_name)
-        return created[-1] if created else None
+        if created:
+            return created[-1], None
+        listed = next((e for e in library if answered_id and str(e.get("id")) == answered_id), None)
+        return listed, (InstallKind.ALREADY_INSTALLED if listed is not None else None)
 
     def _track_late_install(self, session: LtfSession, before_ids: set, folder: Path, display_name: str) -> None:
         """Record whatever an import that reported a failure still installed

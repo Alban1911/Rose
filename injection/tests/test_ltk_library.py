@@ -1,4 +1,5 @@
 
+import hashlib
 import json
 import os
 import tempfile
@@ -442,6 +443,23 @@ class ModCheckTests(LtfSessionTestCase):
         self.assertNotIn("repair_mod", self.bridge.command_names())
         self.assertEqual(self.bridge.library_entries, [])
         self.assertEqual(self.state()["installed"], {})
+
+    def test_a_mod_the_user_already_has_in_ltk_manager_is_never_removed(self):
+        """LTK Manager answers the import with the user's entry of the same archive"""
+        FakeBridge.outcome_answers = True
+        users = {"id": "user-leona", "name": "Leona", "displayName": "Leona", "enabled": True}
+        FakeBridge.initial_library = [dict(users)]
+        FakeBridge.held_archives[hashlib.sha256(self.before).hexdigest()] = "user-leona"
+        FakeBridge.health_answers = [{"health": "unrepairable", "fixable": 0, "counts": {"errors": 1},
+                                      "rules": [self.SKINHACK]}]
+
+        result = self.check()
+
+        self.assertEqual([problem["rule"] for problem in result["problems"]], ["bin/skinhack"])
+        self.assertIn(("check_mod_health", "user-leona"), self.bridge.calls)
+        self.assertNotIn("uninstall", self.bridge.command_names())
+        self.assertEqual(self.bridge.library_entries, [users])
+        self.assertEqual(self.host.journal.read()["installed"], {})
 
     def test_an_entry_rose_could_not_record_is_removed_again(self):
         result = self.check(on_kept=lambda ltk_id, stamp=None: False)

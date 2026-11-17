@@ -473,6 +473,10 @@ class OverlayManager:
                     before_ids = {str(e.get("id")) for e in shared_library_read if e.get("id")}
                     entry = self.host.import_archive(ltf, Path(archive), folder, display_name, fingerprint,
                                                      before_ids=before_ids)
+                    # LTK Manager answers an archive its library holds already with that entry
+                    if str(entry.get("id")) in before_ids:
+                        shared_library_read = [e for e in shared_library_read
+                                               if str(e.get("id")) != str(entry.get("id"))]
                     shared_library_read.append(entry)
                     # Under the session's lock, as SavedModSwitches.switch: one that
                     # ended during the import removed it (LtfHost._track)
@@ -482,7 +486,9 @@ class OverlayManager:
                             return False
                         if not entry.get("enabled"):
                             bridge.toggle(str(entry.get("id")), True)
-                    log.info(f"[INJECT] Installed {display_name} into LTK Manager")
+                            entry["enabled"] = True
+                    if str(entry.get("id")) not in before_ids:
+                        log.info(f"[INJECT] Installed {display_name} into LTK Manager")
                 except (OSError, BridgeUnavailable, BridgeCommandError) as e:
                     log.error(f"[INJECT] Could not install {display_name}: {e}")
                     if report and not stopped():
