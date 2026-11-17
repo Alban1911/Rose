@@ -24,6 +24,7 @@ GITHUB_RAW_BASE = "https://raw.githubusercontent.com/CommunityDragon/Data/master
 HASHES_DIR = "hashes/lol"
 HASH_FILES = [f"hashes.game.txt.{i}" for i in range(9)]
 TARGET_FILE = "hashes.game.txt"
+HASH_CHECK_UNAVAILABLE_STATUS = "Could not verify game hashes; using existing file"
 
 
 def get_state_file() -> Path:
@@ -79,7 +80,7 @@ def remote_etags(session: requests.Session) -> Optional[Dict[str, str]]:
     return etags
 
 
-def check_for_updates(target_exists: bool = True) -> bool:
+def check_for_updates(target_exists: bool = True) -> Optional[bool]:
     """Check if hash files have been updated on GitHub
 
     Args:
@@ -88,14 +89,14 @@ def check_for_updates(target_exists: bool = True) -> bool:
             ETags are recorded instead of downloading everything again.
 
     Returns:
-        True if updates are available, False otherwise
+        True if updates are available, False if unchanged, None if the check failed
     """
     session = requests.Session()
     session.headers.update({'User-Agent': APP_USER_AGENT})
 
     remote = remote_etags(session)
     if remote is None:
-        return False
+        return None
 
     local_state = load_state()
     local_etags = local_state.get('etags') or {}
@@ -187,7 +188,7 @@ def combine_hash_files(contents: list[bytes]) -> bytes:
     return combined.encode('utf-8')
 
 
-def update_hash_files(status_callback: Optional[Callable[[str], None]] = None, dev_mode: bool = False) -> bool:
+def update_hash_files(status_callback: Optional[Callable[[str], None]] = None, dev_mode: bool = False) -> Optional[bool]:
     """Check for updates and download/combine hash files if needed
     
     Args:
@@ -195,7 +196,7 @@ def update_hash_files(status_callback: Optional[Callable[[str], None]] = None, d
         dev_mode: If True, skip hash check (for development)
     
     Returns:
-        True if files were updated, False otherwise
+        True if updated, False if unchanged or skipped, None if checking or updating failed
     """
     import sys
     
@@ -228,9 +229,14 @@ def update_hash_files(status_callback: Optional[Callable[[str], None]] = None, d
         _tools_dir = Path(__file__).parent.parent.parent / "injection" / "tools"
     target_exists = (_tools_dir / TARGET_FILE).exists()
 
-    # Check if updates are available
-    if not check_for_updates(target_exists=target_exists):
+    updates_available = check_for_updates(target_exists=target_exists)
+    if updates_available is not True:
         if target_exists:
+            if updates_available is None:
+                updater_log.warning(HASH_CHECK_UNAVAILABLE_STATUS)
+                if status_callback:
+                    status_callback(HASH_CHECK_UNAVAILABLE_STATUS)
+                return None
             updater_log.info("Game hashes are valid (no update needed)")
             if status_callback:
                 status_callback("Game hashes are valid")
@@ -241,8 +247,8 @@ def update_hash_files(status_callback: Optional[Callable[[str], None]] = None, d
             log.warning("Hash file missing on disk, forcing download despite update check result")
             updater_log.warning("Hash file missing on disk, forcing download")
     
-    log.info("Hash files have been updated, downloading...")
-    updater_log.info("Hash files have been updated, downloading...")
+    log.info("Downloading game hashes...")
+    updater_log.info("Downloading game hashes...")
     if status_callback:
         status_callback("Updating game hashes…")
     
@@ -264,7 +270,7 @@ def update_hash_files(status_callback: Optional[Callable[[str], None]] = None, d
             updater_log.error(f"Failed to download {hash_file}")
             if status_callback:
                 status_callback(f"Failed to download {hash_file}")
-            return False
+            return None
         contents.append(content)
     
     # Combine files
@@ -319,7 +325,7 @@ def update_hash_files(status_callback: Optional[Callable[[str], None]] = None, d
         updater_log.error(f"Failed to write {TARGET_FILE}: {e}")
         if status_callback:
             status_callback(f"Failed to write {TARGET_FILE}")
-        return False
+        return None
     
     # Record what was downloaded: the next start compares these ETags
     if len(etags) == len(HASH_FILES):

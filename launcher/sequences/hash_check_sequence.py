@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 from typing import Callable
 
-from utils.download.hash_updater import update_hash_files
+from utils.download.hash_updater import HASH_CHECK_UNAVAILABLE_STATUS, update_hash_files
 from utils.core.logging import get_logger, get_named_logger
 
 log = get_logger()
@@ -85,7 +85,10 @@ class HashCheckSequence:
                 updater_log.error(error_msg)
                 # Don't raise - allow app to continue, but log the error
             else:
-                if updated:
+                if updated is None:
+                    updater_log.warning(HASH_CHECK_UNAVAILABLE_STATUS)
+                    dialog.set_status(HASH_CHECK_UNAVAILABLE_STATUS)
+                elif updated:
                     updater_log.info("Game hashes updated successfully")
                     dialog.set_status("Game hashes updated successfully")
                 else:
