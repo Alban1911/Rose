@@ -1,260 +1,94 @@
-# 🌹 Rose - Effortless Skin Changer for LoL
-
 <div align="center">
 
-  <img src="./assets/icon.png" alt="Rose Icon" width="128" height="128">
+<img src="./assets/icon.png" alt="Rose" width="112" height="112">
 
-[![Installer](https://img.shields.io/badge/Installer-Windows-32A832)](https://github.com/Alban1911/Rose/releases/latest) [![Ko-Fi](https://img.shields.io/badge/KoFi-Donate-C03030?logo=ko-fi&logoColor=white)](https://ko-fi.com/roseapp) [![Discord](https://img.shields.io/discord/1490473857075642621?color=32A832&logo=discord&logoColor=white&label=Discord)](https://discord.com/invite/roseskins) [![License](https://img.shields.io/badge/License-MIT-C03030)](LICENSE) [![Downloads](https://img.shields.io/github/downloads/Alban1911/Rose/total?color=32A832&label=Downloads&cacheSeconds=86400)](https://github.com/Alban1911/Rose/releases/latest)
+# Rose
 
+**Every League of Legends skin, right from champion select.**
+
+[![Installer](https://img.shields.io/badge/Installer-Windows-32A832)](https://github.com/Alban1911/Rose/releases/latest) [![Downloads](https://img.shields.io/github/downloads/Alban1911/Rose/total?color=32A832&label=Downloads&cacheSeconds=86400)](https://github.com/Alban1911/Rose/releases/latest) [![Discord](https://img.shields.io/discord/1490473857075642621?color=32A832&logo=discord&logoColor=white&label=Discord)](https://discord.com/invite/roseskins) [![Ko-Fi](https://img.shields.io/badge/KoFi-Donate-C03030?logo=ko-fi&logoColor=white)](https://ko-fi.com/roseapp) [![License](https://img.shields.io/badge/License-MIT-C03030)](LICENSE)
 
 </div>
 
 > [!CAUTION]
-> The `roseskin.xyz` website is **UNRELATED** to this project and does not represent this project. **THE DOWNLOAD ON THAT SITE CONTAINS MALWARE**. If you downloaded anything from `roseskin.xyz`, reinstall your PC. The only official download is the [GitHub releases page](https://github.com/Alban1911/Rose/releases/latest).
+> `roseskin.xyz` has nothing to do with Rose, and **its download contains malware**. If you installed anything from it, reinstall Windows. Rose is only distributed through [GitHub Releases](https://github.com/Alban1911/Rose/releases/latest).
 
----
-
-## Overview
-
-Rose is an open-source automatic skin changer for League of Legends that enables seamless access to all skins in the game. The application runs silently in the system tray and automatically detects skin selections during champion select, injecting the chosen skin when the game loads.
-
-Built on the [Pengu Loader](https://github.com/PenguLoader/PenguLoader) framework, Rose integrates JavaScript extensions into the League Client to enable modular UI interactions. It strictly modifies local rendering variables to display custom models and textures. It is designed purely as an exploration of client-side asset management, providing no manipulation of network data, memory states, or gameplay mechanics, thereby **offering zero competitive advantage**.
-
-## Architecture
-
-Rose consists of three main components:
-
-### Python Backend
-
-- **LCU API Integration**: Communicates with the League Client via the League Client Update (LCU) API
-- **Skin Injection**: Handles skin injection compatible with Riot Vanguard
-- **WebSocket Bridge**: Operates a WebSocket server for real-time communication with frontend plugins
-- **Skin Management**: Downloads and manages skin files from the [LeagueSkins repository](https://github.com/Alban1911/LeagueSkins)
-- **Party Mode**: Enables skin sharing between friends in the same lobby via a Cloudflare WebSocket relay
-- **Game Monitoring**: Tracks game state, champion select phases, and loadout countdowns
-- **Auto-Updater**: Checks GitHub for new releases and prompts users to install updates
-- **Analytics**: Sends a startup ping, a 15-minute presence heartbeat, and a best-effort close ping (configurable, runs in a background thread)
-
-### Analytics and privacy
-
-Rose sends a pseudonymous, randomly generated installation ID and the app version
-to `https://analytics.rosekeys.site/` when analytics are enabled. The ID is not derived
-from the Windows Machine GUID. Analytics can be disabled with
-`ANALYTICS_ENABLED = False` in `config.py`.
-
-The analytics API and dashboard are maintained separately from this public
-client repository. Only aggregate usage metrics are exposed through the
-dashboard; raw activity and server credentials remain private.
-
-### Cloudflare Workers
-
-- **rose-party-relay**: Durable Object-backed WebSocket relay that manages party rooms (max 10 members per room) for real-time skin selection broadcasting between friends. It refuses Rose versions older than 1.4.4
-
-### Pengu Loader Plugins
-
-Rose includes a suite of JavaScript plugins that extend the League Client UI:
-
-- **ROSE-UI**: Unlocks locked skin previews in champion select, enabling hover interactions on all skins
-- **ROSE-SkinMonitor**: Monitors currently selected skin's name and sends it to the Python backend via WebSocket. It also hosts the bridge the other plugins use to talk to Rose
-- **ROSE-CustomSkinSelector**: Lists the custom skin mods made for the hovered skin and applies the one you pick
-- **ROSE-CustomWheel**: Custom mods panel for maps, fonts, announcers and other mods
-- **ROSE-ChromaWheel**: Enhanced chroma selection interface for choosing any chroma variant
-- **ROSE-FormsWheel**: Custom form selection interface for skins with multiple forms (Elementalist Lux, Sahn Uzal Mordekaiser, Spirit Blossom Morgana, Radiant Sett)
-- **ROSE-SettingsPanel**: Settings panel accessible from the League of Legends Client
-- **ROSE-RandomSkin**: Random skin selection feature
-- **ROSE-HistoricMode**: Access to the last used skin for every champion
-- **ROSE-PartyMode**: Party mode UI — displays a panel in lobby and champion select to enable skin sharing, view connected peers, and see friends' skin selections in real time
-- **ROSE-I18n**: Translates Rose's menus into the language picked in Settings, else the League client's
-- **ROSE-Jade**: Client customization — regalia borders, backgrounds, banners, icons, titles, and win/loss stats (shipped disabled)
-
-## How It Works
-
-1. **League Client Integration**: Rose activates **[Pengu Loader](https://github.com/PenguLoader/PenguLoader)** on startup, which injects the JavaScript plugins into the League Client. If the client is already open, Rose restarts it so the plugins load (during champion select, the restart waits for the lobby or the end of the game)
-2. **Skin Detection**: When you hover over a skin in champion select, `ROSE-SkinMonitor` detects the selection and sends it to the Python backend
-3. **Game Opening Delay**: To give the injection time to happen, Rose suspends the game process until the overlay is ready. If Rose closes during that window, it resumes the game the next time it starts
-4. **Game Injection**: Rose injects the selected skin when the game starts
-5. **Seamless Experience**: The skin loads as if you owned it, with full chroma support and no gameplay impact (Rose will **never** provide any competitive advantage to its users)
+Rose is a free, open-source skin changer. It sits in the system tray, adds its menus to the League client, and applies the skin you hover in champion select when the game loads. Only you see the skin (and your friends, with Party Mode), and gameplay doesn't change: Rose gives **no competitive advantage**.
 
 ## Features
 
-- **Smart Injection**: Never injects skins you already own
-- **Custom Mods**: Custom skins, maps, fonts and announcers (`.fantome`, `.zip` and `.modpkg`)
-- **Party Mode**: Friends running Rose 1.4.4 or newer see each other's skins and custom mods in game
-- **Loading Screen Name**: The loading screen shows the injected skin's name; the chat and the name over your champion keep the champion's
-- **Multi-Language Support**: Works with any client language, with Rose's menus in 22 languages
-- **Open Source**: Fully open source and extensible
-- **Free**: If you bought this software, you got scammed 💀
+- **Every skin, chroma and form**, picked straight from champion select
+- **Custom mods**: skins, maps, fonts, announcers and more (`.fantome`, `.zip`, `.modpkg`)
+- **Party Mode**: friends running Rose see each other's skins in game
+- **Random and Historic** skin picks, and the skin's name on the loading screen
+- **22 languages**, following your League client
+- **Free**: if you paid for Rose, you got scammed 💀
 
-## Requirements
+## Install
 
-- **Windows 10/11**
-- **League of Legends** installed
-- **LTK Manager** - the app Rose applies skins through; Rose finds it on its own (see below)
+1. Install **[LTK Manager](https://github.com/LeagueToolkit/ltk-manager/releases)**, which Rose applies skins through. You never have to open it.
+2. Download and run the [**latest Rose installer**](https://github.com/Alban1911/Rose/releases/latest).
+3. Start Rose, then hover a skin in champion select.
 
-### LTK Manager Requirement
+Rose needs Windows 10 or 11 and updates itself.
 
-Rose applies skins through LTK Manager, which it drives over the bridge it
-builds from `native/ltf/` (`ltk_launcher.exe` + `LeagueToolFlop.dll`). Install
-LTK Manager once and Rose finds it: a path set as `ltkManagerPath` in
-`config.ini` wins, then a running instance, then the known install locations.
+## FAQ
 
-If Rose can't find LTK Manager, it says so at startup: install it, or click
-**Set up path** and select its `ltk-manager.exe` (Rose saves it as
-`ltkManagerPath` and starts). You never have to open LTK Manager yourself:
-Rose starts it in the background during champ select and closes it after the
-game. A running LTK Manager is left alone: Rose only closes the instance it
-started itself. The bridge can only load into an LTK Manager Rose starts, so if
-yours is already open when a game starts, Rose skips the injection and asks you
-in Troubleshooting to close it (also from the system tray).
+<details>
+<summary><b>How does it work?</b></summary>
 
-For each game Rose turns off the mods you enabled in LTK Manager, so only the
-selected skin is patched in, and turns them back on afterwards. LTK Manager's
-patcher only applies to a game started after it began scanning, so Rose
-installs the skin you select while the champ select countdown runs. The skin
-selected at the injection threshold (1 to 2 seconds before the countdown ends,
-in Settings) is the one applied: a change after it is ignored, so you keep that
-skin instead of getting the default one.
+<br>
 
-## Installation
+Rose loads its plugins into the League client with [Pengu Loader](https://github.com/PenguLoader/PenguLoader). Just before the champion select countdown ends, it locks in the skin you hover and has LTK Manager patch it into the game. The point where it locks in is the **Injection Threshold** (1 to 2 seconds, in Settings): a change after it is ignored. See [ARCHITECTURE.md](ARCHITECTURE.md) for the full picture.
 
-1. Download the latest installer from [Releases](https://github.com/Alban1911/Rose/releases/latest)
-2. Run the installer as Administrator
-3. Launch Rose from the Start Menu or desktop shortcut
+</details>
 
-### Recovering an interrupted update
+<details>
+<summary><b>Do I need to open LTK Manager?</b></summary>
 
-Rose keeps the previous installation beside the current one. If an update is
-interrupted and Rose will not start, close any Rose windows and run
-`C:\Program Files\Rose.update\Recover-Rose.cmd` as Administrator, then open
-Rose again. For a custom installation path, look for the sibling folder named
-`<installation-folder>.update`. Its `update.log` records the result.
+<br>
 
-The standalone installer replaces the uninstall records left by previous
-installers. Automatic ZIP updates keep the existing uninstaller, so install
-with the new setup executable to pick up the safer cleanup rules. Uninstall
-can leave untracked files and the update workspace when it contains a
-recovery snapshot.
+No. Rose starts it in the background and closes it after the game. Leave it closed: if it is already open when a game starts, Rose skips the skin and asks you to close it. Your own LTK Manager mods are paused for the game and turned back on after.
 
-## Diagnose startup problems
+If Rose can't find LTK Manager, click **Set up path** at startup and select `ltk-manager.exe`.
 
-If Rose is missing from the League client or game skins do not load, reproduce
-the problem, leave Rose and League open, then right-click Rose's system tray icon
-and choose **Diagnose Rose startup**. A progress window immediately confirms the
-run started, with an animated loading bar and elapsed time. **Run in background**
-hides the window while collection continues. The window shows completion or a
-failure, and the report folder opens when finished. **Open Logs folder** opens
-Rose's `logs` folder, including the `diagnostics` subfolder for past runs.
+</details>
 
-Reports live in `logs\diagnostics\Rose-Diagnostics-<timestamp>-<id>` under Rose's
-user data folder (normally `%LOCALAPPDATA%\Rose`), separate from the ordinary log
-files. Each run includes `report.txt`, `report.json`, and `collector-status.txt`.
-If collection is blocked or times out after three minutes, the status explains
-the failure and any partial reports are marked incomplete.
+<details>
+<summary><b>Rose doesn't show up in the client, or skins don't load</b></summary>
 
-The bundled Windows PowerShell 5.1 collector checks Windows/runtime differences,
-Pengu configuration and activation, patcher files, relevant security events,
-process privileges, bridge connectivity, and selected recent error excerpts.
-It reads system state without applying repairs, restarting League, or changing
-security settings. A clock check contacts `time.windows.com`; reports are never
-uploaded. Common credentials and profile paths are redacted, but review reports
-before sharing them with support. `UNKNOWN` means a check was unavailable, and
-a warning is a possible cause rather than proof of failed injection.
+<br>
 
-For manual collection, run `assets\diagnostics\Diagnose-Rose.ps1`; its optional
-`-SkipNetworkChecks` flag skips the external clock comparison. No Python or
-PowerShell 7 installation is needed in packaged Rose.
+Open the **Troubleshooting** panel in Rose's settings, or right-click the tray icon and choose **Diagnose Rose startup**. See [docs/troubleshooting.md](docs/troubleshooting.md) for the diagnostic report and for recovering an interrupted update, and ask on [Discord](https://discord.com/invite/roseskins) if you're stuck.
 
-## Building from source
+</details>
 
-Rose builds the Pengu Loader executable from the vendored source in
-`vendor/PenguLoader-1.1.6/` as part of the normal Rose build. You do not need
-to download or commit a prebuilt `Pengu Loader.exe`.
+<details>
+<summary><b>Does Rose collect data?</b></summary>
 
-### Prerequisites
+<br>
 
-- Windows 10/11
-- Python 3.11 or newer
-- Visual Studio Build Tools with the .NET desktop build tools, WPF support,
-  and the .NET Framework 4.7.2 targeting pack (for Pengu Loader), and the
-  MSVC C++ build tools with the C++20 workload (for the LTF bridge in
-  `native/ltf/`)
-- Inno Setup 6 if you also want to create the installer
+Only a random installation ID and the app version, sent to `analytics.rosekeys.site` at startup, every 15 minutes while Rose runs, and when it closes. The ID is not tied to your hardware or account. Builds from source can turn it off with `ANALYTICS_ENABLED = False` in `config.py`.
 
-Clone the repository and enter its directory:
-
-```powershell
-git clone https://github.com/Alban1911/Rose.git
-cd Rose
-```
-
-Install the Python dependencies first:
-
-```powershell
-python -m pip install -r requirements.txt
-```
-
-Build the loader by itself, if needed:
-
-```powershell
-python scripts/build_pengu_loader.py
-```
-
-Build Rose (rebuilds the loader and the LTF bridge):
-
-```powershell
-python scripts/build_pyinstaller.py
-```
-
-The packaged application is written to `dist/Rose/`. To build both Rose and
-the Windows installer in one step:
-
-```powershell
-python scripts/build_all.py
-```
-
-The installer is written to `installer/Rose_Setup_<version>.exe`. Use
-`scripts/build_pyinstaller.py` or `scripts/build_all.py` instead of invoking
-`pyinstaller Rose.spec` directly, because the Rose build scripts compile
-Pengu Loader first.
-
-To create the update package the auto-updater downloads from a release
-(`installer/update_package_<version>.zip`, `hashes.game.txt` excluded):
-
-```powershell
-python scripts/create_update_package.py
-```
-
-## Credits
-
-Rose uses the [official Pengu Loader](https://github.com/PenguLoader/PenguLoader)
-project. Its source is vendored and built as part of Rose, with Rose-specific
-lifecycle integration added around the loader. Please see the
-[official Pengu Loader license](https://github.com/PenguLoader/PenguLoader/blob/main/LICENSE)
-and credit the Pengu Loader contributors.
+</details>
 
 ## Contributing
 
-Contributions are welcome. Report bugs and suggest features through the
-[issue forms](https://github.com/Alban1911/Rose/issues/new/choose), and ask
-for installation help on [Discord](https://discord.com/invite/roseskins).
+Bug reports, translations and pull requests are welcome. Start with [CONTRIBUTING.md](CONTRIBUTING.md), and see [ARCHITECTURE.md](ARCHITECTURE.md) for how the code fits together.
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, the tests and
-checks that CI runs on every pull request, and the project structure.
+## Credits
 
-## Legal Disclaimer
+[Pengu Loader](https://github.com/PenguLoader/PenguLoader) (vendored and built with Rose, see its [license](https://github.com/PenguLoader/PenguLoader/blob/main/LICENSE)) · [LTK Manager](https://github.com/LeagueToolkit/ltk-manager) · [CommunityDragon](https://github.com/CommunityDragon/Data)
 
-This project is not endorsed by or affiliated with Riot Games. Riot Games and all related properties are trademarks or registered trademarks of Riot Games, Inc.
+## Legal
 
-Riot Games does not allow custom skins that reproduce its real skins, which is what Rose does. Use Rose at your own risk: its developers are not responsible for any consequence of using it, including account suspensions or bans.
+Rose is not endorsed by or affiliated with Riot Games. Riot Games and all related properties are trademarks or registered trademarks of Riot Games, Inc. Riot Games does not allow custom skins that reproduce its real skins, which is what Rose does. Use Rose at your own risk: its developers are not responsible for any consequence, including account suspensions or bans.
 
-## Support
-
-If you enjoy Rose and want to support its development:
+<div align="center">
+<br>
 
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/roseapp)
 
-Your support helps keep the project alive and motivates continued development!
+**Rose** · *League, unlocked.*
 
----
-
-**Rose** - _League, unlocked._
+</div>
