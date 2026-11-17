@@ -339,6 +339,10 @@ class ModWad:
         entry.set_data(data)
         self.modified = True
 
+    def put_path(self, path: str, data: bytes) -> None:
+        """Set the content of the file at *path*."""
+        self.put(path_hash(path), data)
+
     def __iter__(self) -> Iterator[WadFile]:
         return iter(self.files)
 

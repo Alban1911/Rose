@@ -13,15 +13,23 @@ and padded meshes go in the champion WAD. Files come from the mod first, so a
 modder's own banks and meshes are the ones patched or moved, then from the
 game's WADs in champions_dir. A mod that already matches is not written again,
 and a champion whose game WAD cannot be read is left as it is.
+
+A mod can ship a WAD unpacked, as a folder (WAD/<Champion>.wad.client/<path>)
+LTK Manager packs as it installs the mod. Its files are read the same way, by
+the hash each is packed under (_FolderWad), and the fix keeps the folder: an
+edited file is written back under its own name, a new one under its path.
 """
 
 from __future__ import annotations
 
+import re
 import shutil
+import time
 import uuid
 import zipfile
+import zlib
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Union
 
 from injection.mods.mod_files import ModFiles
 from utils.core.logging import get_logger
@@ -137,6 +145,22 @@ def split_wad_name(file_name: str) -> Optional[Tuple[str, Optional[str]]]:
     return base, None
 
 
+_HASH_NAME = re.compile(r"[0-9a-fA-F]{16}")
+
+
+def folder_file_hash(inner: str) -> int:
+    """The hash a file of an unpacked WAD folder is packed under, from its
+    path in the folder: its name when that is a path hash (16 hex digits,
+    with an extension or not, at the folder's root: a WAD extractor's name
+    for a file whose path it does not know), its path's otherwise. A legacy
+    .modpkg's files are read the same way (utils.core.modpkg)."""
+    inner = inner.replace("\\", "/").strip("/")
+    stem = inner.split(".", 1)[0]
+    if "/" not in inner and _HASH_NAME.fullmatch(stem):
+        return int(stem, 16)
+    return path_hash(inner)
+
+
 # --------------------------------------------------------------------------------------
 # a mod, as an archive or as a folder
 # --------------------------------------------------------------------------------------
@@ -164,8 +188,12 @@ class _Mod:
     def names(self) -> List[str]:
         return self.files.files_under()
 
-    def wad(self, name: str) -> Optional[ModWad]:
-        """The WAD file *name*, its table read (None: stored compressed, and too big to unpack)."""
+    def wad(self, name: str) -> Optional["_Wad"]:
+        """The WAD *name*: a WAD file, its table read (None: stored
+        compressed, and too big to unpack), or an unpacked WAD folder, named
+        with a trailing slash ("WAD/Annie.wad.client/")."""
+        if name.endswith("/"):
+            return _FolderWad(self.files, name[:-1])
         span = self.files.span(name)
         if span is None:
             if self.files.size(name) > MAX_INFLATED_WAD_BYTES:
@@ -181,27 +209,45 @@ class _Mod:
         self._wads.append(wad)
         return wad
 
-    def write(self, edited: Dict[str, ModWad]) -> None:
-        """Replace the WAD files *edited* names by their new content. Every new
+    def write(self, edited: Dict[str, "_Wad"]) -> None:
+        """Write the WADs *edited* names again: a WAD file gets its new
+        content, an unpacked WAD folder its edited and new files. Every new
         file is written, beside the mod, before anything is replaced."""
         def temporary() -> Path:
             return self.path.with_name(f"{IMPORT_TEMP_PREFIX}{uuid.uuid4().hex}.tmp")
 
+        packed = {name: wad for name, wad in edited.items() if isinstance(wad, ModWad)}
+        loose: Dict[str, bytes] = {}
+        for wad in edited.values():
+            if isinstance(wad, _FolderWad):
+                loose.update(wad.changes)
         if not self.files.is_archive:
             written: List[Tuple[Path, Path]] = []
             try:
-                for name, wad in edited.items():
+                for name, wad in packed.items():
                     written.append((temporary(), self.path / name))
                     with open(written[-1][0], "wb") as out:
                         wad.write_to(out)
+                for relative, data in loose.items():
+                    written.append((temporary(), self.path / relative))
+                    written[-1][0].write_bytes(data)
                 self.close()
                 for new, target in written:
+                    target.parent.mkdir(parents=True, exist_ok=True)
                     new.replace(target)
             finally:
                 for new, _ in written:
                     new.unlink(missing_ok=True)
             return
-        by_member = {self.files.member(name).filename: wad for name, wad in edited.items()}
+        by_member = {self.files.member(name).filename: wad for name, wad in packed.items()}
+        replaced: Dict[str, bytes] = {}
+        added: List[Tuple[str, bytes]] = []
+        for relative, data in loose.items():
+            info = self.files.member(relative)
+            if info is not None:
+                replaced[info.filename] = data
+            else:
+                added.append((relative, data))
         new = temporary()
         try:
             with zipfile.ZipFile(self.path) as source, \
@@ -219,10 +265,15 @@ class _Mod:
                     if wad is not None:
                         with out.open(entry, "w", force_zip64=wad.byte_size() >= 2 ** 31) as target:
                             wad.write_to(target)
+                    elif info.filename in replaced:
+                        out.writestr(entry, replaced[info.filename])
                     else:
                         with source.open(info) as stream, \
                                 out.open(entry, "w", force_zip64=info.file_size >= 2 ** 31) as target:
                             shutil.copyfileobj(stream, target, _COPY_CHUNK)
+                for relative, data in added:
+                    out.writestr(zipfile.ZipInfo(relative, time.localtime()[:6]), data,
+                                 compress_type=zipfile.ZIP_DEFLATED)
             self.close()
             new.replace(self.path)
         except BaseException:
@@ -230,10 +281,78 @@ class _Mod:
             raise
 
 
+class _FolderFile:
+    """A file of an unpacked WAD folder, read when its content is asked for."""
+
+    __slots__ = ("_wad", "relative")
+
+    def __init__(self, wad: "_FolderWad", relative: str) -> None:
+        self._wad = wad
+        self.relative = relative
+
+    @property
+    def data(self) -> bytes:
+        return self._wad.read(self.relative)
+
+
+class _FolderWad:
+    """A WAD the mod ships unpacked (WAD/<Champion>.wad.client/<path>), read
+    and edited as the steps do a WAD file (ModWad): its files by the hash LTK
+    Manager packs each under (folder_file_hash), read when asked for. The
+    edits wait in *changes* ({path in the mod: content}) for _Mod.write: an
+    edited file keeps its name, whether a path or a hash, and a new one is
+    named by its path."""
+
+    def __init__(self, files: ModFiles, folder: str) -> None:
+        self.folder = folder
+        self._files = files
+        self._names: Dict[int, str] = {}
+        for relative in files.files_under(folder):
+            self._names.setdefault(folder_file_hash(relative[len(folder) + 1:]), relative)
+        self.changes: Dict[str, bytes] = {}
+
+    @property
+    def modified(self) -> bool:
+        return bool(self.changes)
+
+    def close(self) -> None:
+        pass  # its files are read through the mod's ModFiles
+
+    def get(self, name_hash: int) -> Optional[_FolderFile]:
+        relative = self._names.get(name_hash)
+        return _FolderFile(self, relative) if relative is not None else None
+
+    def __contains__(self, name_hash: int) -> bool:
+        return name_hash in self._names
+
+    def read(self, relative: str) -> bytes:
+        if relative in self.changes:
+            return self.changes[relative]
+        try:
+            return self._files.read(relative)
+        except (OSError, RuntimeError, NotImplementedError, zipfile.BadZipFile, zlib.error) as e:
+            raise WadError(f"{relative} does not read: {e}") from e
+
+    def put(self, name_hash: int, data: bytes) -> None:
+        """Set the content of a file the folder holds (a new one needs its path: put_path)."""
+        relative = self._names.get(name_hash)
+        if relative is None:
+            raise KeyError(f"{self.folder} holds no file {name_hash:016x}")
+        self.changes[relative] = data
+
+    def put_path(self, path: str, data: bytes) -> None:
+        """Set the content of the file at *path*: the one the folder holds under its hash, or a new one."""
+        relative = self._names.setdefault(path_hash(path), f"{self.folder}/{path.replace(chr(92), '/').lstrip('/')}")
+        self.changes[relative] = data
+
+
+_Wad = Union[ModWad, _FolderWad]
+
+
 class _ModWadFile:
     __slots__ = ("name", "locale", "wad")
 
-    def __init__(self, name: str, locale: Optional[str], wad: ModWad) -> None:
+    def __init__(self, name: str, locale: Optional[str], wad: _Wad) -> None:
         self.name = name
         self.locale = locale
         self.wad = wad
@@ -302,18 +421,21 @@ def fix_mod(path: Path, game_dir: Path, steps=ALL_STEPS) -> FixResult:
         result.complete = False
         return result
     with _Mod(path) as mod:
+        # WAD files by name, unpacked WAD folders by name and a trailing slash (_Mod.wad)
         wad_names: Dict[str, Tuple[str, Optional[str]]] = {}
-        unpacked = False
+        folders = set()
         for name in mod.names():
             parts = name.split("/")
-            if len(parts) == 2 and audio.same(parts[0], "WAD"):
-                split = split_wad_name(parts[1])
-                if split is not None:
-                    wad_names[name] = split
-            elif len(parts) > 2 and audio.same(parts[0], "WAD") and parts[1].lower().endswith(WAD_SUFFIX):
-                unpacked = True
-        if unpacked:
-            log.info(f"[BASESKIN] {path.name}: unpacked WAD folders are not read, left as they are")
+            if len(parts) < 2 or not audio.same(parts[0], "WAD"):
+                continue
+            split = split_wad_name(parts[1])
+            if split is None:
+                continue
+            if len(parts) == 2:
+                wad_names[name] = split
+            elif parts[1].casefold() not in folders:
+                folders.add(parts[1].casefold())
+                wad_names[f"{parts[0]}/{parts[1]}/"] = split
 
         stems: List[str] = []
         for stem, locale in wad_names.values():
@@ -407,7 +529,7 @@ def _fix_champion(mod: _Mod, mod_name: str, stem: str, members: List[Tuple[str, 
             # The steps never edit a localized bank (audio._Sidecar): this would be a bug
             log.warning(f"[BASESKIN] {mod_name}: {extra.path} ({extra.locale}) was edited; not added")
             continue
-        mains[0].wad.put(path_hash(extra.path), extra.data)
+        mains[0].wad.put_path(extra.path, extra.data)
     for item in mains:
         if item.wad.modified:
             edited[item.name] = item.wad

@@ -41,7 +41,7 @@ log = get_logger()
 
 STATE_FILE = ".rose_baseskin.json"
 # Raise it when the steps write something else: every stored skin is checked again
-STEPS_VERSION = 1
+STEPS_VERSION = 2  # 2: unpacked WAD folders are fixed too
 # Where the pass may run: the client shows its home screen or a lobby. Not from
 # matchmaking on (Swiftplay injects then), nor while a game ends. The phase
 # thread keeps the home screen as None in the shared state

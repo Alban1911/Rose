@@ -885,12 +885,80 @@ class FixModTests(_GameAndMod):
         self.assertFalse(fix_mod(self.archive, self.root / "elsewhere").changed)
         self.assertEqual(self.archive.read_bytes(), before)
 
-    def test_unpacked_wad_folders_are_left_alone(self):
-        with zipfile.ZipFile(self.archive, "w") as archive:
-            archive.writestr("WAD/Aatrox.wad.client/data/characters/aatrox/skins/skin0.bin", self.skin_bin)
+    UNPACKED = "WAD/Aatrox.wad.client/"
+
+    def write_unpacked_mod(self, files):
+        """The mod with its champion WAD as a folder of loose files, {name in the folder: content}"""
+        with zipfile.ZipFile(self.archive, "w", zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr("META/info.json", '{"Name": "custom"}')
+            for name, data in files.items():
+                archive.writestr(self.UNPACKED + name, data)
+
+    def unpacked_files(self):
+        with zipfile.ZipFile(self.archive) as archive:
+            return {name[len(self.UNPACKED):]: archive.read(name)
+                    for name in archive.namelist() if name.startswith(self.UNPACKED)}, archive.namelist()
+
+    def test_an_unpacked_wad_folder_is_fixed_and_stays_a_folder(self):
+        self.write_unpacked_mod({SKIN0_BIN: self.skin_bin, SKIN_SKL: b"custom-skl", SKIN_SKN: b"custom-skn",
+                                 SFX: self.skin_bank})
+
+        result = fix_mod(self.archive, self.game)
+
+        self.assertTrue(result.changed)
+        self.assertTrue(result.complete)
+        files, names = self.unpacked_files()
+        self.assertNotIn("WAD/Aatrox.wad.client", names)  # not packed into a WAD file
+        self.assertEqual(sorted(files), sorted([SKIN0_BIN, SKIN_SKL, SKIN_SKN, SFX, BASE_SKL, BASE_SKN]))
+        skin = Bin(files[SKIN0_BIN]).find_entry(SKIN_DATA)
+        self.assertEqual(steps.skin_name(skin), "Aatrox")
+        self.assertEqual(steps.mesh_paths(skin), [BASE_SKL, BASE_SKN])
+        self.assertEqual(files[BASE_SKL], b"custom-skl" + bytes(16))
+        self.assertEqual(files[BASE_SKN], b"custom-skn" + bytes(16))
+        self.assertEqual(Bank.parse(files[SFX]).event_actions(wwise_hash("Play_sfx_Aatrox_Q")), [33])
+        with zipfile.ZipFile(self.archive) as archive:
+            self.assertEqual(archive.read("META/info.json"), b'{"Name": "custom"}')
+        self.assertEqual(list(self.root.glob(".rose-import-*")), [])
+
+        fixed = self.archive.read_bytes()
+        self.assertFalse(fix_mod(self.archive, self.game).changed)
+        self.assertEqual(self.archive.read_bytes(), fixed)
+
+    def test_a_file_an_unpacked_folder_names_by_its_hash_is_edited_under_that_name(self):
+        """A WAD extractor names a file whose path it does not know by its hash"""
+        hashed_bin = f"{path_hash(SKIN0_BIN):016x}.bin"
+        hashed_skn = f"{path_hash(BASE_SKN):016X}"
+        self.write_unpacked_mod({hashed_bin: self.skin_bin, hashed_skn: b"old-base-skn",
+                                 SKIN_SKL: b"custom-skl", SKIN_SKN: b"custom-skn", SFX: self.skin_bank})
+
+        self.assertTrue(fix_mod(self.archive, self.game).changed)
+
+        files, _ = self.unpacked_files()
+        self.assertNotIn(SKIN0_BIN, files)
+        self.assertNotIn(BASE_SKN, files)
+        self.assertEqual(steps.skin_name(Bin(files[hashed_bin]).find_entry(SKIN_DATA)), "Aatrox")
+        self.assertEqual(files[hashed_skn], b"custom-skn" + bytes(16))
+
+    def test_a_hash_named_file_below_the_folders_root_is_known_by_its_path(self):
+        nested = f"data/{path_hash(SKIN0_BIN):016x}"
+        self.write_unpacked_mod({nested: self.skin_bin})
         before = self.archive.read_bytes()
         self.assertFalse(fix_mod(self.archive, self.game).changed)
         self.assertEqual(self.archive.read_bytes(), before)
+
+    def test_a_mod_stored_as_a_folder_with_an_unpacked_wad_is_fixed_in_place(self):
+        folder = self.root / "folder-mod" / "WAD" / "Aatrox.wad.client"
+        for name, data in {SKIN0_BIN: self.skin_bin, SKIN_SKL: b"c-skl", SKIN_SKN: b"c-skn",
+                           SFX: self.skin_bank}.items():
+            (folder / name).parent.mkdir(parents=True, exist_ok=True)
+            (folder / name).write_bytes(data)
+
+        self.assertTrue(fix_mod(self.root / "folder-mod", self.game).changed)
+
+        self.assertEqual((folder / BASE_SKN).read_bytes(), b"c-skn" + bytes(16))
+        self.assertEqual(steps.skin_name(Bin((folder / SKIN0_BIN).read_bytes()).find_entry(SKIN_DATA)), "Aatrox")
+        self.assertFalse(fix_mod(self.root / "folder-mod", self.game).changed)
+        self.assertEqual(list(self.root.rglob(".rose-import-*")), [])
 
     def folder_mod(self):
         folder = self.root / "folder-mod"
