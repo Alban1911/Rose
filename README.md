@@ -1,8 +1,8 @@
 <div align="center">
 
-<img src="./assets/icon.png" alt="Rose" width="112" height="112">
-
 # Rose
+
+<img src="./assets/icon.png" alt="Rose" width="112" height="112">
 
 **Every League of Legends skin, right from champion select.**
 
