@@ -39,7 +39,7 @@ Rose needs Windows 10 or 11 and updates itself.
 
 <br>
 
-Rose loads its plugins into the League client with [Pengu Loader](https://github.com/PenguLoader/PenguLoader). Just before the champion select countdown ends, it locks in the skin you hover and has LTK Manager patch it into the game. The point where it locks in is the **Injection Threshold** (1 to 2 seconds, in Settings): a change after it is ignored. See [ARCHITECTURE.md](ARCHITECTURE.md) for the full picture.
+Rose loads its plugins into the League client with [Pengu Loader](https://github.com/PenguLoader/PenguLoader). Just before the champion select countdown ends, it locks in the skin you hover and has LTK Manager patch it into the game. The point where it locks in is the **Injection Threshold** (1 to 2 seconds, in Settings): a change after it is ignored. See [Architecture](CONTRIBUTING.md#architecture) for the full picture.
 
 </details>
 
@@ -74,7 +74,7 @@ Only a random installation ID and the app version, sent to `analytics.rosekeys.s
 
 ## Contributing
 
-Bug reports, translations and pull requests are welcome. Start with [CONTRIBUTING.md](CONTRIBUTING.md), and see [ARCHITECTURE.md](ARCHITECTURE.md) for how the code fits together.
+Bug reports, translations and pull requests are welcome. [CONTRIBUTING.md](CONTRIBUTING.md) covers how to contribute, then [how Rose works](CONTRIBUTING.md#architecture).
 
 ## Credits
 
