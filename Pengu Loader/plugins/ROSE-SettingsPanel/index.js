@@ -5567,6 +5567,19 @@
           };
         }
 
+        if (code === 'CUSTOM_SKIN_OUTDATED') {
+          const skin = String(e?.detail || '').trim();
+          return {
+            title: t('A custom skin was added with an older Rose'),
+            details: [
+              skin
+                ? t('What it means: {skin} is still as an older Rose prepared it, and Rose could not update it yet: it may fail to show, or play without its sounds.', { skin })
+                : t('What it means: a custom skin is still as an older Rose prepared it, and Rose could not update it yet: it may fail to show, or play without its sounds.'),
+              t('Fix: please update your custom skin by reinstalling it into Rose (remove it, then add it again).'),
+            ],
+          };
+        }
+
         if (code === 'LTF_IMPORT_FAILED') {
           const detail = String(e?.detail || '').trim();
           return {

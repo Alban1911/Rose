@@ -33,6 +33,7 @@ _ALLOWED_CODES = {
     'AUTO_RESUME_TRIGGERED',  # Suggest increasing Monitor Auto-Resume Timeout
     'BASE_SKIN_FORCE_SLOW',   # Suggest increasing Injection Threshold
     'BASE_SKIN_VERIFY_FAILED',  # Base skin verification mismatch (often causes skin not to show)
+    'CUSTOM_SKIN_OUTDATED',   # A custom skin LTK Manager holds was fixed by an older Rose: add it again
     'LEAGUE_ELEVATED',        # The League client runs as administrator: LTK Manager's patcher can't reach it
     'LAUNCHER_ELEVATED',      # Rose's ltk_launcher.exe is set to run as administrator and Rose could not undo it
     'LOW_DISK_SPACE',         # Injection could not install a mod with the available disk space

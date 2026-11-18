@@ -5,7 +5,6 @@
 import json
 import zipfile
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 
@@ -137,24 +136,6 @@ def test_a_bank_missing_from_the_game_is_left_out(game, tmp_path):
     name = skin_folder(mods, [copy(gone, SFX_TO, False)])
     assert build(game, mods, name) is None
     assert not (mods / f"{FOLDER_PREFIX}{name}").exists()
-
-
-def test_a_skin_ltk_manager_holds_gets_its_sound_mod_too(game, tmp_path, monkeypatch):
-    # Rose deleted its own copy: the banks are listed in LTK Manager's archive
-    ltk_id = "0f8fad5b-d9cb-469f-a165-70867728950e"
-    archive = tmp_path / "ltk" / "aatrox-skin-1.fantome"
-    archive.parent.mkdir()
-    with zipfile.ZipFile(archive, "w") as out:
-        out.writestr(MANIFEST, json.dumps({"version": 1, "copies": [copy(SFX_FROM, SFX_TO, False)]}))
-    entry = SimpleNamespace(slug="aatrox-skin-1", archive=archive)
-    monkeypatch.setattr("injection.overlay.ltk_data.read_library_index", lambda: {ltk_id: entry})
-    mods = tmp_path / "mods"
-    mods.mkdir()
-
-    built = sound_mods(game, mods, [], [ltk_id, "1d2c3b4a-0000-4000-8000-000000000000"])
-
-    assert built == [f"{FOLDER_PREFIX}aatrox-skin-1"]
-    assert wad_of(mods, built[0], "Aatrox.wad.client").get(path_hash(SFX_TO)).data == SFX_DATA
 
 
 def test_sound_mods_are_built_once_per_skin(game, tmp_path):

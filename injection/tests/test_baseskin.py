@@ -1149,6 +1149,35 @@ class StoredSkinsTests(_GameAndMod):
             self.assertEqual(self.run_pass(), 0)
         fix.assert_not_called()
 
+    def outdated(self):
+        return library.needs_reinstall(self.storage.mods_root, self.stored)
+
+    def test_a_skin_an_older_rose_fixed_is_outdated_until_this_rose_fixes_it(self):
+        self.assertFalse(self.outdated())  # never checked: its fix is still to come
+        self.run_pass()
+        self.assertFalse(self.outdated())
+        # As an older Rose left it
+        key = self.stored.relative_to(self.storage.mods_root).as_posix()
+        state = library._load(self.storage.mods_root)
+        state[key]["version"] = library.STEPS_VERSION - 1
+        library._save(self.storage.mods_root, state)
+        self.assertTrue(self.outdated())
+        self.run_pass()
+        self.assertFalse(self.outdated())
+
+    def test_a_skin_this_rose_could_not_fix_is_outdated(self):
+        with patch.object(library, "fix_mod", side_effect=OSError("in use")):
+            self.run_pass()
+        self.assertTrue(self.outdated())
+
+    def test_the_player_is_told_to_add_the_skin_again(self):
+        with patch("utils.core.issue_reporter.report_issue") as report:
+            library.report_outdated("Gojo Ezreal")
+        code, severity, message = report.call_args.args
+        self.assertEqual((code, severity), ("CUSTOM_SKIN_OUTDATED", "error"))
+        self.assertEqual(message, "Custom skin Gojo Ezreal was added with an older Rose")
+        self.assertEqual(report.call_args.kwargs["hint"], "Please update your custom skin by reinstalling it into Rose.")
+
     def test_a_patch_of_the_champion_wad_has_the_skin_checked_again(self):
         self.run_pass()
         champion_wad = self.game / "DATA" / "FINAL" / "Champions" / "Aatrox.wad.client"

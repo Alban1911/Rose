@@ -117,6 +117,45 @@ def fix_stored_mod(storage, mod: Path, game_dir: Path) -> FixResult:
     return result
 
 
+# --------------------------------------------------------------------------------------
+# a stored skin an older Rose fixed
+# --------------------------------------------------------------------------------------
+
+def needs_reinstall(mods_root: Path, mod: Path) -> bool:
+    """Whether the stored custom skin *mod* was last fixed by an older Rose
+    (an older STEPS_VERSION), or this Rose's fix of it could not complete:
+    as it is, it may fail in game. The pass while the client is idle fixes
+    it again, but a skin picked before the pass reached it, or one the pass
+    could not fix, is the player's to add again. A skin never checked (added
+    during a champion select: its fix waits) is not one."""
+    try:
+        key = Path(mod).relative_to(mods_root).as_posix()
+    except ValueError:
+        return False
+    with _STATE_LOCK:
+        known = _load(Path(mods_root)).get(key)
+    if not isinstance(known, dict):
+        return False
+    version = known.get("version")
+    if not isinstance(version, int) or version < STEPS_VERSION:
+        return True
+    return version == STEPS_VERSION and not known.get("complete")
+
+
+def report_outdated(name: str) -> None:
+    """Tell the player, in Troubleshooting, to add the custom skin *name* again."""
+    from utils.core.issue_reporter import report_issue
+
+    log.warning(f"[BASESKIN] The custom skin {name} was prepared by an older Rose and is not up to date")
+    report_issue(
+        "CUSTOM_SKIN_OUTDATED",
+        "error",
+        f"Custom skin {name} was added with an older Rose",
+        details={"skin": name},
+        hint="Please update your custom skin by reinstalling it into Rose.",
+    )
+
+
 def _remember(mods_root: Path, mod: Path, result: FixResult) -> None:
     try:
         key = mod.relative_to(mods_root).as_posix()

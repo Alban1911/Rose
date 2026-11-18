@@ -859,6 +859,15 @@ class MessageHandler:
                 if "injection skipped" in ml and "base skin selected" in ml:
                     return None
 
+                # Category: a custom skin an older Rose fixed (CUSTOM_SKIN_OUTDATED)
+                if "was added with an older rose" in ml:
+                    m = re.search(r"Custom skin (.+) was added with an older Rose", msg or "")
+                    return {
+                        "code": "CUSTOM_SKIN_OUTDATED",
+                        "text": "Custom skin added with an older Rose → reinstall it",
+                        "detail": m.group(1) if m else "",
+                    }
+
                 # Parse helper(s)
                 def _extract_first_seconds(text: str) -> Optional[float]:
                     try:
@@ -1371,6 +1380,19 @@ class MessageHandler:
         name_value = self._normalize_mod_identifier(entry.mod_name)
         return requested in {relative_value, name_value}
 
+    def _warn_if_outdated(self, selected_mod) -> None:
+        """Tell the player in Troubleshooting to add the picked custom skin
+        again when it is still as an older Rose fixed it, or this Rose could
+        not fix it (injection.baseskin.library.needs_reinstall). The skin
+        stays picked: the injection still tries it. Never raises."""
+        try:
+            from injection.baseskin.library import needs_reinstall, report_outdated
+
+            if needs_reinstall(self.mod_storage.mods_root, selected_mod.path):
+                report_outdated(selected_mod.display_name or selected_mod.mod_name)
+        except Exception as e:  # noqa: BLE001 - a warning must never fail the pick
+            log.debug(f"[SkinMonitor] Could not check whether {selected_mod.mod_name} is up to date: {e}")
+
     def _send_custom_mod_selection_result(
         self,
         payload: dict,
@@ -1760,6 +1782,8 @@ class MessageHandler:
                     selected_mod=selected_mod,
                 )
                 return
+
+            self._warn_if_outdated(selected_mod)
 
             # Nothing goes into the mods folder on a pick: the injection cleans it
             # and links the mods picked itself, and a pick made while it runs (past

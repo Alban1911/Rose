@@ -112,14 +112,14 @@ def _source_wad(game_dir: Path, copy: dict) -> Tuple[Optional[Path], str]:
     return path, ""
 
 
-def build(game_dir: Path, mods_dir: Path, mod_name: str, source: Optional[Path] = None) -> Optional[str]:
+def build(game_dir: Path, mods_dir: Path, mod_name: str) -> Optional[str]:
     """Write the sound mod of the mod *mod_name* (a folder or archive in
-    *mods_dir*, or at *source*) into *mods_dir* and return its folder name;
-    None when it lists no banks or none could be copied. Never raises:
-    without the mod, the skin plays with the banks it lists missing."""
+    *mods_dir*) and return its folder name; None when it lists no banks or
+    none could be copied. Never raises: without the mod, the skin plays with
+    the banks it lists missing."""
     started = time.perf_counter()
     try:
-        copies = read_copies(Path(source) if source is not None else Path(mods_dir) / mod_name)
+        copies = read_copies(Path(mods_dir) / mod_name)
         if not copies:
             return None
         groups: Dict[Path, List[dict]] = {}
@@ -176,39 +176,17 @@ def build(game_dir: Path, mods_dir: Path, mod_name: str, source: Optional[Path] 
         return None
 
 
-def _ltk_sources(ltk_ids: Sequence[str]) -> List[Tuple[str, Path]]:
-    """(name, archive) of each LTK Manager library entry among *ltk_ids*
-    whose archive is there: a custom skin LTK Manager holds (Rose deletes
-    its own copy of it) lists its banks there."""
-    if not ltk_ids:
-        return []
-    from injection.overlay.ltk_data import read_library_index
-
-    index = read_library_index() or {}
-    sources = []
-    for ltk_id in ltk_ids:
-        entry = index.get(ltk_id)
-        if entry is not None and entry.archive is not None and entry.archive.is_file():
-            sources.append((entry.slug or ltk_id, entry.archive))
-    return sources
-
-
-def sound_mods(game_dir: Optional[Path], mods_dir: Path, names: Sequence[str],
-               ltk_ids: Sequence[str] = ()) -> List[str]:
+def sound_mods(game_dir: Optional[Path], mods_dir: Path, names: Sequence[str]) -> List[str]:
     """Build the sound mod of each mod among *names* (folders or archives in
-    *mods_dir*) and *ltk_ids* (LTK Manager library entries) that lists banks
-    to copy; their folder names, in *mods_dir*, to install with them."""
+    *mods_dir*) that lists banks to copy; their folder names, to install
+    with them."""
     if game_dir is None:
         return []
-    sources: List[Tuple[str, Optional[Path]]] = [
-        (name, None) for name in names if not name.startswith(FOLDER_PREFIX)]
-    try:
-        sources.extend(_ltk_sources(ltk_ids))
-    except Exception as e:  # noqa: BLE001 - the skins play without the banks they list
-        log.warning(f"[SOUNDS] LTK Manager's library could not be read: {e}")
     built: List[str] = []
-    for name, source in sources:
-        folder = build(Path(game_dir), Path(mods_dir), name, source)
+    for name in names:
+        if name.startswith(FOLDER_PREFIX):
+            continue
+        folder = build(Path(game_dir), Path(mods_dir), name)
         if folder and folder not in names and folder not in built:
             built.append(folder)
     return built

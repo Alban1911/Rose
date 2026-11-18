@@ -401,7 +401,7 @@ class OverlayManager:
         # (META/rose_sounds.json): copied here from this PC's game WADs, in the
         # client's language, as a mod of their own. The staging builds the
         # same mod as the injection, so it stays installed.
-        files = files + sound_mods(self.game_dir, folder_dir, files, ltk_ids)
+        files = files + sound_mods(self.game_dir, folder_dir, files)
         wanted = []
         for name in files:
             folder = folder_dir / name
