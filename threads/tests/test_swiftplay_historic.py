@@ -160,8 +160,7 @@ class SwiftplayHistoricTests(unittest.TestCase):
         self.handler._injection_triggered = True
         phases = PhaseHandler(self.lcu, state, swiftplay_handler=self.handler)
 
-        with patch("injection.baseskin.library.on_phase"):
-            phases.handle_phase_change("Lobby", "Matchmaking")
+        phases.handle_phase_change("Lobby", "Matchmaking")
 
         self.assertEqual(state.swiftplay_extracted_mods, [])
         self.assertFalse(self.handler._injection_triggered)

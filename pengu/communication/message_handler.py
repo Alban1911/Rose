@@ -2792,9 +2792,9 @@ class MessageHandler:
     _MOD_CHECK_BUSY_PHASES = frozenset({
         "Matchmaking", "ReadyCheck", "ChampSelect", "FINALIZATION", "GameStart", "InProgress", "Reconnect",
     })
-    # Client phases where the base-skin fix of an added skin waits until the client is idle
-    # (injection.baseskin.library): it rewrites the whole mod, which neither the countdown's
-    # staging nor a running game should share the disk with
+    # Client phases where an added skin is not matched to the base skin (injection.baseskin):
+    # the fix rewrites the whole mod, which neither the countdown's staging nor a running game
+    # should share the disk with. Rose does not fix it later: picked, it asks to be added again
     _BASE_SKIN_WAIT_PHASES = frozenset({"FINALIZATION", "GameStart", "InProgress", "Reconnect"})
 
     def _fix_base_skin(self, imported: list[dict], game_dir) -> None:
@@ -2873,7 +2873,7 @@ class MessageHandler:
         LTK Manager's check is skipped while a game wants it (_ltk_wanted_by_game:
         a queue, champion select, a game), and one running gives way when the
         client gets there: the mod stays in Rose as it was added. From the
-        countdown on, the base-skin fix waits for the client to be idle."""
+        countdown on, the base-skin fix is skipped: Rose does not fix the skin later."""
         injection_manager = getattr(self, "injection_manager", None)
         injector = getattr(injection_manager, "injector", None)
         overlay = getattr(injector, "overlay_manager", None)
@@ -2881,8 +2881,8 @@ class MessageHandler:
         injecting = bool(getattr(injection_manager, "_injection_in_progress", False))
         if skins and imported:
             if phase in self._BASE_SKIN_WAIT_PHASES or injecting:
-                log.info("[BASESKIN] The added skins are matched to the base skin once the client is idle, "
-                         "not during the countdown or a game")
+                log.info("[BASESKIN] The added skins are not matched to the base skin during the countdown "
+                         "or a game: one picked asks to be added again")
             else:
                 # Before LTK Manager's check, so its verdict is on the mod as it will be played
                 game_dir = getattr(overlay, "game_dir", None) or getattr(injector, "game_dir", None)

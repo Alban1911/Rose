@@ -21,7 +21,6 @@ class PhasePollerResetTests(unittest.TestCase):
         for patcher in (
             patch.object(PhaseHandler, "_sync_saved_mods_for_listing"),
             patch("ui.core.user_interface.get_user_interface"),
-            patch("injection.baseskin.library.on_phase"),
         ):
             patcher.start()
             self.addCleanup(patcher.stop)

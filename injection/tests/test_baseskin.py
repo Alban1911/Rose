@@ -1125,49 +1125,41 @@ class StepsTests(_GameAndMod):
 
 
 class StoredSkinsTests(_GameAndMod):
-    """The skins already in the mods storage are fixed while the client is idle (library.py)."""
+    """A stored skin is fixed once, as it is added (library.fix_stored_mod), and never again."""
 
     def setUp(self):
         super().setUp()
         self.storage = ModStorageService(mods_root=self.root / "mods")
-        library._retried.clear()
-        self.addCleanup(library._retried.clear)
         self.stored, _, _ = self.storage.import_mod_file(266, self.archive, [266033])
         self.picked_hash = hashlib.sha256(self.archive.read_bytes()).hexdigest()
 
-    def run_pass(self, stop=lambda: False):
-        return library.fix_stored_skins(self.storage, self.game, stop)
+    def fix(self, mod=None):
+        return library.fix_stored_mod(self.storage, mod or self.stored, self.game)
 
-    def checks(self):
-        return patch.object(library, "fix_mod", wraps=library.fix_mod)
+    def outdated(self, mod=None):
+        return library.needs_reinstall(self.storage.mods_root, mod or self.stored)
 
-    def test_a_skin_stored_before_rose_fixed_skins_is_fixed_once(self):
-        self.assertEqual(self.run_pass(), 1)
+    def test_a_skin_is_fixed_as_it_is_added(self):
+        self.assertTrue(self.fix().changed)
         files, _ = self.mod_files(self.stored)
         self.assertEqual(files[path_hash(BASE_SKN)], rebuilt(fake("custom-skn")))
-        with self.checks() as fix:
-            self.assertEqual(self.run_pass(), 0)
-        fix.assert_not_called()
-
-    def outdated(self):
-        return library.needs_reinstall(self.storage.mods_root, self.stored)
-
-    def test_a_skin_an_older_rose_fixed_is_outdated_until_this_rose_fixes_it(self):
-        self.assertFalse(self.outdated())  # never checked: its fix is still to come
-        self.run_pass()
         self.assertFalse(self.outdated())
-        # As an older Rose left it
+
+    def test_a_skin_this_rose_never_fixed_must_be_added_again(self):
+        """Added during a game (its fix is skipped), or before Rose knew the game's folder"""
+        self.assertTrue(self.outdated())
+
+    def test_a_skin_an_older_rose_fixed_must_be_added_again(self):
+        self.fix()
         key = self.stored.relative_to(self.storage.mods_root).as_posix()
         state = library._load(self.storage.mods_root)
         state[key]["version"] = library.STEPS_VERSION - 1
         library._save(self.storage.mods_root, state)
         self.assertTrue(self.outdated())
-        self.run_pass()
-        self.assertFalse(self.outdated())
 
-    def test_a_skin_this_rose_could_not_fix_is_outdated(self):
-        with patch.object(library, "fix_mod", side_effect=OSError("in use")):
-            self.run_pass()
+    def test_a_skin_this_rose_could_not_fully_fix_must_be_added_again(self):
+        (self.game / "DATA" / "FINAL" / "Champions" / "Aatrox.wad.client").write_bytes(b"half written by a patch")
+        self.assertFalse(self.fix().complete)
         self.assertTrue(self.outdated())
 
     def test_the_player_is_told_to_add_the_skin_again(self):
@@ -1178,33 +1170,9 @@ class StoredSkinsTests(_GameAndMod):
         self.assertEqual(message, "Custom skin Gojo Ezreal was added with an older Rose")
         self.assertEqual(report.call_args.kwargs["hint"], "Please update your custom skin by reinstalling it into Rose.")
 
-    def test_a_patch_of_the_champion_wad_has_the_skin_checked_again(self):
-        self.run_pass()
-        champion_wad = self.game / "DATA" / "FINAL" / "Champions" / "Aatrox.wad.client"
-        stat = champion_wad.stat()
-        os.utime(champion_wad, ns=(stat.st_atime_ns, stat.st_mtime_ns + 10 ** 9))
-        with self.checks() as fix:
-            self.assertEqual(self.run_pass(), 0)  # nothing new to fix, but checked
-        fix.assert_called_once()
-
-    def test_the_pass_stops_when_the_client_leaves_the_idle_phases(self):
-        before = self.stored.read_bytes()
-        self.assertEqual(self.run_pass(stop=lambda: True), 0)
-        self.assertEqual(self.stored.read_bytes(), before)
-
-    def test_a_skin_that_failed_is_tried_again_at_the_next_start_not_at_every_lobby(self):
-        with patch.object(library, "fix_mod", side_effect=OSError("in use")) as fix:
-            self.run_pass()
-            self.run_pass()
-        self.assertEqual(fix.call_count, 1)
-        library._retried.clear()  # Rose starts again
-        with self.checks() as fix:
-            self.assertEqual(self.run_pass(), 1)
-        fix.assert_called_once()
-
     def test_the_manifest_follows_the_rewritten_skin(self):
         """A renamed skin is found by its archive's index, so it must be the skin's as it is now"""
-        self.run_pass()
+        self.fix()
         entry = ModStorageService.manifest_entry(self.stored)
         self.assertEqual(entry["indexHash"], archive_index_hash(self.stored))
         self.assertNotIn("folderHash", entry)
@@ -1219,7 +1187,7 @@ class StoredSkinsTests(_GameAndMod):
         entry = ModStorageService.manifest_entry(self.stored)
         self.assertEqual(entry["sourceHash"], self.picked_hash)
         self.assertNotIn("sourceHashes", entry, "nothing hashed but the file picked")
-        self.run_pass()
+        self.fix()
         self.assertNotEqual(hashlib.sha256(self.stored.read_bytes()).hexdigest(), self.picked_hash, "rewritten")
         self.assertEqual(custom_mods.shared_hashes(self.stored), (None, shared))
         with patch.object(custom_mods, "get_mods_root", return_value=self.storage.mods_root), \
@@ -1232,7 +1200,7 @@ class StoredSkinsTests(_GameAndMod):
         entry must follow the rewrite, or the skin is listed no more"""
         renamed = self.stored.rename(self.stored.with_name("renamed.fantome"))
 
-        self.assertEqual(self.run_pass(), 1)
+        self.assertTrue(self.fix(renamed).changed)
 
         listed = self.storage.saved_mod(renamed.relative_to(self.storage.mods_root).as_posix())
         self.assertIsNotNone(listed, "gone from the listing")
@@ -1245,7 +1213,7 @@ class StoredSkinsTests(_GameAndMod):
         shutil.copyfile(self.archive, legacy)
         content, legacy_hash = custom_mods.mod_hashes(legacy)
 
-        self.run_pass()
+        self.fix(legacy)
 
         self.assertNotEqual(custom_mods.mod_hashes(legacy)[0], content, "rewritten")
         self.assertEqual(ModStorageService.manifest_entry(legacy)["sourceHashes"],
@@ -1257,34 +1225,6 @@ class StoredSkinsTests(_GameAndMod):
         self.storage.set_champion_target_ids(266, [266001], mod_name="custom")
         self.assertEqual(ModStorageService.manifest_entry(self.stored)["sourceHash"], self.picked_hash)
         self.assertEqual(custom_mods.shared_hashes(self.stored), (None, self.picked_hash[:16]))
-
-    def test_the_pass_starts_when_the_client_is_idle_and_stops_when_it_is_not(self):
-        manager = SimpleNamespace(injector=SimpleNamespace(game_dir=self.game), _injection_in_progress=False)
-        state = SimpleNamespace(phase="ChampSelect")
-        with patch.object(library, "fix_stored_skins", return_value=0) as run, \
-                patch("injection.mods.storage.ModStorageService"):
-            library.on_phase("ChampSelect", manager, state)
-            run.assert_not_called()
-            state.phase = "Lobby"
-            library.on_phase("Lobby", manager, state)
-            library._pass_thread.join(10)
-        run.assert_called_once()
-        stop = run.call_args.args[2]
-        self.assertFalse(stop())
-        state.phase = "Matchmaking"
-        self.assertTrue(stop())
-
-    def test_the_pass_runs_on_the_home_screen(self):
-        """The phase thread keeps the home screen as None in the shared state"""
-        manager = SimpleNamespace(injector=SimpleNamespace(game_dir=self.game), _injection_in_progress=False)
-        state = SimpleNamespace(phase=None)
-        for phase in (None, "None"):
-            with patch.object(library, "fix_stored_skins", return_value=0) as run, \
-                    patch("injection.mods.storage.ModStorageService"):
-                library.on_phase(phase, manager, state)
-                library._pass_thread.join(10)
-            run.assert_called_once()
-            self.assertFalse(run.call_args.args[2](), "stopped on the home screen")
 
 
 class PackageHelpersTests(unittest.TestCase):
