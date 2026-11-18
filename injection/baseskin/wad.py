@@ -202,19 +202,41 @@ class GameWad:
             source.close()
         self._entries: Dict[int, tuple] = {}
         for index in range(len(table) // TOC_ENTRY_SIZE):
-            name_hash, offset, packed, size = struct.unpack_from("<QIII", table, index * TOC_ENTRY_SIZE)
-            kind = table[index * TOC_ENTRY_SIZE + 20] & 0x0F
-            self._entries.setdefault(name_hash, (offset, packed, size, kind))
+            at = index * TOC_ENTRY_SIZE
+            name_hash, offset, packed, size = struct.unpack_from("<QIII", table, at)
+            kind = table[at + 20] & 0x0F
+            # the sub-chunk count and first index (type 4), and the checksum
+            chunking = bytes([table[at + 20] & 0xF0]) + table[at + 22:at + 24]
+            self._entries.setdefault(name_hash, (offset, packed, size, kind, chunking, table[at + 24:at + 32]))
 
     def has_path(self, path: str) -> bool:
         return path_hash(path) in self._entries
+
+    def stored_file(self, path: str, source: "FileSource", name_hash: Optional[int] = None) -> Optional["WadFile"]:
+        """The file at *path* as the WAD stores it, read from *source* (this
+        WAD, opened) when it is written: a mod's WAD can carry it under
+        *name_hash* (its own path's by default) without decompressing it.
+        None when the WAD has none. A sub-chunked file (type 4) is
+        decompressed instead: its sub-chunks are indexed by a table of this
+        WAD's (its .subchunktoc), which a mod does not carry."""
+        entry = self._entries.get(path_hash(path))
+        if entry is None:
+            return None
+        offset, packed, size, kind, _chunking, checksum = entry
+        target = path_hash(path) if name_hash is None else name_hash
+        if kind not in (KIND_RAW, KIND_ZSTD):
+            data = self.read_path(path)
+            stored = WadFile(target, KIND_RAW, 0, 0)
+            stored.set_data(data)
+            return stored
+        return WadFile(target, kind, size, packed, source, offset, _NO_CHUNKING, checksum)
 
     def read_path(self, path: str) -> Optional[bytes]:
         """The file at *path*, decompressed (None when the WAD has none)."""
         entry = self._entries.get(path_hash(path))
         if entry is None:
             return None
-        offset, packed, size, kind = entry
+        offset, packed, size, kind = entry[:4]
         with open(self.path, "rb") as handle:
             handle.seek(offset)
             payload = handle.read(packed)
@@ -342,6 +364,16 @@ class ModWad:
     def put_path(self, path: str, data: bytes) -> None:
         """Set the content of the file at *path*."""
         self.put(path_hash(path), data)
+
+    def add(self, entry: WadFile) -> None:
+        """Add a file as it is (GameWad.stored_file): it goes last, and
+        replaces a file the WAD holds under its hash."""
+        old = self._index.get(entry.name_hash)
+        if old is not None:
+            self.files.remove(old)
+        self.files.append(entry)
+        self._index[entry.name_hash] = entry
+        self.modified = True
 
     def __iter__(self) -> Iterator[WadFile]:
         return iter(self.files)
