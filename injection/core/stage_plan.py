@@ -169,7 +169,7 @@ def _prepare_carrier(injector, step: CarrierStep, target_dir: Path) -> Optional[
     if not zp or not Path(zp).exists():
         log.debug(f"[STAGE] Skin carrier archive not found: {step.skin_name}")
         return None
-    folder = ModManager(target_dir).link_archive(Path(zp))
+    folder = ModManager(target_dir, game_dir=injector.game_dir).link_archive(Path(zp))
     if not folder or not (folder.exists() or is_junction(folder)):
         return None
     return folder.name

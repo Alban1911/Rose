@@ -32,6 +32,7 @@ from injection.baseskin.propbin import (
 )
 from injection.baseskin.wad import BytesSource, FileSource, GameWad, ModWad, WadError, path_hash
 from injection.mods.mod_facts import archive_index_hash
+from injection.mods.mod_manager import ModManager
 from injection.tests.mesh_fixtures import fake, rebuilt
 from injection.mods.storage import ModStorageService
 from party.discovery import custom_mods
@@ -514,6 +515,26 @@ BASE_SKL = "ASSETS/Characters/Aatrox/Skins/Base/Aatrox.skl"
 BASE_SKN = "ASSETS/Characters/Aatrox/Skins/Base/Aatrox.skn"
 
 
+def modern_skl(pad=0):
+    """A one-joint modern skeleton, as the game writes one."""
+    data = bytearray(64 + steps.SKL_JOINT_SIZE)
+    struct.pack_into("<II", data, 0, len(data), steps.SKL_MAGIC)
+    struct.pack_into("<H", data, steps.SKL_JOINT_COUNT, 1)
+    struct.pack_into("<i", data, steps.SKL_JOINTS_OFFSET, 64)
+    struct.pack_into("<HHhH", data, 64, 0, 0, -1, pad)
+    return bytes(data)
+
+
+def modern_skn(name=b"Body"):
+    """An SKN with one range, as the game writes one."""
+    data = bytearray(12 + steps.SKN_RANGE_SIZE)
+    struct.pack_into("<I", data, 0, steps.SKN_MAGIC)
+    struct.pack_into("<HH", data, 4, 4, 1)
+    struct.pack_into("<I", data, 8, 1)
+    data[12:12 + len(name)] = name
+    return bytes(data)
+
+
 class MeshAndNameTests(unittest.TestCase):
     def files(self, **contents):
         return lambda path: contents.get(path)
@@ -578,6 +599,68 @@ class MeshAndNameTests(unittest.TestCase):
         rebase = steps.rebase_skin_mesh(entry, base, mod, [], mod)
         self.assertEqual([(f.path, f.data) for f in rebase.files if f.ship],
                          [(BASE_SKL, rebuilt(fake("skl"))), (BASE_SKN, rebuilt(fake("skn")))])
+
+    def test_a_modern_skeleton_is_marked_inside_its_first_joint(self):
+        data = modern_skl()
+        marked = steps.distinguish_mesh(BASE_SKL, data)
+        self.assertEqual(len(marked), len(data))
+        self.assertEqual(struct.unpack_from("<H", marked, 64 + steps.SKL_PAD_OFFSET)[0], steps.SKL_MARK)
+        # Nothing else moves: the skeleton still parses as it was.
+        self.assertEqual(marked[:64 + steps.SKL_PAD_OFFSET], data[:64 + steps.SKL_PAD_OFFSET])
+        self.assertEqual(marked[64 + steps.SKL_PAD_OFFSET + 2:], data[64 + steps.SKL_PAD_OFFSET + 2:])
+        self.assertEqual(steps.distinguish_mesh(BASE_SKL, marked), marked, "idempotent")
+
+    def test_a_modern_mesh_is_marked_after_its_first_range_name(self):
+        data = modern_skn(b"Body")
+        marked = steps.distinguish_mesh(BASE_SKN, data)
+        self.assertEqual(len(marked), len(data))
+        self.assertEqual(data[16], 0)  # the name's terminator
+        self.assertEqual(marked[17], steps.SKN_MARK)
+        self.assertEqual(marked[:17], data[:17])  # the name itself is untouched
+        self.assertEqual(steps.distinguish_mesh(BASE_SKN, marked), marked, "idempotent")
+
+    def test_a_mesh_of_an_unknown_format_is_left_alone(self):
+        self.assertIs(steps.distinguish_mesh(BASE_SKL, b"skl-data"), b"skl-data")
+        self.assertIs(steps.distinguish_mesh(BASE_SKN, b"skn-data"), b"skn-data")
+
+    def test_a_copied_modern_mesh_is_marked_before_the_padding(self):
+        base = skin_entry(skeleton=BASE_SKL, skin=BASE_SKN)
+        entry = skin_entry(skeleton=SKIN_SKL, skin=SKIN_SKN)
+        read = self.files(**{SKIN_SKL: modern_skl(), SKIN_SKN: modern_skn()})
+
+        rebase = steps.rebase_skin_mesh(entry, base, read, [])
+
+        skl, skn = [file.data for file in rebase.files]
+        self.assertEqual(skl[-steps.MESH_PADDING:], bytes(steps.MESH_PADDING))
+        self.assertEqual(struct.unpack_from("<H", skl, 64 + steps.SKL_PAD_OFFSET)[0], steps.SKL_MARK)
+        self.assertEqual(skn[-steps.MESH_PADDING:], bytes(steps.MESH_PADDING))
+        self.assertEqual(skn[17], steps.SKN_MARK)
+
+    def test_a_marked_and_padded_mesh_at_the_base_path_is_a_match(self):
+        base = skin_entry(skeleton=BASE_SKL, skin=BASE_SKN)
+        entry = skin_entry(skeleton=BASE_SKL, skin=BASE_SKN)
+        mod = self.files(**{
+            BASE_SKL: steps.distinguish_mesh(BASE_SKL, modern_skl()) + bytes(steps.MESH_PADDING),
+            BASE_SKN: steps.distinguish_mesh(BASE_SKN, modern_skn()) + bytes(steps.MESH_PADDING),
+        })
+
+        rebase = steps.rebase_skin_mesh(entry, base, mod, [], mod)
+
+        self.assertEqual([file for file in rebase.files if file.ship], [])
+        self.assertFalse(rebase.changed)
+
+    def test_a_mesh_at_the_base_path_without_the_marker_is_fixed_once(self):
+        base = skin_entry(skeleton=BASE_SKL, skin=BASE_SKN)
+        entry = skin_entry(skeleton=BASE_SKL, skin=BASE_SKN)
+        current = modern_skl() + bytes(steps.MESH_PADDING)
+        mod = self.files(**{BASE_SKL: current, BASE_SKN: modern_skn() + bytes(steps.MESH_PADDING)})
+
+        rebase = steps.rebase_skin_mesh(entry, base, mod, [], mod)
+
+        fixed = next(file for file in rebase.files if file.path == BASE_SKL)
+        self.assertEqual(len(fixed.data), len(current))  # no padding piled up
+        self.assertEqual(struct.unpack_from("<H", fixed.data, 64 + steps.SKL_PAD_OFFSET)[0], steps.SKL_MARK)
+        self.assertEqual(fixed.data[-steps.MESH_PADDING:], bytes(steps.MESH_PADDING))
 
     def test_a_base_path_the_mod_does_not_ship_uses_the_games_own(self):
         base = skin_entry(skeleton=BASE_SKL, skin=BASE_SKN)
@@ -1112,6 +1195,50 @@ class BankPathTests(_GameAndMod):
         self.assertEqual([copy["to"] for copy in self.manifest()["copies"]],
                          [self.sfx("Base/Aatrox_Base_SFX_events.bnk")])
         self.assertFalse(fix_mod(self.archive, self.game).changed)
+
+
+class InjectedSkinsTests(_GameAndMod):
+    """A downloaded skin is fixed as it is linked into an injection (mod_manager):
+    the fix goes on a copy, the downloaded library's archive is never changed."""
+
+    def link(self, game_dir=None):
+        manager = ModManager(self.root / "injection" / "mods", game_dir=game_dir)
+        return manager.link_archive(self.archive)
+
+    def test_the_linked_skin_is_fixed_and_the_downloaded_archive_is_untouched(self):
+        before = self.archive.read_bytes()
+
+        linked = self.link(self.game)
+
+        self.assertNotEqual(linked.read_bytes(), before)
+        self.assertEqual(self.archive.read_bytes(), before)
+        files, _ = self.mod_files(linked)
+        skin = Bin(files[path_hash(SKIN0_BIN)]).find_entry(SKIN_DATA)
+        self.assertEqual(steps.skin_name(skin), "Aatrox")
+        self.assertEqual(files[path_hash(BASE_SKN)], rebuilt(fake("custom-skn")))
+
+    def test_a_skin_already_matching_is_linked_not_copied(self):
+        fixed = self.root / "fixed.fantome"
+        shutil.copyfile(self.archive, fixed)
+        fix_mod(fixed, self.game)
+        manager = ModManager(self.root / "injection" / "mods", game_dir=self.game)
+
+        linked = manager.link_archive(fixed)
+
+        self.assertTrue(os.path.samefile(fixed, linked))
+
+    def test_without_the_games_folder_the_archive_is_linked_as_before(self):
+        linked = self.link()
+
+        self.assertTrue(os.path.samefile(self.archive, linked))
+
+    def test_an_archive_that_cannot_be_checked_still_installs(self):
+        before = self.archive.read_bytes()
+
+        linked = self.link(self.root / "not-a-game")
+
+        self.assertEqual(linked.read_bytes(), before)
+        self.assertEqual(self.archive.read_bytes(), before)
 
 
 class StepsTests(_GameAndMod):

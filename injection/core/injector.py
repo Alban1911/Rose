@@ -100,7 +100,7 @@ class SkinInjector:
         # Rift Classic skins (LeagueSkins' classic/ folder, keyed by Classic champion IDs)
         self.classic_dir = get_classic_skins_dir()
         self.classic_resolver = ZipResolver(self.classic_dir)
-        self.mod_manager = ModManager(self.mods_dir)
+        self.mod_manager = ModManager(self.mods_dir, game_dir=self.game_dir)
         self.process_manager = ProcessManager()
         # Pass process_manager to overlay_manager so they share the process reference
         self.overlay_manager = OverlayManager(self.tools_dir, self.mods_dir, self.game_dir, self.process_manager)
@@ -200,7 +200,8 @@ class SkinInjector:
             return None
 
         log.debug(f"[INJECT] Using skin file: {zp}")
-        mod_manager = self.mod_manager if Path(target_dir) == self.mods_dir else ModManager(Path(target_dir))
+        mod_manager = (self.mod_manager if Path(target_dir) == self.mods_dir
+                       else ModManager(Path(target_dir), game_dir=self.game_dir))
         mod_folder = mod_manager.link_archive(zp)
         mod_names = [mod_folder.name]
 
