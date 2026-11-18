@@ -8,8 +8,11 @@ rule judges and the one Rose plays. A mod's other skin bins (a whole champion
 WAD ships them all) are left as they are: rebased, one would claim the base
 skin's mesh paths and put its own mesh there.
 
-The mod's WADs are read file by file (wad.py), never whole. The patched banks
-and padded meshes go in the champion WAD. Files come from the mod first, so a
+The mod's WADs are read file by file (wad.py), never whole. The patched and
+moved banks and the rebuilt meshes go in the champion WAD, a voice bank the mod
+ships moves inside its own locale WAD, and the game banks the skin now loads
+from new paths are listed in META/rose_sounds.json, for Rose to copy from the
+player's own WADs as it injects the skin (skin_sounds.py). Files come from the mod first, so a
 modder's own banks and meshes are the ones patched or moved, then from the
 game's WADs in champions_dir. A mod that already matches is not written again,
 and a champion whose game WAD cannot be read is left as it is.
@@ -22,6 +25,7 @@ edited file is written back under its own name, a new one under its path.
 
 from __future__ import annotations
 
+import json
 import re
 import shutil
 import time
@@ -36,7 +40,8 @@ from utils.core.logging import get_logger
 
 from . import audio
 from .audio import PackageFiles
-from .steps import ALL_STEPS, BaseSkinSteps, Findings
+from .skin_sounds import MANIFEST as SOUND_MANIFEST
+from .steps import ALL_STEPS, BaseSkinSteps, Findings, SoundCopy
 from .wad import FileSource, GameWad, ModWad, WadError, path_hash
 
 log = get_logger()
@@ -209,15 +214,16 @@ class _Mod:
         self._wads.append(wad)
         return wad
 
-    def write(self, edited: Dict[str, "_Wad"]) -> None:
+    def write(self, edited: Dict[str, "_Wad"], files: Optional[Dict[str, bytes]] = None) -> None:
         """Write the WADs *edited* names again: a WAD file gets its new
-        content, an unpacked WAD folder its edited and new files. Every new
-        file is written, beside the mod, before anything is replaced."""
+        content, an unpacked WAD folder its edited and new files; and *files*
+        ({path in the mod: content}, META/rose_sounds.json). Every new file is
+        written, beside the mod, before anything is replaced."""
         def temporary() -> Path:
             return self.path.with_name(f"{IMPORT_TEMP_PREFIX}{uuid.uuid4().hex}.tmp")
 
         packed = {name: wad for name, wad in edited.items() if isinstance(wad, ModWad)}
-        loose: Dict[str, bytes] = {}
+        loose: Dict[str, bytes] = dict(files or {})
         for wad in edited.values():
             if isinstance(wad, _FolderWad):
                 loose.update(wad.changes)
@@ -372,6 +378,9 @@ class _Files(PackageFiles):
                 return found.data
         return None
 
+    def has_main(self, name_hash: int) -> bool:
+        return any(name_hash in item.wad for item in self._mains)
+
     def locale_files(self, name_hash: int):
         out = []
         for item in self._locales:
@@ -402,6 +411,8 @@ class FixResult:
         self.complete = True
         self.findings = Findings()
         self.game_wads: Dict[str, List[int]] = {}
+        # The game banks the skin now loads from new paths, for META/rose_sounds.json
+        self.sound_copies: List[SoundCopy] = []
 
     @property
     def fixes(self) -> int:
@@ -452,10 +463,38 @@ def fix_mod(path: Path, game_dir: Path, steps=ALL_STEPS) -> FixResult:
         for stem in stems:
             members = [(name, locale) for name, (other, locale) in wad_names.items() if audio.same(other, stem)]
             _fix_champion(mod, path.name, stem, members, champions_dir, result, steps, edited)
-        if edited:
-            mod.write(edited)
+        files: Dict[str, bytes] = {}
+        manifest = _sound_manifest(mod.files, result.sound_copies)
+        if manifest is not None:
+            files[SOUND_MANIFEST] = manifest
+        if edited or files:
+            mod.write(edited, files)
             result.changed = True
     return result
+
+
+def _sound_manifest(files: ModFiles, copies: List[SoundCopy]) -> Optional[bytes]:
+    """META/rose_sounds.json listing *copies* after those the mod lists
+    already (a copy to the same path replaces the old one), or None when
+    that is what the mod holds. A check of a skin fixed before finds no bank
+    to move: the list it holds stays."""
+    if not copies:
+        return None
+    listed: List[dict] = []
+    if files.is_file(SOUND_MANIFEST):
+        try:
+            document = json.loads(files.read(SOUND_MANIFEST).decode("utf-8"))
+        except (OSError, ValueError) as e:
+            log.warning(f"[BASESKIN] {SOUND_MANIFEST} unreadable, written again: {e}")
+            document = None
+        if isinstance(document, dict) and document.get("version") == 1 and isinstance(document.get("copies"), list):
+            listed = [copy for copy in document["copies"] if isinstance(copy, dict)]
+    new = [copy.to_json() for copy in copies]
+    kept = [copy for copy in listed
+            if not any(audio.same(str(copy.get("to", "")), item["to"]) for item in new)]
+    if kept + new == listed:
+        return None
+    return json.dumps({"version": 1, "copies": kept + new}, indent=2, ensure_ascii=False).encode("utf-8")
 
 
 def _fix_champion(mod: _Mod, mod_name: str, stem: str, members: List[Tuple[str, Optional[str]]],
@@ -513,7 +552,7 @@ def _fix_champion(mod: _Mod, mod_name: str, stem: str, members: List[Tuple[str, 
     # All characters together: a sub-character's sounds can sit in banks the main character's bin loads
     rebased = runner.apply_all([(character, data) for _, _, character, _, _, data in targets])
     try:
-        extras = runner.finish()
+        finished = runner.finish()
     except (OSError, ValueError) as e:
         # The bins name banks that would not ship: nothing of this champion is written
         log.warning(f"[BASESKIN] {mod_name}: the patched sound banks of {stem} could not be built ({e}); "
@@ -521,18 +560,28 @@ def _fix_champion(mod: _Mod, mod_name: str, stem: str, members: List[Tuple[str, 
         result.complete = False
         return
 
+    # A voice bank the mod ships moves inside its own locale WAD
+    locales = {item.locale: item for item in wads if item.locale is not None}
+    for extra in finished.files:
+        if extra.locale is None:
+            continue
+        if extra.locale not in locales:
+            # Only a bank of the mod's own locale WADs moves; the merge never edits a localized one
+            log.warning(f"[BASESKIN] {mod_name}: {extra.path} ({extra.locale}) has no locale WAD to go in; "
+                        f"{stem} is left as it is")
+            result.complete = False
+            return
+
     for (_, _, _, item, name_hash, data), new in zip(targets, rebased):
         if new != data:
             item.wad.put(name_hash, new)
-    for extra in extras:
-        if extra.locale is not None:
-            # The steps never edit a localized bank (audio._Sidecar): this would be a bug
-            log.warning(f"[BASESKIN] {mod_name}: {extra.path} ({extra.locale}) was edited; not added")
-            continue
-        mains[0].wad.put_path(extra.path, extra.data)
-    for item in mains:
+    for extra in finished.files:
+        target = mains[0] if extra.locale is None else locales[extra.locale]
+        target.wad.put_path(extra.path, extra.data)
+    for item in wads:
         if item.wad.modified:
             edited[item.name] = item.wad
 
+    result.sound_copies.extend(finished.sound_copies)
     result.findings.extend(runner.findings)
     result.complete = result.complete and runner.complete

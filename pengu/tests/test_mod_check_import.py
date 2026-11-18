@@ -399,7 +399,8 @@ class BaseSkinFixOnImportTests(unittest.TestCase):
 
     def fixed(self, fixes=3):
         findings = SimpleNamespace(names=[("EzrealSkin21", "BaseEzreal")] * fixes, meshes=[], audio_merges=0,
-                                   unit_renames=0, notes=["name: ezreal: ..."])
+                                   unit_renames=0, bank_moves=0, event_names_unlisted=0,
+                                   notes=["name: ezreal: ..."])
         return SimpleNamespace(changed=fixes > 0, fixes=fixes, findings=findings)
 
     def check(self, instance, skins=True):

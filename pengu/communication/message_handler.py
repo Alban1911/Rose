@@ -2775,7 +2775,7 @@ class MessageHandler:
 
     def _fix_base_skin(self, imported: list[dict], game_dir) -> None:
         """Make each just-imported skin match the base skin's identity (its
-        sound banks, bank units, SKN/SKL padding and championSkinName: see
+        sound banks, bank units and bank paths, rebuilt SKN/SKL and championSkinName: see
         injection.baseskin) so LTK Manager does not take it for a skinhack,
         writing the mod again only when it did not. A mod written again gets
         "baseSkin" ({"fixes": how many}). This needs the game's files, not

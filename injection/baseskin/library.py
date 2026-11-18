@@ -41,7 +41,7 @@ log = get_logger()
 
 STATE_FILE = ".rose_baseskin.json"
 # Raise it when the steps write something else: every stored skin is checked again
-STEPS_VERSION = 2  # 2: unpacked WAD folders are fixed too
+STEPS_VERSION = 3  # 2: unpacked WAD folders are fixed too; 3: meshes rebuilt, bank paths moved, event names unlisted
 # Where the pass may run: the client shows its home screen or a lobby. Not from
 # matchmaking on (Swiftplay injects then), nor while a game ends. The phase
 # thread keeps the home screen as None in the shared state
@@ -220,7 +220,8 @@ def fix_stored_skins(storage, game_dir: Path, stop: Callable[[], bool]) -> int:
 def describe(result: FixResult) -> str:
     found = result.findings
     return (f"{len(found.names)} skin name(s), {len(found.meshes)} model file(s), "
-            f"{found.audio_merges} sound tag merge(s), {found.unit_renames} bank unit rename(s)")
+            f"{found.audio_merges} sound tag merge(s), {found.unit_renames} bank unit rename(s), "
+            f"{found.bank_moves} bank path move(s), {found.event_names_unlisted} skin event name(s) unlisted")
 
 
 # --------------------------------------------------------------------------------------

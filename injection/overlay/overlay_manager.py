@@ -396,11 +396,12 @@ class OverlayManager:
         session["library_snapshot"] = None
 
         files, ltk_ids = split_mod_names(mod_names)
-        # A skin RoseBin built loads some of the game's sound banks from new
-        # paths and lists them (META/rose_sounds.json): copied here from this
-        # PC's game WADs, in the client's language, as a mod of their own. The
-        # staging builds the same mod as the injection, so it stays installed.
-        files = files + sound_mods(self.game_dir, folder_dir, files)
+        # A skin RoseBin built, or a custom skin Rose fixed (injection.baseskin),
+        # loads some of the game's sound banks from new paths and lists them
+        # (META/rose_sounds.json): copied here from this PC's game WADs, in the
+        # client's language, as a mod of their own. The staging builds the
+        # same mod as the injection, so it stays installed.
+        files = files + sound_mods(self.game_dir, folder_dir, files, ltk_ids)
         wanted = []
         for name in files:
             folder = folder_dir / name

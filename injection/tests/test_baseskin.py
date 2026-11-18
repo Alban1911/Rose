@@ -1,11 +1,12 @@
 """A custom skin is made to match the base skin's identity: its sound banks and
-bank units, its SKN/SKL padding and its championSkinName (injection.baseskin).
+bank units and bank paths, its rebuilt SKN/SKL and its championSkinName (injection.baseskin).
 
 The audio cases are those of RoseBin's audio.rs, which builds the packages Rose
 ships: the two must keep producing the same bins.
 """
 
 import hashlib
+import json
 import os
 import shutil
 import struct
@@ -31,6 +32,7 @@ from injection.baseskin.propbin import (
 )
 from injection.baseskin.wad import BytesSource, FileSource, GameWad, ModWad, WadError, path_hash
 from injection.mods.mod_facts import archive_index_hash
+from injection.tests.mesh_fixtures import fake, rebuilt
 from injection.mods.storage import ModStorageService
 from party.discovery import custom_mods
 
@@ -516,16 +518,16 @@ class MeshAndNameTests(unittest.TestCase):
     def files(self, **contents):
         return lambda path: contents.get(path)
 
-    def test_the_skin_mesh_ships_padded_at_the_base_paths(self):
+    def test_the_skin_mesh_ships_rebuilt_at_the_base_paths(self):
         base = skin_entry(name="Aatrox", skeleton=BASE_SKL, skin=BASE_SKN)
         entry = skin_entry(name="AatroxSkin01", skeleton=SKIN_SKL, skin=SKIN_SKN)
-        read = self.files(**{SKIN_SKL: b"skl-data", SKIN_SKN: b"skn-data"})
+        read = self.files(**{SKIN_SKL: fake("skl-data"), SKIN_SKN: fake("skn-data")})
 
         rebase = steps.rebase_skin_mesh(entry, base, read, [])
 
         self.assertEqual(steps.mesh_paths(entry), [BASE_SKL, BASE_SKN])
         self.assertEqual([(f.path, f.data) for f in rebase.files],
-                         [(BASE_SKL, b"skl-data" + bytes(16)), (BASE_SKN, b"skn-data" + bytes(16))])
+                         [(BASE_SKL, rebuilt(fake("skl-data"))), (BASE_SKN, rebuilt(fake("skn-data")))])
 
     def test_a_missing_mesh_file_is_an_error(self):
         base = skin_entry(skeleton=BASE_SKL, skin=BASE_SKN)
@@ -542,8 +544,8 @@ class MeshAndNameTests(unittest.TestCase):
     def test_a_sub_character_keeps_its_own_mesh_when_the_base_path_is_taken(self):
         # Nasus skin 5: Nasus and his ult form share Base/Nasus.skn but have different skin meshes
         base = skin_entry(name="BaseNasus", skeleton=BASE_SKL, skin=BASE_SKN)
-        read = self.files(**{SKIN_SKL: b"main-skl", SKIN_SKN: b"main-skn",
-                             "ult.skl": b"ult-skl", "ult.skn": b"ult-skn"})
+        read = self.files(**{SKIN_SKL: fake("main-skl"), SKIN_SKN: fake("main-skn"),
+                             "ult.skl": fake("ult-skl"), "ult.skn": fake("ult-skn")})
         main = steps.rebase_skin_mesh(skin_entry(name="NasusSkin05", skeleton=SKIN_SKL, skin=SKIN_SKN), base, read, [])
         self.assertEqual(len(main.files), 2)
         ult_entry = skin_entry(name="Skin05NasusUlt", skeleton="ult.skl", skin="ult.skn")
@@ -554,28 +556,28 @@ class MeshAndNameTests(unittest.TestCase):
 
     def test_a_sub_character_on_the_same_mesh_shares_the_base_file(self):
         base = skin_entry(skeleton=BASE_SKL, skin=BASE_SKN)
-        read = self.files(**{SKIN_SKL: b"skl", SKIN_SKN: b"skn"})
+        read = self.files(**{SKIN_SKL: fake("skl"), SKIN_SKN: fake("skn")})
         main = steps.rebase_skin_mesh(skin_entry(skeleton=SKIN_SKL, skin=SKIN_SKN), base, read, [])
         sub_entry = skin_entry(skeleton=SKIN_SKL, skin=SKIN_SKN)
         sub = steps.rebase_skin_mesh(sub_entry, base, read, main.files)
         self.assertEqual((sub.files, sub.kept), ([], []))
         self.assertEqual(steps.mesh_paths(sub_entry), [BASE_SKL, BASE_SKN])
 
-    def test_a_mesh_already_at_the_base_path_and_padded_is_a_match(self):
+    def test_a_mesh_already_at_the_base_path_and_rebuilt_is_a_match(self):
         base = skin_entry(skeleton=BASE_SKL, skin=BASE_SKN)
         entry = skin_entry(skeleton=BASE_SKL, skin=BASE_SKN)
-        mod = self.files(**{BASE_SKL: b"skl" + bytes(16), BASE_SKN: b"skn" + bytes(16)})
+        mod = self.files(**{BASE_SKL: rebuilt(fake("skl")), BASE_SKN: rebuilt(fake("skn"))})
         rebase = steps.rebase_skin_mesh(entry, base, mod, [], mod)
         self.assertEqual([file for file in rebase.files if file.ship], [])
         self.assertFalse(rebase.changed)
 
-    def test_a_mesh_at_the_base_path_that_is_not_padded_gets_the_padding(self):
+    def test_a_mesh_at_the_base_path_that_is_not_rebuilt_gets_rebuilt(self):
         base = skin_entry(skeleton=BASE_SKL, skin=BASE_SKN)
         entry = skin_entry(skeleton=BASE_SKL, skin=BASE_SKN)
-        mod = self.files(**{BASE_SKL: b"skl", BASE_SKN: b"skn"})
+        mod = self.files(**{BASE_SKL: fake("skl"), BASE_SKN: fake("skn")})
         rebase = steps.rebase_skin_mesh(entry, base, mod, [], mod)
         self.assertEqual([(f.path, f.data) for f in rebase.files if f.ship],
-                         [(BASE_SKL, b"skl" + bytes(16)), (BASE_SKN, b"skn" + bytes(16))])
+                         [(BASE_SKL, rebuilt(fake("skl"))), (BASE_SKN, rebuilt(fake("skn")))])
 
     def test_a_base_path_the_mod_does_not_ship_uses_the_games_own(self):
         base = skin_entry(skeleton=BASE_SKL, skin=BASE_SKN)
@@ -721,8 +723,8 @@ class _GameAndMod(unittest.TestCase):
                                      name="Aatrox", skeleton=BASE_SKL, skin=BASE_SKN)])
         (champions / "Aatrox.wad.client").write_bytes(wad_bytes({
             "data/characters/aatrox/skins/skin0.bin": base_bin,
-            SKIN_SKL: b"game-skl", SKIN_SKN: b"game-skn",
-            BASE_SKL: b"base-skl", BASE_SKN: b"base-skn",
+            SKIN_SKL: fake("game-skl"), SKIN_SKN: fake("game-skn"),
+            BASE_SKL: fake("base-skl"), BASE_SKN: fake("base-skn"),
             BASE: bank_bytes([("Play_sfx_Aatrox_Q", [1])]),
         }))
         self.skin_bin = build([skin_entry(
@@ -732,7 +734,7 @@ class _GameAndMod(unittest.TestCase):
         self.archive = self.root / "custom.fantome"
         self.write_mod({
             "data/characters/aatrox/skins/skin0.bin": self.skin_bin,
-            SKIN_SKL: b"custom-skl", SKIN_SKN: b"custom-skn",
+            SKIN_SKL: fake("custom-skl"), SKIN_SKN: fake("custom-skn"),
             SFX: self.skin_bank,
         })
 
@@ -763,17 +765,20 @@ class FixModTests(_GameAndMod):
         skin = Bin(files[path_hash("data/characters/aatrox/skins/skin0.bin")]).find_entry(SKIN_DATA)
         # championSkinName
         self.assertEqual(steps.skin_name(skin), "Aatrox")
-        # SKN/SKL: the skin's own files under the base paths, padded, and the bin points there
+        # SKN/SKL: the skin's own files rebuilt under the base paths, and the bin points there
         self.assertEqual(steps.mesh_paths(skin), [BASE_SKL, BASE_SKN])
-        self.assertEqual(files[path_hash(BASE_SKL)], b"custom-skl" + bytes(16))
-        self.assertEqual(files[path_hash(BASE_SKN)], b"custom-skn" + bytes(16))
-        # tags and bank units
+        self.assertEqual(files[path_hash(BASE_SKL)], rebuilt(fake("custom-skl")))
+        self.assertEqual(files[path_hash(BASE_SKN)], rebuilt(fake("custom-skn")))
+        # tags and bank units: the Skin<n> event name is unlisted, its alias listed
         self.assertEqual(tags_of(skin), ["Aatrox"])
-        self.assertEqual([u.events for u in units_of(skin)], [["Play_sfx_AatroxSkin33_Q", "Play_sfx_Aatrox_Q"]])
+        self.assertEqual([u.events for u in units_of(skin)], [["Play_sfx_Aatrox_Q"]])
         self.assertEqual(audio._unit_name(skin.find_field(audio.PROP_SKIN_AUDIO).value.as_embed()
                                           .find_field(audio.PROP_BANK_UNITS).value.v[0].as_embed()), "Aatrox_Base_SFX")
-        # the bank holds the base name, with the skin's actions
-        self.assertEqual(Bank.parse(files[path_hash(SFX)]).event_actions(wwise_hash("Play_sfx_Aatrox_Q")), [33])
+        # the patched bank moved off its Skin33 path, and holds the base name with the skin's actions
+        self.assertEqual(audio.bank_paths_of(skin), [BASE])
+        self.assertEqual(Bank.parse(files[path_hash(BASE)]).event_actions(wwise_hash("Play_sfx_Aatrox_Q")), [33])
+        self.assertEqual(files[path_hash(SFX)], self.skin_bank)  # the old path is left as it was
+        self.assertEqual(result.sound_copies, [])  # the mod ships every bank it loads
 
     def test_a_skin_that_already_matches_is_not_written_again(self):
         fix_mod(self.archive, self.game)
@@ -791,23 +796,31 @@ class FixModTests(_GameAndMod):
             self.assertEqual(archive.getinfo("WAD/Aatrox.wad.client").compress_type, zipfile.ZIP_STORED)
         self.assertEqual(list(self.root.glob(".rose-import-*")), [])
 
-    def test_a_voice_over_bank_gets_its_alias_in_the_champion_wad_not_in_the_locale_wad(self):
+    def test_a_voice_over_bank_gets_its_alias_in_the_champion_wad_and_moves_in_its_locale_wad(self):
         vo = "ASSETS/Sounds/VO/fr_FR/Aatrox_Skin33_VO_events.bnk"
         skin = build([skin_entry(["Aatrox", "AatroxSkin33"], [unit("Aatrox_Skin33_VO", [vo], ["Play_vo_AatroxSkin33_Q"])],
                                  name="AatroxSkin33")])
-        locale_wad = wad_bytes({vo: bank_bytes([("Play_vo_AatroxSkin33_Q", [20])])})
+        vo_bank = bank_bytes([("Play_vo_AatroxSkin33_Q", [20])])
         with zipfile.ZipFile(self.archive, "w") as archive:
             archive.writestr("WAD/Aatrox.wad.client", wad_bytes({SKIN0_BIN: skin}))
-            archive.writestr("WAD/Aatrox.fr_FR.wad.client", locale_wad)
+            archive.writestr("WAD/Aatrox.fr_FR.wad.client", wad_bytes({vo: vo_bank}))
         result = fix_mod(self.archive, self.game)
         self.assertTrue(result.changed)
         with zipfile.ZipFile(self.archive) as archive:
             main = {f.name_hash: f.data for f in ModWad(archive.read("WAD/Aatrox.wad.client"))}
-            # A localized bank is never edited: it must work in every language
-            self.assertEqual(archive.read("WAD/Aatrox.fr_FR.wad.client"), locale_wad)
-        # The alias goes in a language-neutral bank of the champion WAD
-        sidecar = audio.sidecar_path(vo)
+            french = {f.name_hash: f.data for f in ModWad(archive.read("WAD/Aatrox.fr_FR.wad.client"))}
+        # A localized bank is never edited (it must work in every language): it
+        # moves, unchanged, to its base path in the mod's own locale WAD
+        moved = "ASSETS/Sounds/VO/fr_FR/Aatrox_Base_VO_events.bnk"
+        self.assertEqual(french, {path_hash(vo): vo_bank, path_hash(moved): vo_bank})
+        # The alias goes in a language-neutral bank of the champion WAD, moved off its Skin33 name too
+        sidecar = "ASSETS/Sounds/VO/Aatrox_Base_VO_basetag_events.bnk"
+        self.assertEqual(audio.base_bank_path(audio.sidecar_path(vo), 1), sidecar)
         self.assertEqual(Bank.parse(main[path_hash(sidecar)]).event_actions(wwise_hash("Play_vo_Aatrox_Q")), [20])
+        entry = Bin(main[path_hash(SKIN0_BIN)]).find_entry(SKIN_DATA)
+        self.assertEqual(audio.bank_paths_of(entry), [moved, sidecar])
+        # The game has no copy of it: nothing for Rose to copy
+        self.assertEqual(result.sound_copies, [])
 
     def test_only_the_base_skin_bin_is_rebased(self):
         """A mod holding the champion's whole WAD, skin5.bin before skin0.bin in its table"""
@@ -819,15 +832,15 @@ class FixModTests(_GameAndMod):
             "data/characters/aatrox/skins/skin5.bin": skin5,
             "data/characters/aatrox/skins/root.bin": root,
             SKIN0_BIN: self.skin_bin,
-            SKIN5_SKL: b"skin5-skl", SKIN5_SKN: b"skin5-skn",
-            SKIN_SKL: b"custom-skl", SKIN_SKN: b"custom-skn",
+            SKIN5_SKL: fake("skin5-skl"), SKIN5_SKN: fake("skin5-skn"),
+            SKIN_SKL: fake("custom-skl"), SKIN_SKN: fake("custom-skn"),
             SFX: self.skin_bank,
         })
         self.assertTrue(fix_mod(self.archive, self.game).changed)
         files, _ = self.mod_files()
         # The base skin's mesh is the base skin bin's own: not skin 5's
-        self.assertEqual(files[path_hash(BASE_SKN)], b"custom-skn" + bytes(16))
-        self.assertEqual(files[path_hash(BASE_SKL)], b"custom-skl" + bytes(16))
+        self.assertEqual(files[path_hash(BASE_SKN)], rebuilt(fake("custom-skn")))
+        self.assertEqual(files[path_hash(BASE_SKL)], rebuilt(fake("custom-skl")))
         self.assertEqual(files[path_hash("data/characters/aatrox/skins/skin5.bin")], skin5)
         self.assertEqual(files[path_hash("data/characters/aatrox/skins/root.bin")], root)
 
@@ -835,7 +848,7 @@ class FixModTests(_GameAndMod):
         summon = build([skin_entry(["Aatrox", "AatroxSkin33"], [], name="AatroxSkin33", skeleton=SKIN_SKL,
                                    skin=SKIN_SKN, path="Characters/AatroxMinion/Skins/Skin0")])
         self.write_mod({SKIN0_BIN: self.skin_bin, "data/characters/aatroxminion/skins/skin0.bin": summon,
-                        SKIN_SKL: b"custom-skl", SKIN_SKN: b"custom-skn", SFX: self.skin_bank})
+                        SKIN_SKL: fake("custom-skl"), SKIN_SKN: fake("custom-skn"), SFX: self.skin_bank})
         fix_mod(self.archive, self.game)
         files, _ = self.mod_files()
         self.assertEqual(files[path_hash("data/characters/aatroxminion/skins/skin0.bin")], summon)
@@ -852,7 +865,8 @@ class FixModTests(_GameAndMod):
         texture = sub_chunked(b"TEX\x00" + bytes(40), b"pixels" * 100)
         wad = hand_written_wad([
             (SKIN0_BIN, 0x00, self.skin_bin, len(self.skin_bin)),
-            (SKIN_SKL, 0x00, b"custom-skl", 10), (SKIN_SKN, 0x00, b"custom-skn", 10),
+            (SKIN_SKL, 0x00, fake("custom-skl"), len(fake("custom-skl"))),
+            (SKIN_SKN, 0x00, fake("custom-skn"), len(fake("custom-skn"))),
             (SFX, 0x00, self.skin_bank, len(self.skin_bank)),
             (TEX, 0x24, texture, 44 + 600),
         ])
@@ -867,11 +881,11 @@ class FixModTests(_GameAndMod):
     def test_wad_paths_are_found_whatever_their_case_or_a_leading_slash(self):
         with zipfile.ZipFile(self.archive, "w") as archive:
             archive.writestr("/wad/Aatrox.wad.client", wad_bytes({
-                SKIN0_BIN: self.skin_bin, SKIN_SKL: b"custom-skl", SKIN_SKN: b"custom-skn", SFX: self.skin_bank}))
+                SKIN0_BIN: self.skin_bin, SKIN_SKL: fake("custom-skl"), SKIN_SKN: fake("custom-skn"), SFX: self.skin_bank}))
         self.assertTrue(fix_mod(self.archive, self.game).changed)
         files, names = self.mod_files(member="/wad/Aatrox.wad.client")
         self.assertEqual(names, ["/wad/Aatrox.wad.client"])
-        self.assertEqual(files[path_hash(BASE_SKN)], b"custom-skn" + bytes(16))
+        self.assertEqual(files[path_hash(BASE_SKN)], rebuilt(fake("custom-skn")))
 
     def test_a_mod_with_no_champion_skin_is_left_alone(self):
         with zipfile.ZipFile(self.archive, "w") as archive:
@@ -900,7 +914,7 @@ class FixModTests(_GameAndMod):
                     for name in archive.namelist() if name.startswith(self.UNPACKED)}, archive.namelist()
 
     def test_an_unpacked_wad_folder_is_fixed_and_stays_a_folder(self):
-        self.write_unpacked_mod({SKIN0_BIN: self.skin_bin, SKIN_SKL: b"custom-skl", SKIN_SKN: b"custom-skn",
+        self.write_unpacked_mod({SKIN0_BIN: self.skin_bin, SKIN_SKL: fake("custom-skl"), SKIN_SKN: fake("custom-skn"),
                                  SFX: self.skin_bank})
 
         result = fix_mod(self.archive, self.game)
@@ -909,13 +923,13 @@ class FixModTests(_GameAndMod):
         self.assertTrue(result.complete)
         files, names = self.unpacked_files()
         self.assertNotIn("WAD/Aatrox.wad.client", names)  # not packed into a WAD file
-        self.assertEqual(sorted(files), sorted([SKIN0_BIN, SKIN_SKL, SKIN_SKN, SFX, BASE_SKL, BASE_SKN]))
+        self.assertEqual(sorted(files), sorted([SKIN0_BIN, SKIN_SKL, SKIN_SKN, SFX, BASE_SKL, BASE_SKN, BASE]))
         skin = Bin(files[SKIN0_BIN]).find_entry(SKIN_DATA)
         self.assertEqual(steps.skin_name(skin), "Aatrox")
         self.assertEqual(steps.mesh_paths(skin), [BASE_SKL, BASE_SKN])
-        self.assertEqual(files[BASE_SKL], b"custom-skl" + bytes(16))
-        self.assertEqual(files[BASE_SKN], b"custom-skn" + bytes(16))
-        self.assertEqual(Bank.parse(files[SFX]).event_actions(wwise_hash("Play_sfx_Aatrox_Q")), [33])
+        self.assertEqual(files[BASE_SKL], rebuilt(fake("custom-skl")))
+        self.assertEqual(files[BASE_SKN], rebuilt(fake("custom-skn")))
+        self.assertEqual(Bank.parse(files[BASE]).event_actions(wwise_hash("Play_sfx_Aatrox_Q")), [33])
         with zipfile.ZipFile(self.archive) as archive:
             self.assertEqual(archive.read("META/info.json"), b'{"Name": "custom"}')
         self.assertEqual(list(self.root.glob(".rose-import-*")), [])
@@ -928,8 +942,8 @@ class FixModTests(_GameAndMod):
         """A WAD extractor names a file whose path it does not know by its hash"""
         hashed_bin = f"{path_hash(SKIN0_BIN):016x}.bin"
         hashed_skn = f"{path_hash(BASE_SKN):016X}"
-        self.write_unpacked_mod({hashed_bin: self.skin_bin, hashed_skn: b"old-base-skn",
-                                 SKIN_SKL: b"custom-skl", SKIN_SKN: b"custom-skn", SFX: self.skin_bank})
+        self.write_unpacked_mod({hashed_bin: self.skin_bin, hashed_skn: fake("old-base-skn"),
+                                 SKIN_SKL: fake("custom-skl"), SKIN_SKN: fake("custom-skn"), SFX: self.skin_bank})
 
         self.assertTrue(fix_mod(self.archive, self.game).changed)
 
@@ -937,7 +951,7 @@ class FixModTests(_GameAndMod):
         self.assertNotIn(SKIN0_BIN, files)
         self.assertNotIn(BASE_SKN, files)
         self.assertEqual(steps.skin_name(Bin(files[hashed_bin]).find_entry(SKIN_DATA)), "Aatrox")
-        self.assertEqual(files[hashed_skn], b"custom-skn" + bytes(16))
+        self.assertEqual(files[hashed_skn], rebuilt(fake("custom-skn")))
 
     def test_a_hash_named_file_below_the_folders_root_is_known_by_its_path(self):
         nested = f"data/{path_hash(SKIN0_BIN):016x}"
@@ -948,14 +962,14 @@ class FixModTests(_GameAndMod):
 
     def test_a_mod_stored_as_a_folder_with_an_unpacked_wad_is_fixed_in_place(self):
         folder = self.root / "folder-mod" / "WAD" / "Aatrox.wad.client"
-        for name, data in {SKIN0_BIN: self.skin_bin, SKIN_SKL: b"c-skl", SKIN_SKN: b"c-skn",
+        for name, data in {SKIN0_BIN: self.skin_bin, SKIN_SKL: fake("c-skl"), SKIN_SKN: fake("c-skn"),
                            SFX: self.skin_bank}.items():
             (folder / name).parent.mkdir(parents=True, exist_ok=True)
             (folder / name).write_bytes(data)
 
         self.assertTrue(fix_mod(self.root / "folder-mod", self.game).changed)
 
-        self.assertEqual((folder / BASE_SKN).read_bytes(), b"c-skn" + bytes(16))
+        self.assertEqual((folder / BASE_SKN).read_bytes(), rebuilt(fake("c-skn")))
         self.assertEqual(steps.skin_name(Bin((folder / SKIN0_BIN).read_bytes()).find_entry(SKIN_DATA)), "Aatrox")
         self.assertFalse(fix_mod(self.root / "folder-mod", self.game).changed)
         self.assertEqual(list(self.root.rglob(".rose-import-*")), [])
@@ -964,14 +978,14 @@ class FixModTests(_GameAndMod):
         folder = self.root / "folder-mod"
         (folder / "WAD").mkdir(parents=True)
         (folder / "WAD" / "Aatrox.wad.client").write_bytes(wad_bytes({
-            SKIN0_BIN: self.skin_bin, SKIN_SKL: b"c-skl", SKIN_SKN: b"c-skn", SFX: self.skin_bank}))
+            SKIN0_BIN: self.skin_bin, SKIN_SKL: fake("c-skl"), SKIN_SKN: fake("c-skn"), SFX: self.skin_bank}))
         return folder
 
     def test_a_mod_stored_as_a_folder_is_fixed_in_place(self):
         folder = self.folder_mod()
         self.assertTrue(fix_mod(folder, self.game).changed)
         files = {f.name_hash: f.data for f in ModWad((folder / "WAD" / "Aatrox.wad.client").read_bytes())}
-        self.assertEqual(files[path_hash(BASE_SKN)], b"c-skn" + bytes(16))
+        self.assertEqual(files[path_hash(BASE_SKN)], rebuilt(fake("c-skn")))
         self.assertFalse(fix_mod(folder, self.game).changed)
         self.assertEqual(sorted(path.name for path in (folder / "WAD").iterdir()), ["Aatrox.wad.client"])
         self.assertEqual(list(self.root.glob(".rose-import-*")), [])
@@ -984,6 +998,120 @@ class FixModTests(_GameAndMod):
                 fix_mod(folder, self.game)
         self.assertEqual((folder / "WAD" / "Aatrox.wad.client").read_bytes(), before)
         self.assertEqual(list(self.root.rglob(".rose-import-*")), [])
+
+
+class BankPathTests(_GameAndMod):
+    """Banks at Skin<n> paths move to base paths: RoseBin's rebase.rs cases."""
+
+    SFX_DIR = "ASSETS/Sounds/Wwise2016/SFX/Characters/Aatrox/Skins"
+    VO01 = "ASSETS/Sounds/Wwise2016/VO/en_US/Characters/Aatrox/Skins/Skin01/Aatrox_Skin01_VO_audio.wpk"
+    BASE_VO = "ASSETS/Sounds/Wwise2016/VO/en_US/Characters/Aatrox/Skins/Base/Aatrox_Base_VO_audio.wpk"
+
+    def sfx(self, name):
+        return f"{self.SFX_DIR}/{name}"
+
+    def game_wads(self, main, locales=()):
+        champions = self.game / "DATA" / "FINAL" / "Champions"
+        base_bin = build([skin_entry(["Aatrox"], [], name="Aatrox", skeleton=BASE_SKL, skin=BASE_SKN)])
+        (champions / "Aatrox.wad.client").write_bytes(wad_bytes({SKIN0_BIN: base_bin, **main}))
+        for locale, files in locales:
+            (champions / f"Aatrox.{locale}.wad.client").write_bytes(wad_bytes(files))
+
+    def skin_with(self, units):
+        return build([skin_entry(["Aatrox"], [unit(name, paths, events) for name, paths, events in units],
+                                 name="Aatrox")])
+
+    def manifest(self):
+        with zipfile.ZipFile(self.archive) as archive:
+            return json.loads(archive.read("META/rose_sounds.json"))
+
+    def test_game_banks_move_to_base_paths_for_rose_to_copy(self):
+        audio_bank, events = self.sfx("Skin12/Aatrox_Skin12_SFX_audio.bnk"), self.sfx("Skin12/Aatrox_Skin12_SFX_events.bnk")
+        self.game_wads({audio_bank: b"audio", events: b"events"}, [("fr_FR", {self.VO01: b"voix"})])
+        self.write_mod({SKIN0_BIN: self.skin_with([
+            ("Aatrox_Skin12_SFX", [audio_bank, events], ["Play_sfx_AatroxSkin12_Q"]),
+            ("Aatrox_Skin12_VO", [self.VO01], []),
+        ])})
+
+        result = fix_mod(self.archive, self.game)
+
+        self.assertTrue(result.complete)
+        files, names = self.mod_files()
+        base_audio, base_events = self.sfx("Base/Aatrox_Base_SFX_audio.bnk"), self.sfx("Base/Aatrox_Base_SFX_events.bnk")
+        skin = Bin(files[path_hash(SKIN0_BIN)]).find_entry(SKIN_DATA)
+        self.assertEqual(audio.bank_paths_of(skin), [base_audio, base_events, self.BASE_VO])
+        # The Skin<n> event name is unlisted
+        self.assertEqual([u.events for u in units_of(skin)], [[], []])
+        # Game banks do not ship: the mod lists them for Rose to copy
+        self.assertEqual(sorted(files), [path_hash(SKIN0_BIN)])
+        self.assertIn("META/rose_sounds.json", names)
+        self.assertEqual(self.manifest(), {"version": 1, "copies": [
+            {"wad": "Aatrox", "localized": False, "from": audio_bank, "to": base_audio, "packagedLocales": []},
+            {"wad": "Aatrox", "localized": False, "from": events, "to": base_events, "packagedLocales": []},
+            {"wad": "Aatrox", "localized": True, "from": self.VO01, "to": self.BASE_VO, "packagedLocales": []},
+        ]})
+        # Checked again: nothing to move, and the list stays
+        listed = self.manifest()
+        self.assertFalse(fix_mod(self.archive, self.game).changed)
+        self.assertEqual(self.manifest(), listed)
+
+    def test_a_language_the_mod_ships_moves_in_its_locale_wad_and_the_others_are_copied(self):
+        self.game_wads({}, [("fr_FR", {self.VO01: b"voix"}), ("de_DE", {self.VO01: b"stimme"})])
+        with zipfile.ZipFile(self.archive, "w") as archive:
+            archive.writestr("WAD/Aatrox.wad.client",
+                             wad_bytes({SKIN0_BIN: self.skin_with([("Aatrox_Skin01_VO", [self.VO01], [])])}))
+            archive.writestr("WAD/Aatrox.de_DE.wad.client", wad_bytes({self.VO01: b"eigene stimme"}))
+
+        fix_mod(self.archive, self.game)
+
+        with zipfile.ZipFile(self.archive) as archive:
+            german = {f.name_hash: f.data for f in ModWad(archive.read("WAD/Aatrox.de_DE.wad.client"))}
+        self.assertEqual(german[path_hash(self.BASE_VO)], b"eigene stimme")
+        self.assertEqual(self.manifest()["copies"], [
+            {"wad": "Aatrox", "localized": True, "from": self.VO01, "to": self.BASE_VO, "packagedLocales": ["de_DE"]}])
+
+    def test_a_skin_bank_takes_a_numbered_path_when_the_base_bank_is_loaded_too(self):
+        base_audio, base_events = self.sfx("Base/Aatrox_Base_SFX_audio.bnk"), self.sfx("Base/Aatrox_Base_SFX_events.bnk")
+        skin_events = self.sfx("Skin01/Aatrox_Skin01_SFX_events.bnk")
+        self.game_wads({base_audio: b"a", base_events: b"e"})
+        self.write_mod({SKIN0_BIN: self.skin_with([("Aatrox_Base_SFX", [base_audio, base_events], []),
+                                                   ("Aatrox_Skin01_SFX", [skin_events], [])]),
+                        skin_events: b"skin-events"})
+        fix_mod(self.archive, self.game)
+        files, _ = self.mod_files()
+        moved = self.sfx("Base/Aatrox_Base2_SFX_events.bnk")
+        skin = Bin(files[path_hash(SKIN0_BIN)]).find_entry(SKIN_DATA)
+        self.assertEqual(audio.bank_paths_of(skin), [base_audio, base_events, moved])
+        self.assertEqual(files[path_hash(moved)], b"skin-events")
+
+    def test_a_skin_bank_that_is_nowhere_keeps_its_path(self):
+        events = self.sfx("Skin12/Aatrox_Skin12_SFX_events.bnk")
+        self.game_wads({})
+        self.write_mod({SKIN0_BIN: self.skin_with([("Aatrox_Skin12_SFX", [events], [])])})
+        result = fix_mod(self.archive, self.game)
+        files, names = self.mod_files()
+        self.assertEqual(audio.bank_paths_of(Bin(files[path_hash(SKIN0_BIN)]).find_entry(SKIN_DATA)), [events])
+        self.assertEqual(result.sound_copies, [])
+        self.assertNotIn("META/rose_sounds.json", names)
+
+    def test_a_skin_an_older_rose_fixed_is_brought_up_to_date(self):
+        """Its bin already at the base mesh paths, its meshes padded, its banks still at Skin<n> paths"""
+        events = self.sfx("Skin12/Aatrox_Skin12_SFX_events.bnk")
+        self.game_wads({events: b"events"})
+        old = build([skin_entry(["Aatrox"], [unit("Aatrox_Base_SFX", [events], [])], name="Aatrox",
+                                skeleton=BASE_SKL, skin=BASE_SKN)])
+        self.write_mod({SKIN0_BIN: old, BASE_SKL: fake("custom-skl") + bytes(16),
+                        BASE_SKN: fake("custom-skn") + bytes(16)})
+
+        result = fix_mod(self.archive, self.game)
+
+        self.assertTrue(result.changed and result.complete)
+        files, _ = self.mod_files()
+        self.assertEqual(files[path_hash(BASE_SKL)], rebuilt(fake("custom-skl")))
+        self.assertEqual(files[path_hash(BASE_SKN)], rebuilt(fake("custom-skn")))
+        self.assertEqual([copy["to"] for copy in self.manifest()["copies"]],
+                         [self.sfx("Base/Aatrox_Base_SFX_events.bnk")])
+        self.assertFalse(fix_mod(self.archive, self.game).changed)
 
 
 class StepsTests(_GameAndMod):
@@ -1016,7 +1144,7 @@ class StoredSkinsTests(_GameAndMod):
     def test_a_skin_stored_before_rose_fixed_skins_is_fixed_once(self):
         self.assertEqual(self.run_pass(), 1)
         files, _ = self.mod_files(self.stored)
-        self.assertEqual(files[path_hash(BASE_SKN)], b"custom-skn" + bytes(16))
+        self.assertEqual(files[path_hash(BASE_SKN)], rebuilt(fake("custom-skn")))
         with self.checks() as fix:
             self.assertEqual(self.run_pass(), 0)
         fix.assert_not_called()

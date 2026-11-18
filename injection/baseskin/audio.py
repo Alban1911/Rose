@@ -290,6 +290,9 @@ class PackageFiles:
     def main_file(self, name_hash: int) -> Optional[bytes]:
         return None
 
+    def has_main(self, name_hash: int) -> bool:
+        return self.main_file(name_hash) is not None
+
     def locale_files(self, name_hash: int) -> List[Tuple[str, bytes]]:
         return []
 
@@ -382,6 +385,30 @@ class AudioBanks:
             copies.append(_BankCopy(locale, path, bank))
         self._banks[key] = copies
         return True
+
+    def patches(self, path: str) -> bool:
+        """Whether the merge changed the bank at *path*, which then ships."""
+        return any(copy.modified for copy in self.copies(path))
+
+    def creates(self, path: str) -> bool:
+        """Whether *path* is a bank this merge creates rather than reads: a
+        language-neutral sidecar."""
+        return any(same(sidecar.path, path) for sidecar in self.sidecars.values())
+
+    def localized_copies(self, path: str) -> List[Tuple[str, Optional[bytes]]]:
+        """(locale, data) of every copy of the localized file at *path*, by
+        locale: the mod's own (data), and the game's locale WADs installed here
+        that hold it (None, not read). Locale WADs keep the en_US path for
+        every language."""
+        if self._locale_wads is None:
+            self._locale_wads = find_locale_wads(self.main_path)
+        found: Dict[str, Optional[bytes]] = {}
+        for locale, wad in self._locale_wads:
+            if wad.has_path(path):
+                found[locale] = None
+        for locale, data in self.overlay.locale_files(path_hash(path)):
+            found[normalize_locale(locale)] = data
+        return sorted(found.items())
 
     def into_patched(self) -> List[PatchedBank]:
         """The banks that were modified or created, in a stable order."""
@@ -645,6 +672,106 @@ def base_unit_name(name: str) -> Optional[str]:
     if not any(is_skin_segment(segment) for segment in segments):
         return None
     return "_".join("Base" if is_skin_segment(segment) else segment for segment in segments)
+
+
+def _is_skin_segment(segment: str) -> bool:
+    """Skin01, skin12: Skin then digits only."""
+    return len(segment) > 4 and lower(segment[:4]) == "skin" and segment[4:].isascii() and segment[4:].isdigit()
+
+
+def is_localized_path(path: str) -> bool:
+    """Whether a bank path has a locale folder (.../VO/en_US/...): the bank is
+    in every language's WAD, which a mod cannot all ship."""
+    return any(is_locale(segment) for segment in path.split("/"))
+
+
+def base_bank_path(path: str, number: int) -> Optional[str]:
+    """The base path for a bank at a Skin<n> path: every Skin<n> folder and
+    file name segment becomes Base, with *number* after the first one when
+    above 1 (the file name's if it has one).
+    .../Skins/Skin01/Aatrox_Skin01_SFX_events.bnk -> .../Skins/Base/Aatrox_Base_SFX_events.bnk,
+    or with 2 .../Skins/Base/Aatrox_Base2_SFX_events.bnk. None if no segment is Skin<n>."""
+    folder, slash, file = path.rpartition("/")
+    folders = folder.split("/")
+    file_parts = file.split("_")
+    first = True
+    # File name first, so the number goes there when it can
+    for parts, indices in ((file_parts, range(len(file_parts))), (folders, range(len(folders) - 1, -1, -1))):
+        for index in indices:
+            if _is_skin_segment(parts[index]):
+                parts[index] = f"Base{number}" if first and number > 1 else "Base"
+                first = False
+    if first:
+        return None
+    file = "_".join(file_parts)
+    return file if not slash else f"{'/'.join(folders)}/{file}"
+
+
+def has_skin_tag(name: str) -> bool:
+    """Whether an event name has a Skin<n> tag segment: TalonSkin12 in
+    Play_sfx_TalonSkin12_Dance3D_buffactivate, or a lone Skin12."""
+    for segment in name.split("_"):
+        low = lower(segment)
+        at = low.rfind("skin")
+        if at < 0:
+            continue
+        digits, head = low[at + 4:], low[:at]
+        if digits and digits.isascii() and digits.isdigit() and (not head or (head.isascii() and head.isalpha())):
+            return True
+    return False
+
+
+def _unit_values(entry: Optional[Entry]) -> Optional[List[Value]]:
+    audio = _audio_of(entry)
+    field = audio.find_field(PROP_BANK_UNITS) if audio is not None else None
+    return field.value.as_list() if field is not None else None
+
+
+def unlist_skin_event_names(entry: Entry) -> int:
+    """Remove every name with a Skin<n> tag from the entry's bank unit events
+    lists, and return how many. The merge lists a base-tag alias for each skin
+    event it reaches, and the client finds an event by id among the loaded
+    banks whether or not a list names it, so the skin events stay in their
+    banks for the animation bins that post them by full name."""
+    removed = 0
+    for value in _unit_values(entry) or []:
+        unit = value.as_embed()
+        field = unit.find_field(PROP_EVENTS) if unit is not None else None
+        events = field.value.as_list() if field is not None else None
+        if events is None:
+            continue
+        before = len(events)
+        events[:] = [event for event in events if not (event.ty == STRING and has_skin_tag(event.v))]
+        removed += before - len(events)
+    return removed
+
+
+def bank_paths_of(entry: Optional[Entry]) -> List[str]:
+    """Every bank path the entry's bank units list."""
+    paths: List[str] = []
+    for value in _unit_values(entry) or []:
+        unit = value.as_embed()
+        if unit is not None:
+            paths.extend(string_list(unit, PROP_BANK_PATH))
+    return paths
+
+
+def rewrite_bank_paths(entry: Entry, rename: Callable[[str], Optional[str]]) -> bool:
+    """Replace each bank path of the entry's units that *rename* maps to a new
+    path; whether any changed."""
+    changed = False
+    for value in _unit_values(entry) or []:
+        unit = value.as_embed()
+        field = unit.find_field(PROP_BANK_PATH) if unit is not None else None
+        paths = field.value.as_list() if field is not None else None
+        for index, path in enumerate(paths or []):
+            if path.ty != STRING:
+                continue
+            new_path = rename(path.v)
+            if new_path is not None:
+                paths[index] = Value.string(new_path)
+                changed = True
+    return changed
 
 
 def _unit_name(unit: Embed) -> Optional[str]:
