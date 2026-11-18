@@ -176,13 +176,17 @@ class PenguSkinMonitorThread(threading.Thread):
         """Broadcast a menu language change (delegates to broadcaster)"""
         self.broadcaster.broadcast_language_changed()
 
-    def _broadcast_champion_locked(self, locked: bool) -> None:
+    def _broadcast_champion_locked(self, locked: bool, champion_id: Optional[int] = None) -> None:
         """Broadcast champion lock state (delegates to broadcaster)"""
-        self.broadcaster.broadcast_champion_locked(locked)
+        self.broadcaster.broadcast_champion_locked(locked, champion_id)
     
     def _broadcast_random_mode_state(self) -> None:
         """Broadcast random mode state (delegates to broadcaster)"""
         self.broadcaster.broadcast_random_mode_state()
+
+    def _broadcast_favorites_state(self, champion_id: Optional[int] = None) -> None:
+        """Broadcast favorites state (delegates to broadcaster)"""
+        self.broadcaster.broadcast_favorites_state(champion_id)
 
     def _broadcast_skip_base_skin(self) -> None:
         self.broadcaster.broadcast_skip_base_skin()
