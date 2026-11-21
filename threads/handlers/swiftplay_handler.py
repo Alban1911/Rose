@@ -416,6 +416,14 @@ class SwiftplayHandler:
                 self.state.last_hovered_skin_id = None
                 self.state.last_hovered_skin_key = None
 
+                # Reset the game's injection flags (#550). Swiftplay champ
+                # select skips the per-game reset, and the lobby sets the mode
+                # again before the phase handler's own reset: with
+                # last_hover_written left set, the next countdown neither
+                # stages nor injects
+                self.state.last_hover_written = False
+                self.state.injection_completed = False
+
                 # Reset champion lock state
                 self.state.own_champion_locked = False
                 self.state.locked_champ_id = None
