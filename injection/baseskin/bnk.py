@@ -159,6 +159,27 @@ class Bank:
         found = self._event_index().get(event_id)
         return _decode_actions(found[0].body, self.version) if found else None
 
+    def event_shape(self, event_id: int) -> Optional[List[Tuple[int, Optional[Tuple[int, int]]]]]:
+        """What the Event does, without its name: for each of its Actions, the
+        action type and the (kind, size) of the object it acts on (None when
+        that object is not in this bank). A skin's version of a sound and the
+        base skin's share it (Gangplank's barrel fuse and explosion in skin 0
+        and skin 33). None when the bank has no such Event or one of its
+        Actions is not here."""
+        actions = self.event_actions(event_id)
+        if actions is None:
+            return None
+        objects = {obj.id: obj for obj in self._objects()}
+        shape = []
+        for action in actions:
+            obj = objects.get(action)
+            if obj is None or obj.kind != HIRC_ACTION or len(obj.body) < 6:
+                return None
+            action_type, target = struct.unpack_from("<HI", obj.body, 0)
+            found = objects.get(target)
+            shape.append((action_type, (found.kind, len(found.body)) if found is not None else None))
+        return shape
+
     def set_event_actions(self, event_id: int, actions: Sequence[int]) -> int:
         """Point every Event with this id at *actions*; how many changed."""
         body = _encode_actions(actions, self.version)

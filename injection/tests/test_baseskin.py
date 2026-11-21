@@ -469,6 +469,67 @@ class AudioMergeTests(unittest.TestCase):
         self.assertEqual(audio.normalize_locale("fr_fr"), "fr_FR")
 
 
+def shaped_bank(events, objects):
+    """A bank whose Events have real Actions: *events* are (event id,
+    [(action id, action type, target id)]), *objects* (kind, id, body size)."""
+    items = [(kind, object_id, bytes(size)) for kind, object_id, size in objects]
+    for _, actions in events:
+        items += [(3, action, struct.pack("<HI", action_type, target)) for action, action_type, target in actions]
+    for event, actions in events:
+        items.append((4, event, bytes([len(actions)]) + b"".join(struct.pack("<I", a) for a, _, _ in actions)))
+    hirc = struct.pack("<I", len(items))
+    for kind, object_id, body in items:
+        hirc += bytes([kind]) + struct.pack("<II", 4 + len(body), object_id) + body
+    return Bank.parse(b"BKHD" + struct.pack("<IIII", 12, 145, 0x1234, 0) + b"HIRC" + struct.pack("<I", len(hirc)) + hirc)
+
+
+GP_SKIN = "ASSETS/Sounds/SFX/Gangplank/Skins/Skin33/Gangplank_Skin33_SFX_events.bnk"
+GP_BASE = "ASSETS/Sounds/SFX/Gangplank/Skins/Base/Gangplank_Base_SFX_events.bnk"
+
+
+class UnnamedBaseEventTests(unittest.TestCase):
+    """Gangplank skin 33's barrel fuse and explosion: the client builds their
+    names, no bin carries them, so the name-based aliases missed them and the
+    explosion was silent once the tags were merged"""
+
+    def merge(self, spare):
+        entry = skin_entry(["Gangplank", "GangplankSkin33"], [
+            unit("Gangplank_Skin33_SFX", [GP_SKIN], ["Play_sfx_GangplankSkin33_GangplankE_OnCast"])])
+        skin = shaped_bank([(wwise_hash("Play_sfx_GangplankSkin33_GangplankE_OnCast"), [(0x500, 0x0403, 0x902)])]
+                           + spare, [(5, 0x900, 112), (5, 0x901, 103), (2, 0x902, 50)])
+        base = shaped_bank([(wwise_hash("Play_sfx_Gangplank_GangplankE_OnCast"), [(0x603, 0x0403, 0xA02)]),
+                            (0x3C4EB1F3, [(0x600, 0x0403, 0xA00)]),
+                            (0xCE9973FB, [(0x601, 0x0102, 0xA00), (0x602, 0x0403, 0xA01)])],
+                           [(5, 0xA00, 112), (5, 0xA01, 103), (2, 0xA02, 50)])
+        banks = banks_with([(GP_SKIN, None, skin), (GP_BASE, None, base)])
+        report = merge(entry, "gangplank", banks, MergeContext(base_banks=[GP_BASE]))
+        return entry, banks, report
+
+    def test_base_events_no_name_reaches_get_the_skin_events_that_do_the_same(self):
+        entry, banks, report = self.merge([(0x48052D8E, [(0x501, 0x0403, 0x900)]),
+                                           (0x755C4982, [(0x502, 0x0102, 0x900), (0x503, 0x0403, 0x901)])])
+
+        self.assertEqual((report.events_added, report.events_paired), (1, 2))
+        self.assertEqual(len(banks.into_patched()), 1, "the base bank is only read")
+        sfx = patched(banks, GP_SKIN)
+        self.assertEqual(sfx.event_actions(0x3C4EB1F3), [0x501])
+        self.assertEqual(sfx.event_actions(0xCE9973FB), [0x502, 0x503])
+        self.assertEqual(sfx.event_actions(wwise_hash("Play_sfx_Gangplank_GangplankE_OnCast")), [0x500])
+        # The paired events have no name to list
+        self.assertEqual(units_of(entry)[0].events,
+                         ["Play_sfx_GangplankSkin33_GangplankE_OnCast", "Play_sfx_Gangplank_GangplankE_OnCast"])
+
+    def test_base_events_with_two_possible_skin_events_are_left_alone(self):
+        _, banks, report = self.merge([(0x48052D8E, [(0x501, 0x0403, 0x900)]),
+                                       (0x48052D8F, [(0x504, 0x0403, 0x900)]),
+                                       (0x755C4982, [(0x502, 0x0102, 0x900), (0x503, 0x0403, 0x901)])])
+
+        self.assertEqual(report.events_paired, 1, "only the explosion has one match")
+        sfx = patched(banks, GP_SKIN)
+        self.assertFalse(sfx.has_event(0x3C4EB1F3))
+        self.assertEqual(sfx.event_actions(0xCE9973FB), [0x502, 0x503])
+
+
 class BankUnitTests(unittest.TestCase):
     def names(self, entry):
         return [(audio._unit_name(v.as_embed()), audio.string_list(v.as_embed(), audio.PROP_BANK_PATH),
@@ -502,6 +563,30 @@ class BankUnitTests(unittest.TestCase):
         self.assertEqual(audio.base_unit_name("Aatrox_Skinny_SFX"), None)
         self.assertEqual(audio.base_unit_name("Aatrox_Skin_SFX"), None)
         self.assertEqual(audio.base_unit_name("Aatrox_Base_SFX"), None)
+
+    def test_skin_tags_are_found_in_event_names(self):
+        for name in ("Play_sfx_TalonSkin12_Dance3D_buffactivate", "Play_vo_NidaleeCougarSkin06_Attack",
+                     "Play_sfx_Talon_Skin12_Q", "Play_sfx_ZedSkin13Shadow_Joke3D_buffactivate",
+                     "Play_sfx_ZoeSkin18W_enablebypass", "Play_sfx_SonaSkin06Genre01_Recall_leadin",
+                     "Play_sfx_SingedSkin10BasicAttack2_OnHit", "Play_vo_Zed_Attack2DJinxSkin13",
+                     "Play_sfx_Akali_Recall3D_leadin1_skin06"):
+            self.assertTrue(audio.has_skin_tag(name), name)
+        for name in ("Play_sfx_Talon_Dance3D_buffactivate", "Play_sfx_Talon_SkinSelect", "Play_sfx_Talon_Skins_Q",
+                     "Play_sfx_Talon3Skin12_Q", "Play_sfx_Talon_Skin_12"):
+            self.assertFalse(audio.has_skin_tag(name), name)
+
+    def test_skin_event_names_the_game_skin0_lists_are_kept(self):
+        game = skin_entry(units=[unit("Zed_Base_VO", ["vo.bnk"], ["Play_vo_Zed_Attack2DJinxSkin13"])])
+        keep = audio.listed_event_names(game)
+        self.assertEqual(keep, {"play_vo_zed_attack2djinxskin13"})
+        entry = skin_entry(units=[
+            unit("Zed_Base_VO", ["vo.bnk"], ["Play_vo_Zed_Attack2DJinxSkin13", "Play_vo_Zed_Attack2DKaynSkin02"]),
+            unit("Zed_Base_SFX", ["sfx.bnk"], ["Play_sfx_ZedSkin13Shadow_Joke3D_loop", "Play_sfx_Zed_Joke3D_loop"]),
+        ])
+        self.assertEqual(audio.unlist_skin_event_names(entry, keep), 2)
+        self.assertEqual([events for _, _, events in self.names(entry)],
+                         [["Play_vo_Zed_Attack2DJinxSkin13"], ["Play_sfx_Zed_Joke3D_loop"]])
+        self.assertEqual(audio.unlist_skin_event_names(entry, keep), 0)
 
 
 # --------------------------------------------------------------------------------------

@@ -328,7 +328,10 @@ class BaseSkinSteps:
             self._move_bank_paths(characters, out)
         if "eventnames" in self.steps:
             for index, character in enumerate(characters):
-                edited = _edit_entry(out[index], character, audio.unlist_skin_event_names)
+                # The names the game's own skin0 lists stay: its check takes them
+                keep = audio.listed_event_names(self._base_entry(character))
+                edited = _edit_entry(out[index], character,
+                                     lambda entry: audio.unlist_skin_event_names(entry, keep))
                 if edited is not None:
                     out[index], count = edited
                     self.findings.event_names_unlisted += count
@@ -430,7 +433,7 @@ class BaseSkinSteps:
                 # The names the character's game bins list or post: unit lists do
                 # not always name what their banks hold
                 known = audio.known_event_names(self.game, character) if self.game is not None else None
-                context = MergeContext(audio.tag_event_list(base), shared_units, known)
+                context = MergeContext(audio.tag_event_list(base), shared_units, known, audio.events_banks_of(base))
                 report = audio.merge_skin_audio_tags(entry, character, self.audio, context)
             except (ValueError, OSError) as e:
                 log.warning(f"[BASESKIN] audio tag merge skipped for {character}: {e}")

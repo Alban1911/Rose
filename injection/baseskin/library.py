@@ -37,7 +37,7 @@ log = get_logger()
 STATE_FILE = ".rose_baseskin.json"
 # Raise it when the steps write something else: a skin fixed by older steps is
 # then one to add again (needs_reinstall)
-STEPS_VERSION = 3  # 2: unpacked WAD folders are fixed too; 3: meshes rebuilt, bank paths moved, event names unlisted
+STEPS_VERSION = 4  # 2: unpacked WAD folders are fixed too; 3: meshes rebuilt, bank paths moved, event names unlisted; 4: tags after the number unlisted too (ZoeSkin18W), game skin0's own names kept, unnamed base events paired
 
 # One fix of one mod at a time: never two rewrites of one mod together
 _FIX_LOCK = threading.Lock()

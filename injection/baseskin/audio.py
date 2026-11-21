@@ -197,13 +197,16 @@ class KnownNames:
 
 
 class MergeContext:
-    __slots__ = ("base_tags", "shared_units", "known")
+    __slots__ = ("base_tags", "shared_units", "known", "base_banks")
 
     def __init__(self, base_tags: Optional[List[str]] = None, shared_units: Sequence[SharedUnit] = (),
-                 known: Optional[KnownNames] = None) -> None:
+                 known: Optional[KnownNames] = None, base_banks: Sequence[str] = ()) -> None:
         self.base_tags = base_tags      # tagEventList of the character's game skin0.bin
         self.shared_units = shared_units
         self.known = known
+        # The events banks the units of the character's game skin0.bin load
+        # (events_banks_of): their events the merged skin must still answer
+        self.base_banks = base_banks
 
 
 class MergeReport:
@@ -220,6 +223,9 @@ class MergeReport:
         self.events_missing = 0
         self.events_from_banks = 0
         self.events_dropped_tags = 0
+        # Base-skin events no bin names, given by id the actions of the skin
+        # event they pair with (_pair_unnamed_base_events)
+        self.events_paired = 0
 
     def summary(self) -> str:
         kept = ", ".join(tag for tag in self.kept_tags if tag)
@@ -235,6 +241,8 @@ class MergeReport:
             text += f", {self.events_from_banks} found in banks under no listed name"
         if self.events_dropped_tags:
             text += f", {self.events_dropped_tags} under dropped tags"
+        if self.events_paired:
+            text += f", {self.events_paired} unnamed base events paired"
         if self.events_missing:
             text += f", {self.events_missing} not found in banks"
         return text + ")"
@@ -707,18 +715,38 @@ def base_bank_path(path: str, number: int) -> Optional[str]:
     return file if not slash else f"{'/'.join(folders)}/{file}"
 
 
+def _is_ascii_letter(char: str) -> bool:
+    return "a" <= char <= "z" or "A" <= char <= "Z"
+
+
 def has_skin_tag(name: str) -> bool:
-    """Whether an event name has a Skin<n> tag segment: TalonSkin12 in
-    Play_sfx_TalonSkin12_Dance3D_buffactivate, or a lone Skin12."""
+    """Whether an event name has a Skin<n> tag: a segment holding Skin and a
+    number, at its start or after a letter. TalonSkin12 in
+    Play_sfx_TalonSkin12_Dance3D_buffactivate, a lone Skin12, and the tags
+    that go on after the number: ZedSkin13Shadow, ZoeSkin18W,
+    SonaSkin06Genre01, SingedSkin10BasicAttack2, or a voice line's
+    Attack2DJinxSkin13. The game refuses a skin0 whose units list such a name
+    its own skin0 does not (Zoe, Galaxy Slayer Zed, DJ Sona on 16.23)."""
     for segment in name.split("_"):
         low = lower(segment)
-        at = low.rfind("skin")
-        if at < 0:
-            continue
-        digits, head = low[at + 4:], low[:at]
-        if digits and digits.isascii() and digits.isdigit() and (not head or (head.isascii() and head.isalpha())):
-            return True
+        at = low.find("skin")
+        while at >= 0:
+            following = low[at + 4:at + 5]
+            if "0" <= following <= "9" and (at == 0 or _is_ascii_letter(low[at - 1])):
+                return True
+            at = low.find("skin", at + 1)
     return False
+
+
+def listed_event_names(entry: Optional[Entry]) -> Set[str]:
+    """The event names the entry's bank units list, lowercased (the client
+    hashes an event name lowercased)."""
+    names: Set[str] = set()
+    for value in _unit_values(entry) or []:
+        unit = value.as_embed()
+        if unit is not None:
+            names.update(lower(name) for name in string_list(unit, PROP_EVENTS))
+    return names
 
 
 def _unit_values(entry: Optional[Entry]) -> Optional[List[Value]]:
@@ -727,12 +755,15 @@ def _unit_values(entry: Optional[Entry]) -> Optional[List[Value]]:
     return field.value.as_list() if field is not None else None
 
 
-def unlist_skin_event_names(entry: Entry) -> int:
+def unlist_skin_event_names(entry: Entry, keep: Set[str] = frozenset()) -> int:
     """Remove every name with a Skin<n> tag from the entry's bank unit events
-    lists, and return how many. The merge lists a base-tag alias for each skin
-    event it reaches, and the client finds an event by id among the loaded
-    banks whether or not a list names it, so the skin events stay in their
-    banks for the animation bins that post them by full name."""
+    lists, except the names in *keep* (lowercased): the ones the character's
+    game skin0 lists itself (Evelynn's EvelynnSkin06 stealth ring, the voice
+    lines that greet another champion's skin), which the game's check takes
+    from its own skin. Returns how many. The merge lists a base-tag alias for
+    each skin event it reaches, and the client finds an event by id among the
+    loaded banks whether or not a list names it, so the skin events stay in
+    their banks for the animation bins that post them by full name."""
     removed = 0
     for value in _unit_values(entry) or []:
         unit = value.as_embed()
@@ -741,7 +772,8 @@ def unlist_skin_event_names(entry: Entry) -> int:
         if events is None:
             continue
         before = len(events)
-        events[:] = [event for event in events if not (event.ty == STRING and has_skin_tag(event.v))]
+        events[:] = [event for event in events
+                     if not (event.ty == STRING and has_skin_tag(event.v) and lower(event.v) not in keep)]
         removed += before - len(events)
     return removed
 
@@ -1100,6 +1132,17 @@ def merge_skin_audio_tags(
             if not any(same(name, alias) for name in units[winner.unit].events):
                 edit_of(winner.unit).list.append(alias)
 
+    # Base-skin events no name reaches: paired with the skin's by what they do
+    if not shared and context.base_banks:
+        for unit_index, op in _pair_unnamed_base_events(units, banks, context.base_banks, bank_events, ops):
+            if op[0] == "sidecar":
+                sidecar = sidecar_path(op[1])
+                edit = edit_of(unit_index)
+                if not any(same(path, sidecar) for path in edit.bank_paths):
+                    edit.bank_paths.append(sidecar)
+            report.events_paired += 1
+            ops.append(op)
+
     # Apply: banks first, then the bin
     for op in ops:
         if op[0] == "put":
@@ -1143,6 +1186,71 @@ def merge_skin_audio_tags(
         if unit_values is not None:
             apply_unit_edits(unit_values, [(index, units[index].events_bank, edits[index]) for index in sorted(edits)])
     return report
+
+
+def events_banks_of(entry: Optional[Entry]) -> List[str]:
+    """The events bank of each bank unit of the entry."""
+    audio = _audio_of(entry)
+    return [unit.events_bank for unit in read_units(audio) if unit.events_bank] if audio is not None else []
+
+
+def _shape_kinds(shape: Sequence[Tuple[int, Optional[Tuple[int, int]]]]) -> List[Tuple[int, Optional[int]]]:
+    """The shape of an Event with the sizes left out (Bank.event_shape)."""
+    return [(action, target[0] if target is not None else None) for action, target in shape]
+
+
+def _pair_unnamed_base_events(units: Sequence[Unit], banks: AudioBanks, base_banks: Sequence[str],
+                              bank_events: Dict[int, List[int]], ops: Sequence[tuple]) -> List[Tuple[int, tuple]]:
+    """The base skin's events that no name reaches, paired with the skin's.
+
+    The client builds some event names itself, from a tag and a buff or spell
+    (Gangplank's barrel fuse and explosion: no bin names them), so the alias
+    pass, which works on names, never gives them a base-tag alias. Once the
+    tags are merged the client asks for the base skin's events: every event of
+    a base events bank (one the game's skin0.bin loads) that no loaded skin
+    bank answers is paired with the skin bank's event that no alias came from
+    and that does the same thing (Bank.event_shape), and gets its actions by
+    id. A pair is only made when it is the one match each way: first by action
+    types and target kinds, then by target sizes as well. Returns the
+    operations with the index of the unit whose bank holds the source."""
+    sources: Set[int] = set()
+    aliases: Set[int] = set()
+    for op in ops:
+        if op[0] in ("put", "sidecar"):
+            aliases.add(op[2])
+            sources.add(op[3])
+    paired: List[Tuple[int, tuple]] = []
+    for unit_index, unit in enumerate(units):
+        skin_path = unit.events_bank
+        base_path = base_bank_path(skin_path, 1) if skin_path else None
+        if base_path is None or not any(same(path, base_path) for path in base_banks):
+            continue
+        if not banks.load(base_path) or not banks.copies(skin_path) or not banks.copies(base_path):
+            continue
+        base = banks.copies(base_path)[0].bank
+        skin = banks.copies(skin_path)[0].bank
+        base_ids = set(base.event_ids())
+        missing = [(event_id, shape) for event_id in base.event_ids()
+                   if event_id not in bank_events and event_id not in aliases
+                   for shape in [base.event_shape(event_id)] if shape is not None]
+        spare = [(event_id, shape) for event_id in skin.event_ids()
+                 if event_id not in sources and event_id not in aliases and event_id not in base_ids
+                 for shape in [skin.event_shape(event_id)] if shape is not None]
+        for base_id, shape in missing:
+            def only_match(exact: bool, shape=shape) -> Optional[int]:
+                def alike(other) -> bool:
+                    return other == shape if exact else _shape_kinds(other) == _shape_kinds(shape)
+                skins = [event_id for event_id, other in spare if alike(other)]
+                bases = sum(1 for _, other in missing if alike(other))
+                return skins[0] if len(skins) == 1 and bases == 1 else None
+            source_id = only_match(False)
+            if source_id is None:
+                source_id = only_match(True)
+            if source_id is None:
+                continue
+            kind = "sidecar" if banks.is_localized(skin_path) else "put"
+            paired.append((unit_index, (kind, skin_path, base_id, source_id)))
+    return paired
 
 
 def _apply_to_bank(banks: AudioBanks, bank: str, source_bank: str, source_id: int,
