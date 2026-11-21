@@ -48,6 +48,26 @@ def kill_game(game) -> bool:
         return False
 
 
+def read_gameflow_phase(connection=None) -> Optional[str]:
+    """The client's gameflow phase read from the LCU (InProgress...), None
+    when the client cannot be reached."""
+    if connection is None:
+        from lcu.core.lcu_connection import LCUConnection
+        connection = LCUConnection()
+    try:
+        connection.refresh_if_needed()
+    except Exception as e:
+        log.debug(f"[RECONNECT] Could not refresh the LCU connection: {e}")
+    if not connection.ok:
+        return None
+    try:
+        phase = connection.session.get(connection.base + PHASE_URI, timeout=3).json()
+    except Exception as e:
+        log.debug(f"[RECONNECT] Could not read the gameflow phase: {e}")
+        return None
+    return phase if isinstance(phase, str) else None
+
+
 def reconnect_to_game(connection=None, stopped: Optional[Callable[[], bool]] = None,
                       timeout: float = RECONNECT_WAIT_S) -> bool:
     """Ask the client to reconnect to the match once it noticed the game is

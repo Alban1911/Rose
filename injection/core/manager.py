@@ -126,6 +126,12 @@ class InjectionManager:
 
         threading.Thread(target=start, daemon=True, name="LTKPatcherStart").start()
 
+    def note_gameflow_phase(self, phase):
+        """The client's gameflow phase (LCU websocket): a game Rose restarts for
+        the LTK patcher is closed only once the match is InProgress."""
+        if self.injector:
+            self.injector.overlay_manager.note_gameflow_phase(phase)
+
     def discard_early_patcher(self):
         """Stop the patcher started for a countdown that ends without an injection."""
         self.cancel_staging()

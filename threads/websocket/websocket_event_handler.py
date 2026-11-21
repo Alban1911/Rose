@@ -111,6 +111,11 @@ class WebSocketEventHandler:
             prev_phase = self._ws_last_phase
             self._ws_last_phase = ph
             self.state.phase = ph
+            if self.injection_manager:
+                try:
+                    self.injection_manager.note_gameflow_phase(ph)
+                except Exception as e:
+                    log.debug(f"[WS] Could not pass the phase to the injection: {e}")
 
             from threads.handlers.champ_select_reset import note_phase_for_reset
             note_phase_for_reset(self.state, ph)

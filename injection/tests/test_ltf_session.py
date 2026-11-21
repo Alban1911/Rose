@@ -2185,10 +2185,14 @@ class RestartMissedGameTests(LtfSessionTestCase):
             ("kill_game", self._kill),
             ("reconnect_to_game", lambda stopped=None: self.reconnects.append(stopped) or self.reconnect_result),
             ("restart_window_s", lambda: self.window),
+            ("read_gameflow_phase", lambda: self.lcu_phase),
         ):
             patcher = patch.object(overlay_manager, target, value)
             patcher.start()
             self.addCleanup(patcher.stop)
+        # The client has the match running unless a test says otherwise
+        self.overlay.note_gameflow_phase("InProgress")
+        self.lcu_phase = None  # the LCU read when the websocket said nothing
         self.window = 60.0
         self.now = time.time()
         self.game = MagicMock()
@@ -2350,6 +2354,61 @@ class RestartMissedGameTests(LtfSessionTestCase):
         self.assertEqual(session["reconnects"], 1)
         self.assertIsNone(session.get("held_game"))
         self.assertNotIn("AUTO_RESUME_TRIGGERED", self.reported_codes())
+
+    def test_a_held_game_is_closed_only_once_the_match_is_in_progress(self):
+        """The patcher was ready 0.2s after the hold, the client still in
+        GameStart: the closed game failed to launch (FailedToLaunch) and
+        there was nothing to reconnect to"""
+        self.game = self.running = self._game()
+        session = self._session()
+        self.overlay.note_gameflow_phase("GameStart")
+        FakeBridge.patcher_statuses = [self.BUILDING, self.READY]
+        killed_in = []
+        kill = self._kill
+
+        def kill_noting_phase(game):
+            killed_in.append(self.overlay._match_in_progress.is_set())
+            return kill(game)
+
+        timer = threading.Timer(0.1, self.overlay.note_gameflow_phase, args=("InProgress",))
+        with patch.object(overlay_manager, "kill_game", kill_noting_phase):
+            timer.start()
+            self.assertTrue(self.overlay._wait_for_patcher(session))
+        timer.join()
+
+        self.assertEqual(self.killed, [self.game])
+        self.assertEqual(killed_in, [True])
+        self.assertEqual(len(self.reconnects), 1)
+
+    def test_a_held_game_is_resumed_when_the_match_never_runs(self):
+        self.game = self.running = self._game()
+        session = self._session()
+        self.overlay.note_gameflow_phase("GameStart")
+        self.lcu_phase = "GameStart"
+        FakeBridge.patcher_statuses = [self.BUILDING, self.READY]
+
+        with patch.object(overlay_manager, "IN_PROGRESS_WAIT_S", 0.05):
+            self.assertTrue(self.overlay._wait_for_patcher(session))
+
+        self.assertEqual(self.killed, [])
+        self.assertEqual(self.reconnects, [])
+        self.game.resume.assert_called()
+        # Nor is it closed later for the scan it missed
+        self.assertFalse(self.overlay._restart_missed_game(session, self.game))
+        self.assertEqual(self.killed, [])
+
+    def test_the_lcu_phase_stands_in_for_a_missed_websocket_event(self):
+        self.game = self.running = self._game()
+        session = self._session()
+        self.overlay.note_gameflow_phase("GameStart")
+        self.lcu_phase = "InProgress"
+        FakeBridge.patcher_statuses = [self.BUILDING, self.READY]
+
+        with patch.object(overlay_manager, "IN_PROGRESS_WAIT_S", 0.05):
+            self.assertTrue(self.overlay._wait_for_patcher(session))
+
+        self.assertEqual(self.killed, [self.game])
+        self.assertEqual(len(self.reconnects), 1)
 
     def test_the_auto_resume_timeout_resumes_the_held_game(self):
         self.window = 0.05

@@ -20,7 +20,7 @@ except ImportError:
     PSUTIL_AVAILABLE = False
     psutil = None
 
-from injection.game.reconnect import kill_game, reconnect_to_game
+from injection.game.reconnect import kill_game, read_gameflow_phase, reconnect_to_game
 from utils.core.logging import get_logger, log_event
 from utils.core.issue_reporter import report_issue
 from ..tools.bridge import BridgeCommandError, BridgeUnavailable
@@ -71,6 +71,12 @@ PATCHER_READY_TIMEOUT_S = 45.0
 # many times a session, so a relaunch the patcher misses too cannot loop
 RESTART_MISSED_GAME = True
 RECONNECT_MAX = 1
+# A held game is closed only once the client reports the match running (phase
+# InProgress): closed while the client is still in GameStart, the launch
+# counts as failed (FailedToLaunch) and there is no match to reconnect to.
+# The client reaches InProgress about a second after it created the game
+IN_PROGRESS_WAIT_S = 10.0
+IN_PROGRESS_STOP_CHECK_S = 0.25
 # The Monitor Auto-Resume Timeout setting: how long after the client created
 # the game Rose may still restart it for the patcher. Past it the player is in
 # the match: the game is left running without the overlay, and Troubleshooting
@@ -191,7 +197,31 @@ class OverlayManager:
         self._early_session_lock = threading.Lock()
         self._early_session_unwanted = False
         self._countdown_staging_open = False
+        # Set while the client's gameflow phase is InProgress (LCU websocket)
+        self._match_in_progress = threading.Event()
         self.host = LtfHost(tools_dir, mods_dir.parent, process_manager, in_use=self._holds_ltk_manager)
+
+    def note_gameflow_phase(self, phase: Optional[str]) -> None:
+        """The client's gameflow phase, from the LCU websocket: a held game is
+        closed only once the match is InProgress (_restart_held_game)."""
+        if phase == "InProgress":
+            self._match_in_progress.set()
+        else:
+            self._match_in_progress.clear()
+
+    def _await_match_in_progress(self, session: dict) -> bool:
+        """Whether the client reports the match running (phase InProgress),
+        waiting up to IN_PROGRESS_WAIT_S for its websocket to say so. Read from
+        the LCU once if it did not (the websocket can be down)."""
+        deadline = time.monotonic() + IN_PROGRESS_WAIT_S
+        while not self._match_in_progress.is_set():
+            left = deadline - time.monotonic()
+            if left <= 0 or self._session_stopped(session):
+                break
+            self._match_in_progress.wait(min(left, IN_PROGRESS_STOP_CHECK_S))
+        if self._match_in_progress.is_set():
+            return True
+        return read_gameflow_phase() == "InProgress"
 
     @property
     def current_overlay_process(self):
@@ -965,6 +995,15 @@ class OverlayManager:
                      "once LTK Manager is ready.",
             )
             return False
+        if not self._await_match_in_progress(session):
+            # Closed before the client has the match running, the launch fails
+            # (FailedToLaunch) with nothing to reconnect to: it plays on instead
+            session["restart_skipped"] = True
+            log.warning(
+                f"[INJECT] Not restarting the game: the client did not report the match running within "
+                f"{IN_PROGRESS_WAIT_S:.0f}s (closing it would fail its launch, with no match to reconnect to)"
+            )
+            return False
         session["reconnects"] = session.get("reconnects", 0) + 1
         log.warning("[INJECT] Restarting the game for the LTK patcher: closing it, then reconnecting to the match")
         if not kill_game(game):
@@ -1199,6 +1238,24 @@ class OverlayManager:
         so the client launches it again under the scan."""
         game = self._take_held_game(session)
         if game is None:
+            return False
+        # The patcher can be ready a moment after the client created the game,
+        # before the client has the match running: closing it then fails the
+        # launch (FailedToLaunch), with nothing to reconnect to
+        if not self._match_in_progress.is_set():
+            log.info("[INJECT] The LTK patcher scans - waiting for the client to report the match running "
+                     "before closing the game")
+        if not self._await_match_in_progress(session):
+            session["restart_skipped"] = True
+            log.warning(
+                f"[INJECT] The client did not report the match running within {IN_PROGRESS_WAIT_S:.0f}s - "
+                "resuming the game without the overlay (closing it now would fail its launch, with no match "
+                "to reconnect to)"
+            )
+            try:
+                game.resume()
+            except (psutil.Error, OSError, AttributeError):
+                pass
             return False
         session["reconnects"] = session.get("reconnects", 0) + 1
         log.info(
