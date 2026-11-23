@@ -468,7 +468,7 @@ class HashUpdaterTests(unittest.TestCase):
 
     def test_an_unreadable_check_changes_nothing(self):
         self.remote = None
-        self.assertFalse(self.hash_updater.check_for_updates())
+        self.assertIsNone(self.hash_updater.check_for_updates())
 
 
 class ReleaseCheckTests(unittest.TestCase):
