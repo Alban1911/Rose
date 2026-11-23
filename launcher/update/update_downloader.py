@@ -6,6 +6,7 @@ Handles downloading update files from GitHub releases
 from __future__ import annotations
 
 import os
+import time
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -14,6 +15,8 @@ import requests
 from utils.core.logging import get_named_logger
 
 updater_log = get_named_logger("updater", prefix="log_updater")
+DOWNLOAD_ATTEMPTS = 3
+DOWNLOAD_RETRY_DELAY_S = 1.0
 
 
 class UpdateDownloader:
@@ -24,6 +27,31 @@ class UpdateDownloader:
         self.timeout = timeout
     
     def _download(
+        self,
+        url: str,
+        target: Path,
+        timeout: int,
+        expected_size: Optional[int] = None,
+        bytes_callback: Optional[Callable[[int, Optional[int]], None]] = None,
+        status_callback: Optional[Callable[[str], None]] = None,
+    ) -> None:
+        """Retry a download interrupted by a temporary connection or stream error."""
+        for attempt in range(1, DOWNLOAD_ATTEMPTS + 1):
+            try:
+                self._download_once(url, target, timeout, expected_size, bytes_callback)
+                return
+            except (requests.ConnectionError, requests.Timeout, requests.exceptions.ChunkedEncodingError) as exc:
+                if isinstance(exc, requests.exceptions.SSLError) or attempt == DOWNLOAD_ATTEMPTS:
+                    raise
+                message = f"Download interrupted; retrying ({attempt + 1}/{DOWNLOAD_ATTEMPTS})..."
+                updater_log.warning("%s %s", message, exc)
+                if status_callback:
+                    status_callback(message)
+                if bytes_callback:
+                    bytes_callback(0, expected_size)
+                time.sleep(DOWNLOAD_RETRY_DELAY_S * attempt)
+
+    def _download_once(
         self,
         url: str,
         target: Path,
@@ -82,7 +110,9 @@ class UpdateDownloader:
             True if successful, False otherwise
         """
         try:
-            self._download(download_url, zip_path, self.timeout, total_size, bytes_callback)
+            self._download(
+                download_url, zip_path, self.timeout, total_size, bytes_callback, status_callback,
+            )
             return True
         except Exception as exc:  # noqa: BLE001
             status_callback(f"Download failed: {exc}")
@@ -107,7 +137,7 @@ class UpdateDownloader:
         """
         try:
             target_path.parent.mkdir(parents=True, exist_ok=True)
-            self._download(download_url, target_path, 30)
+            self._download(download_url, target_path, 30, status_callback=status_callback)
             return True
         except Exception as exc:  # noqa: BLE001
             status_callback(f"Warning: failed to download hash file: {exc}")
