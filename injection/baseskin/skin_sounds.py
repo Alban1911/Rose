@@ -88,12 +88,15 @@ def _locale_of(wad: str, file_name: str) -> Optional[str]:
 
 def locale_wad(game_dir: Path, wad: str) -> Optional[Path]:
     """The locale WAD of *wad* the game reads: the client's language's, or the
-    only one installed when the client's language can't be told."""
+    only one installed when the client's language can't be told or has no WAD
+    of its own (an en_GB client plays the en_US voice lines, #602)."""
     found = [path for path in _champions_dir(game_dir).glob(f"{wad}.*.wad.client")
              if _locale_of(wad, path.name)]
     locale = _client_locale(Path(game_dir))
     if locale:
-        return next((path for path in found if _locale_of(wad, path.name).lower() == locale.lower()), None)
+        match = next((path for path in found if _locale_of(wad, path.name).lower() == locale.lower()), None)
+        if match is not None:
+            return match
     return found[0] if len(found) == 1 else None
 
 
