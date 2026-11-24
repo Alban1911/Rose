@@ -378,13 +378,10 @@ def without_run_as_admin(value: str) -> Optional[str]:
     return " ".join(kept) if any(part[0].isalnum() for part in kept) else None
 
 
-def clear_launcher_run_as_admin() -> Tuple[List[Tuple[str, str]], List[Tuple[str, str]]]:
-    """Take the RUNASADMIN layer off every ltk_launcher.exe in Windows'
-    compatibility settings: this account's, the machine's ("all users"), and
-    the desktop user's when Rose runs as another account. Returns ((hive,
-    program path) taken off, (hive, program path) Rose could not change)."""
-    if sys.platform != "win32":
-        return [], []
+def _compat_layers_keys() -> List[Tuple[str, int, str]]:
+    """(hive, root, subkey) of Windows' compatibility settings: this
+    account's, the machine's ("all users"), and the desktop user's when Rose
+    runs as another account. Windows only."""
     import winreg
     keys = [
         ("HKCU", winreg.HKEY_CURRENT_USER, COMPAT_LAYERS_KEY),
@@ -393,8 +390,19 @@ def clear_launcher_run_as_admin() -> Tuple[List[Tuple[str, str]], List[Tuple[str
     desktop_sid = desktop_user_sid()
     if desktop_sid:
         keys.append(("HKU", winreg.HKEY_USERS, f"{desktop_sid}\\{COMPAT_LAYERS_KEY}"))
+    return keys
+
+
+def clear_launcher_run_as_admin() -> Tuple[List[Tuple[str, str]], List[Tuple[str, str]]]:
+    """Take the RUNASADMIN layer off every ltk_launcher.exe in Windows'
+    compatibility settings: this account's, the machine's ("all users"), and
+    the desktop user's when Rose runs as another account. Returns ((hive,
+    program path) taken off, (hive, program path) Rose could not change)."""
+    if sys.platform != "win32":
+        return [], []
+    import winreg
     cleared, left = [], []
-    for hive, root, subkey in keys:
+    for hive, root, subkey in _compat_layers_keys():
         writable = True
         try:
             key = winreg.OpenKey(root, subkey, 0, winreg.KEY_READ | winreg.KEY_SET_VALUE | winreg.KEY_WOW64_64KEY)
@@ -463,14 +471,16 @@ def check_launcher_settings() -> bool:
 
 def _run_as_admin_entries(matches) -> List[Tuple[str, str]]:
     """(hive, program path) of every program whose file name *matches* and
-    that Windows' compatibility settings run as administrator."""
+    that Windows' compatibility settings run as administrator: this
+    account's, the machine's ("all users"), and the desktop user's when Rose
+    runs as another account (LTK Manager and League run as the desktop user)."""
     if sys.platform != "win32":
         return []
     import winreg
     entries = []
-    for root, hive in ((winreg.HKEY_CURRENT_USER, "HKCU"), (winreg.HKEY_LOCAL_MACHINE, "HKLM")):
+    for hive, root, subkey in _compat_layers_keys():
         try:
-            key = winreg.OpenKey(root, COMPAT_LAYERS_KEY, 0, winreg.KEY_READ | winreg.KEY_WOW64_64KEY)
+            key = winreg.OpenKey(root, subkey, 0, winreg.KEY_READ | winreg.KEY_WOW64_64KEY)
         except OSError:
             continue
         with key:
