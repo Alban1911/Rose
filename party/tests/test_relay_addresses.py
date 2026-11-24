@@ -142,6 +142,29 @@ class RelayAddressFallbackTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.tcp_attempts, ["203.0.113.9", "198.51.100.1"])
         self.assertEqual(relay_addresses.preferred_address("relay.test", 443), "198.51.100.1")
 
+    async def test_an_address_the_relay_answered_at_is_kept(self):
+        # The working address, after a blocked one: the relay answers there
+        # that the room is full, and it still comes first next time
+        relay_addresses.remember_address("relay.test", 443, "198.51.100.2")
+        self.handshake_failures["198.51.100.2"] = [InvalidStatusCode(409, Headers())]
+
+        self.assertFalse(await self.relay._open(1))
+        self.assertEqual(relay_addresses.preferred_address("relay.test", 443), "198.51.100.2")
+
+        self.tcp_failures["198.51.100.1"] = TimeoutError()
+        self.tcp_attempts.clear()
+        self.assertTrue(await ws_relay.PartyRelay("b" * 32, 1, "Me", b"k" * 32)._open(1))
+        self.assertEqual(self.tcp_attempts, ["198.51.100.2"])
+
+    async def test_an_address_the_relay_did_not_answer_at_is_still_forgotten(self):
+        # Remembered, then cut during the handshake: no answer from the relay
+        relay_addresses.remember_address("relay.test", 443, "198.51.100.2")
+        self.handshake_failures["198.51.100.2"] = [ConnectionResetError(10054, "reset")]
+        self.tcp_failures["198.51.100.1"] = TimeoutError()
+
+        self.assertFalse(await self.relay._open(1))
+        self.assertIsNone(relay_addresses.preferred_address("relay.test", 443))
+
     async def test_an_ip_relay_url_is_connected_to_directly(self):
         with patch.object(ws_relay, "RELAY_URL", "wss://198.51.100.5"):
             self.assertTrue(await self.relay._open(1))
