@@ -211,6 +211,34 @@ class LeagueClientTests(unittest.TestCase):
             ("HKLM", r"C:\Program Files\LTK Manager\ltk-manager.exe"),
         ])
 
+    def test_the_desktop_users_settings_are_found_when_rose_runs_as_another_account(self):
+        """A standard account elevated with an administrator's password: LTK
+        Manager and League run as the desktop user, whose settings are in their
+        own hive, not in Rose's HKEY_CURRENT_USER"""
+        import winreg
+        sid = "S-1-5-21-163208246-3233954084-627669836-1001"
+        desktop = (winreg.HKEY_USERS, f"{sid}\\{windows_account.COMPAT_LAYERS_KEY}")
+        registry = FakeRegistry({desktop: {
+            r"C:\Program Files\LTK Manager\ltk-manager.exe": "~ RUNASADMIN",
+            r"C:\Riot Games\League of Legends\LeagueClient.exe": "~ RUNASADMIN",
+        }})
+        first, second, _, _ = registry.patched()
+        with first, second, patch.object(windows_account, "desktop_user_sid", return_value=sid):
+            ltk = windows_account.ltk_run_as_admin_entries()
+            league = windows_account.league_run_as_admin_entries()
+
+        self.assertEqual(ltk, [("HKU", r"C:\Program Files\LTK Manager\ltk-manager.exe")])
+        self.assertEqual(league, [("HKU", r"C:\Riot Games\League of Legends\LeagueClient.exe")])
+
+    def test_rose_running_as_the_desktop_user_reads_only_its_own_and_the_machines_settings(self):
+        import winreg
+        registry = FakeRegistry({})
+        first, second, _, _ = registry.patched()
+        with first, second, patch.object(windows_account, "desktop_user_sid", return_value=None):
+            self.assertEqual(windows_account.ltk_run_as_admin_entries(), [])
+        key = windows_account.COMPAT_LAYERS_KEY
+        self.assertEqual(registry.opened, [(winreg.HKEY_CURRENT_USER, key), (winreg.HKEY_LOCAL_MACHINE, key)])
+
     def test_troubleshooting_names_ltk_manager_set_to_run_as_administrator(self):
         entries = [("HKLM", r"C:\Program Files\LTK Manager\ltk-manager.exe")]
         with patch.object(windows_account, "ltk_run_as_admin_entries", return_value=entries), \
