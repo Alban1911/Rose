@@ -445,12 +445,14 @@ class PartyRelay:
                     if len(tried) > 1:
                         log.info(f"[RELAY] Reached the party server at {address} after {len(tried) - 1} failed address(es)")
                     return ws, None, None
-                relay_addresses.forget_address(host, port, address)
                 log.info(f"[RELAY] Party server address {address} failed: {error}")
+                if reached and _is_final(error):
+                    # The relay answered at this address (a full room...): it
+                    # works, so it stays the one tried first
+                    return None, error, "handshake"
+                relay_addresses.forget_address(host, port, address)
                 if reached:
                     handshake_error = error
-                    if _is_final(error):
-                        return None, error, "handshake"
                 else:
                     tcp_error = error
 
