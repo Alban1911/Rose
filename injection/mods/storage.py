@@ -22,6 +22,7 @@ import tempfile
 import time
 import uuid
 import zipfile
+import zlib
 from pathlib import Path
 from typing import List, Mapping, NamedTuple, Optional
 
@@ -366,7 +367,8 @@ class ModStorageService:
 
     def _write_image_sidecar(self, archive: Path) -> Optional[Path]:
         """Copy the archive's preview image beside it, for the mods UI, and
-        return it."""
+        return it. A preview that can't be read (a corrupt entry: zlib.error,
+        a .modpkg's ModpkgError) gets none: it is no reason to fail the add."""
         try:
             with ModFiles(archive) as files:
                 for member, suffix in _PREVIEW_IMAGES:
@@ -379,7 +381,7 @@ class ModStorageService:
                     with atomic_write(image, "wb", durable=False) as handle:
                         handle.write(data)
                     return image
-        except (OSError, zipfile.BadZipFile) as exc:
+        except (OSError, ValueError, zipfile.BadZipFile, zlib.error) as exc:
             log.debug(f"[MODS] No preview image for {archive.name}: {exc}")
         return None
 

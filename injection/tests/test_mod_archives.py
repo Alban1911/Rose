@@ -261,6 +261,27 @@ class StorageTests(TempCase):
         self.assertEqual(image.read_bytes(), PNG + b"new")
         self.assertEqual(stored.read_bytes(), before)  # LTK Manager installs it as it was
 
+    def test_a_preview_that_cant_be_read_leaves_the_mod_added_without_one(self):
+        """A corrupt deflate stream raises zlib.error, which zipfile passes on"""
+        source = self.root / "Night Map.fantome"
+        with zipfile.ZipFile(source, "w") as archive:
+            archive.writestr("META/info.json", json.dumps({"Name": "Night Map"}))
+            archive.writestr("META/image.png", PNG * 100, compress_type=zipfile.ZIP_DEFLATED)
+            archive.writestr("WAD/Map11.wad.client", b"map" * 100)
+        with zipfile.ZipFile(source) as archive:
+            info = archive.getinfo("META/image.png")
+        data = bytearray(source.read_bytes())
+        start = info.header_offset + 30 + len(info.filename.encode()) + len(info.extra)
+        data[start:start + 4] = bytes(4 * [0xFF])
+        source.write_bytes(bytes(data))
+
+        stored, name, _ = self.service.import_category_mod_file("maps", source)
+
+        self.assertEqual([mod["name"] for mod in self.service.list_mods_for_category("maps")], [name])
+        self.assertFalse(stored.with_suffix(".png").exists())
+        self.assertEqual(sorted(p.name for p in stored.parent.iterdir()),
+                         sorted([ModStorageService.CATEGORY_METADATA, stored.name]))
+
 
 
 class AddTests(TempCase):
