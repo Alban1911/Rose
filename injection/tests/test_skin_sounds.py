@@ -126,6 +126,25 @@ class SkinSoundsTests(unittest.TestCase):
             folder = build(self.game, mods, name)
         self.assertEqual(wad_of(mods, folder, "Aatrox.fr_FR.wad.client").get(path_hash(VO_TO)).data, b"voix")
 
+    def test_a_language_without_its_own_wad_uses_the_lone_locale_wad(self):
+        # An en_GB client: the game ships only Aatrox.en_US.wad.client (#602)
+        champions = self.game / "DATA" / "FINAL" / "Champions"
+        (champions / "Aatrox.fr_FR.wad.client").unlink()
+        (champions / "Aatrox.de_DE.wad.client").unlink()
+        write_wad(champions / "Aatrox.en_US.wad.client", {VO_FROM: b"voice"})
+        mods = self.mods()
+        name = skin_folder(mods, [copy(VO_FROM, VO_TO, True)])
+        with patch.object(skin_sounds, "_client_locale", lambda game_dir: "en_GB"):
+            folder = build(self.game, mods, name)
+        self.assertEqual(wad_of(mods, folder, "Aatrox.en_US.wad.client").get(path_hash(VO_TO)).data, b"voice")
+
+    def test_a_language_without_its_own_wad_among_several_gets_none(self):
+        # fr_FR and de_DE installed, the client plays in es_ES: which one plays can't be told
+        mods = self.mods()
+        name = skin_folder(mods, [copy(VO_FROM, VO_TO, True)])
+        with patch.object(skin_sounds, "_client_locale", lambda game_dir: "es_ES"):
+            self.assertIsNone(build(self.game, mods, name))
+
     def test_a_skin_without_a_list_gets_no_mod(self):
         mods = self.mods()
         self.assertIsNone(build(self.game, mods, skin_folder(mods, None)))
