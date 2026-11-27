@@ -11,6 +11,9 @@
 </div>
 
 > [!CAUTION]
+> **Rose no longer works** since the recent Vanguard update, and there is no ETA for a fix. Personally, I think League modding is over.
+
+> [!CAUTION]
 > `roseskin.xyz` has nothing to do with Rose, and **its download contains malware**. If you installed anything from it, reinstall Windows. Rose is only distributed through [GitHub Releases](https://github.com/Alban1911/Rose/releases/latest).
 
 Rose is a free, open-source skin changer. It sits in the system tray, adds its menus to the League client, and applies the skin you hover in champion select when the game loads. Only you see the skin (and your friends, with Party Mode), and gameplay doesn't change: Rose gives **no competitive advantage**.
